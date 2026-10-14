@@ -1,4 +1,4 @@
-# Facturación electrónica Ecuador — API (backend-emite-facil)
+# Facturación electrónica Ecuador — API (api-emite-facil)
 
 API y worker del SaaS de facturación electrónica, más lo que es de todo el sistema: el contrato de la API (`contracts/openapi.yaml`), la infraestructura (`infra/`), la documentación (`docs/`) y las pruebas con navegador del recorrido completo (`e2e/`). La aplicación web está en [client-factura-facil](https://github.com/DevNation593/client-factura-facil).
 
