@@ -37,6 +37,9 @@ public class WebhookSubscriptionService {
 
 	public static final String DISABLED_BY_FAILURES = "TOO_MANY_FAILURES";
 
+	/** El aviso de prueba: no anuncia ningún comprobante y nadie se suscribe a él. */
+	public static final String TEST_EVENT = "webhook.test";
+
 	public record Subscription(UUID id, String url, List<String> eventTypes, String description, String status,
 			String disabledReason, int consecutiveFailures, OffsetDateTime createdAt,
 			OffsetDateTime previousSecretExpiresAt) {
@@ -56,7 +59,7 @@ public class WebhookSubscriptionService {
 			OffsetDateTime nextAttemptAt) {
 	}
 
-	private record RetryTarget(String status, String subscriptionStatus) {
+	private record RetryTarget(String status, String eventType, String subscriptionStatus) {
 	}
 
 	private record Current(String url, String status) {
@@ -272,13 +275,53 @@ public class WebhookSubscriptionService {
 		return new PageResponse<>(items, page, size, total);
 	}
 
+	/**
+	 * Anota un aviso de prueba para la suscripción. Sale como los demás (firmado, por la cola de avisos)
+	 * pero se intenta una sola vez y no cuenta para apagar la suscripción. Mientras uno esté en camino
+	 * no se admite otro: nadie puede usar esto para lanzar peticiones en ráfaga contra una dirección.
+	 */
+	@Transactional
+	public Delivery requestTest(TenantAccess access, UUID subscriptionId) {
+		access.requireWrite();
+		// La fila bloqueada serializa las peticiones de prueba de la suscripción.
+		String status = lockedStatus(access, subscriptionId);
+		requireEnabled();
+		if (!"ACTIVE".equals(status)) {
+			throw new ApiException(HttpStatus.CONFLICT, "WEBHOOK_SUBSCRIPTION_DISABLED",
+					"La suscripción está desactivada; actívela antes de probarla");
+		}
+		boolean pending = jdbc.sql("""
+				SELECT EXISTS (SELECT 1 FROM webhook_deliveries
+				 WHERE subscription_id = :id AND event_type = :test AND status IN ('PENDING', 'SENDING'))
+				""").param("id", subscriptionId).param("test", TEST_EVENT).query(Boolean.class).single();
+		if (pending) {
+			throw new ApiException(HttpStatus.CONFLICT, "WEBHOOK_TEST_PENDING",
+					"Ya hay un aviso de prueba en camino a esta dirección; espere a que termine");
+		}
+		// Como los demás avisos, sale cuando el planificador lo devuelve a la cola, en un instante.
+		Delivery delivery = jdbc.sql("""
+				INSERT INTO webhook_deliveries (tenant_id, subscription_id, event_id, event_type, next_attempt_at)
+				VALUES (:tenant, :id, :eventId, :test, now())
+				RETURNING id, event_id, event_type, document_id, status, attempt_count, last_status, last_error,
+				          occurred_at, sent_at, next_attempt_at
+				""")
+			.param("tenant", access.tenantId())
+			.param("id", subscriptionId)
+			.param("eventId", UUID.randomUUID())
+			.param("test", TEST_EVENT)
+			.query(Delivery.class)
+			.single();
+		audit.record(access.tenantId(), access.userId(), "WEBHOOK_TEST_REQUESTED", "WEBHOOK", subscriptionId, Map.of());
+		return delivery;
+	}
+
 	/** Vuelve a poner en marcha un aviso que agotó sus intentos. Sale con el identificador de siempre. */
 	@Transactional
 	public void retry(TenantAccess access, UUID deliveryId) {
 		access.requireWrite();
 		// El aviso de otra empresa se trata igual que uno inexistente.
 		RetryTarget target = jdbc.sql("""
-				SELECT d.status, s.status AS subscription_status
+				SELECT d.status, d.event_type, s.status AS subscription_status
 				  FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id = d.subscription_id
 				 WHERE d.id = :id AND d.tenant_id = :tenant FOR UPDATE OF d
 				""")
@@ -288,6 +331,10 @@ public class WebhookSubscriptionService {
 			.optional()
 			.orElseThrow(ApiException::notFound);
 		requireEnabled();
+		if (TEST_EVENT.equals(target.eventType())) {
+			throw new ApiException(HttpStatus.CONFLICT, "WEBHOOK_DELIVERY_NOT_RETRYABLE",
+					"Un aviso de prueba no se reintenta: envíe otro");
+		}
 		if (!"FAILED".equals(target.status())) {
 			throw new ApiException(HttpStatus.CONFLICT, "WEBHOOK_DELIVERY_NOT_RETRYABLE",
 					"Solo se reintenta un aviso que falló; este está pendiente o ya se entregó");

@@ -1,0 +1,56 @@
+# Infraestructura de las pruebas con navegador (e2e/). Aislada de la de desarrollo: otro proyecto de
+# compose, otros puertos y ningún volumen con nombre: los datos viven en memoria y se pierden al bajar.
+# No se usa a mano: la levanta y la baja `npm run stack:up` / `npm run stack:down` desde /e2e, que
+# pone las credenciales de prueba (e2e/support/env.ts) y genera el reino de Keycloak.
+name: einvoice-e2e
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: einvoice
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${E2E_POSTGRES_PASSWORD:?set}
+    ports: ["127.0.0.1:${E2E_POSTGRES_PORT:?set}:5432"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d einvoice"]
+      interval: 2s
+      retries: 30
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${E2E_RABBITMQ_USER:?set}
+      RABBITMQ_DEFAULT_PASS: ${E2E_RABBITMQ_PASSWORD:?set}
+    ports: ["127.0.0.1:${E2E_RABBITMQ_PORT:?set}:5672"]
+    tmpfs: [/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 3s
+      retries: 40
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${E2E_REDIS_PASSWORD:?set}", "--save", ""]
+    environment:
+      REDISCLI_AUTH: ${E2E_REDIS_PASSWORD:?set}
+    ports: ["127.0.0.1:${E2E_REDIS_PORT:?set}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+  # El mismo proveedor de identidad de desarrollo, con un reino generado para estas pruebas a partir
+  # de infra/keycloak/einvoice-realm.json. Su base de datos es la interna, en memoria del contenedor.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${E2E_KEYCLOAK_ADMIN_PASSWORD:?set}
+    ports: ["127.0.0.1:${E2E_KEYCLOAK_PORT:?set}:8080"]
+    volumes:
+      - ${E2E_REALM_FILE:?set}:/opt/keycloak/data/import/einvoice-realm.json:ro
+  # Servidor SMTP que solo captura: ningún correo sale de esta máquina.
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    ports:
+      - "127.0.0.1:${E2E_SMTP_PORT:?set}:1025"
+      - "127.0.0.1:${E2E_MAILPIT_PORT:?set}:8025"

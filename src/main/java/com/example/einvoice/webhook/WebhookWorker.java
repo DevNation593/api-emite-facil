@@ -37,6 +37,12 @@ public class WebhookWorker {
 		DocumentEvent event = DocumentEvent.read(json, message);
 		MDC.put("correlationId", String.valueOf(event.eventId()));
 		try {
+			if (DueWebhookScheduler.WEBHOOK_TEST.equals(event.eventType())) {
+				// En un aviso de prueba, el agregado del evento es la suscripción.
+				int sent = webhooks.processTests(event.tenantId(), event.documentId());
+				log.info("Suscripción {}: {} aviso(s) de prueba entregado(s)", event.documentId(), sent);
+				return;
+			}
 			int sent = webhooks.process(event.tenantId(), event.documentId());
 			log.info("Documento {}: {} aviso(s) entregado(s) tras el evento {}", event.documentId(), sent,
 					event.eventType());

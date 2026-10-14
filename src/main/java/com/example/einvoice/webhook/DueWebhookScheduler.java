@@ -23,9 +23,26 @@ public class DueWebhookScheduler {
 
 	public static final String WEBHOOK_DUE = "WEBHOOK_DUE";
 
+	/** Un aviso de prueba vencido: el agregado es la suscripción, porque no hay comprobante. */
+	public static final String WEBHOOK_TEST = "WEBHOOK_TEST";
+
 	private static final int BATCH = 100;
 
-	private record Due(UUID tenantId, UUID documentId) {
+	private record Due(UUID tenantId, UUID documentId, UUID subscriptionId) {
+	}
+
+	/** Un evento por comprobante con avisos vencidos, y uno por suscripción con un aviso de prueba vencido. */
+	private record Event(UUID tenantId, UUID aggregateId, String eventType) {
+
+		static Event of(Due due) {
+			return due.documentId() != null ? new Event(due.tenantId(), due.documentId(), WEBHOOK_DUE)
+					: new Event(due.tenantId(), due.subscriptionId(), WEBHOOK_TEST);
+		}
+
+		Map<String, String> identifiers() {
+			return Map.of(WEBHOOK_DUE.equals(eventType) ? "documentId" : "subscriptionId", aggregateId.toString());
+		}
+
 	}
 
 	private final JdbcClient jdbc;
@@ -55,14 +72,16 @@ public class DueWebhookScheduler {
 				UPDATE webhook_deliveries SET next_attempt_at = now() + make_interval(secs => CAST(:lease AS double precision))
 				WHERE id IN (SELECT id FROM webhook_deliveries WHERE next_attempt_at <= now()
 				 ORDER BY next_attempt_at LIMIT :batch FOR UPDATE SKIP LOCKED)
-				RETURNING tenant_id, document_id
+				RETURNING tenant_id, document_id, subscription_id
 				""").param("lease", redeliveryLease.toMillis() / 1000.0).param("batch", BATCH).query(Due.class).list();
-		Set<Due> documents = new LinkedHashSet<>(due);
-		for (Due document : documents) {
-			outbox.write(document.tenantId(), document.documentId(), WEBHOOK_DUE,
-					Map.of("documentId", document.documentId().toString()));
+		Set<Event> events = new LinkedHashSet<>();
+		for (Due row : due) {
+			events.add(Event.of(row));
 		}
-		return documents.size();
+		for (Event event : events) {
+			outbox.write(event.tenantId(), event.aggregateId(), event.eventType(), event.identifiers());
+		}
+		return events.size();
 	}
 
 }

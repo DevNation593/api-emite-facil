@@ -1,3 +1,10 @@
 target
 *.log
 Dockerfile
+.git
+docs
+e2e
+infra
+contracts
+scripts
+.github

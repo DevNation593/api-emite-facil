@@ -74,7 +74,7 @@ class RecoveryIT extends AbstractIntegrationTest {
 			jdbc.execute("ALTER TABLE document_artifacts ENABLE TRIGGER document_artifacts_immutable");
 		}
 		exec("createdb", "-U", user, restoredName);
-		postgres.copyFileToContainer(MountableFile.forHostPath("../infra/backup/restore.sh"), "/tmp/restore.sh");
+		postgres.copyFileToContainer(MountableFile.forHostPath("infra/backup/restore.sh"), "/tmp/restore.sh");
 
 		ExecResult restore = postgres.execInContainer("env", "PGUSER=" + user, "bash", "-c",
 				"cd /tmp && sha256sum " + restoredName + ".dump > " + restoredName + ".dump.sha256 && bash /tmp/restore.sh /tmp/"

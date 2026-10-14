@@ -86,6 +86,13 @@ public class WebhookController {
 		subscriptions.retry(access, id);
 	}
 
+	/** Envía un aviso de prueba a la dirección, sin comprobante: para probarla sin emitir nada. */
+	@PostMapping("/subscriptions/{id}/test")
+	@ResponseStatus(HttpStatus.ACCEPTED)
+	Delivery test(TenantAccess access, @PathVariable UUID id) {
+		return subscriptions.requestTest(access, id);
+	}
+
 	/** Cambia el secreto de firma y lo devuelve: es la única vez que se muestra. */
 	@PostMapping("/subscriptions/{id}/secret")
 	RotatedSecret rotate(TenantAccess access, @PathVariable UUID id) {
