@@ -59,25 +59,27 @@ export const USERS = {
   },
 } as const satisfies Record<string, TestUser>;
 
-const INFRA = {
-  postgresPassword: "postgres-solo-pruebas",
-  rabbitmqUser: "einvoice",
-  rabbitmqPassword: "rabbitmq-solo-pruebas",
-  redisPassword: "redis-solo-pruebas",
-  keycloakAdminPassword: "keycloak-solo-pruebas",
+/**
+ * Conexiones de la pila, una URL cada una. Las leen tanto los contenedores (que sacan de ellas sus
+ * credenciales) como la API.
+ */
+const CONNECTIONS = {
+  database: `postgresql://app:postgres-solo-pruebas@localhost:${PORTS.postgres}/einvoice`,
+  rabbitmq: `amqp://einvoice:rabbitmq-solo-pruebas@localhost:${PORTS.rabbitmq}`,
+  redis: `redis://:redis-solo-pruebas@localhost:${PORTS.redis}`,
 };
+const KEYCLOAK_ADMIN_PASSWORD = "keycloak-solo-pruebas";
 
 /** Variables con las que se levanta infra/docker-compose.e2e.yml. */
 export function composeEnv(): Record<string, string> {
   return {
-    E2E_POSTGRES_PASSWORD: INFRA.postgresPassword,
+    E2E_DATABASE_URL: CONNECTIONS.database,
     E2E_POSTGRES_PORT: String(PORTS.postgres),
-    E2E_RABBITMQ_USER: INFRA.rabbitmqUser,
-    E2E_RABBITMQ_PASSWORD: INFRA.rabbitmqPassword,
+    E2E_RABBITMQ_URL: CONNECTIONS.rabbitmq,
     E2E_RABBITMQ_PORT: String(PORTS.rabbitmq),
-    E2E_REDIS_PASSWORD: INFRA.redisPassword,
+    E2E_REDIS_URL: CONNECTIONS.redis,
     E2E_REDIS_PORT: String(PORTS.redis),
-    E2E_KEYCLOAK_ADMIN_PASSWORD: INFRA.keycloakAdminPassword,
+    E2E_KEYCLOAK_ADMIN_PASSWORD: KEYCLOAK_ADMIN_PASSWORD,
     E2E_KEYCLOAK_PORT: String(PORTS.keycloak),
     E2E_REALM_FILE: REALM_PATH,
     E2E_SMTP_PORT: String(PORTS.smtp),
@@ -98,11 +100,9 @@ function secrets(): Secrets {
 export function apiEnv(): Record<string, string> {
   const env = {
     SERVER_PORT: String(PORTS.api),
-    DATABASE_URL: `postgresql://app:${INFRA.postgresPassword}@localhost:${PORTS.postgres}/einvoice`,
-    SPRING_RABBITMQ_PORT: String(PORTS.rabbitmq),
-    SPRING_RABBITMQ_USERNAME: INFRA.rabbitmqUser,
-    SPRING_RABBITMQ_PASSWORD: INFRA.rabbitmqPassword,
-    REDIS_URL: `redis://:${INFRA.redisPassword}@localhost:${PORTS.redis}`,
+    DATABASE_URL: CONNECTIONS.database,
+    RABBITMQ_URL: CONNECTIONS.rabbitmq,
+    REDIS_URL: CONNECTIONS.redis,
     OIDC_ISSUER: URLS.issuer,
     OIDC_AUDIENCE: "einvoice-api",
     EINVOICE_MASTER_KEY: secrets().masterKey,

@@ -18,14 +18,21 @@ services:
     build:
       context: ..
     image: einvoice-api:local
+    # Las URL del .env apuntan a localhost, que es donde las ve la API cuando corre fuera de los
+    # contenedores. Aquí cada servicio se alcanza por su nombre: se cambia antes de arrancar. El resto
+    # es el ENTRYPOINT del Dockerfile.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        export DATABASE_URL="$${DATABASE_URL/@localhost/@postgres}"
+        export RABBITMQ_URL="$${RABBITMQ_URL/@localhost/@rabbitmq}"
+        export REDIS_URL="$${REDIS_URL/@localhost/@redis}"
+        exec java -XX:MaxRAMPercentage=75 -jar /app/app.jar
     environment: &api-environment
-      # Las contraseñas del .env van dentro de una URL: con caracteres como @ : / % deben escribirse
-      # codificadas (%40 para la arroba).
-      DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD:?set}@postgres:5432/einvoice
-      SPRING_RABBITMQ_HOST: rabbitmq
-      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:?set}
-      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set}
-      REDIS_URL: redis://:${REDIS_PASSWORD:?set}@redis:6379
+      DATABASE_URL: ${DATABASE_URL:?set}
+      RABBITMQ_URL: ${RABBITMQ_URL:?set}
+      REDIS_URL: ${REDIS_URL:?set}
       OIDC_ISSUER: ${OIDC_ISSUER:?set}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-einvoice-api}
       EINVOICE_MASTER_KEY: ${EINVOICE_MASTER_KEY:?set}
