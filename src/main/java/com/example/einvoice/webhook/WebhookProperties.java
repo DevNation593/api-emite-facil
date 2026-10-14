@@ -16,14 +16,21 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param disableAfterFailingFor tiempo que debe llevar fallando, además, para apagarse: una caída corta
  * con muchos comprobantes no basta
  * @param secretOverlap cuánto sigue firmando el secreto anterior después de rotarlo
+ * @param historyRetention cuánto se guarda un aviso ya entregado o fallido antes de purgarlo
+ * @param maxConcurrentPerTenant envíos en curso a la vez, como mucho, de una misma empresa: un receptor
+ * lento ocupa como mucho ese número de consumidores de la cola
+ * @param busyDelay cuándo se vuelve a intentar un aviso que no se envió porque su empresa estaba en el tope
  */
 @ConfigurationProperties("einvoice.webhooks")
 public record WebhookProperties(boolean enabled, boolean allowInsecureHttp, boolean allowPrivateAddresses,
 		int maxSubscriptions, Duration retryBackoff, Duration retryMaxBackoff, int retryMaxAttempts, Duration sendLease,
 		Duration connectTimeout, Duration totalTimeout, int disableAfterFailures, Duration disableAfterFailingFor,
-		Duration secretOverlap) {
+		Duration secretOverlap, Duration historyRetention, int maxConcurrentPerTenant, Duration busyDelay) {
 
 	public WebhookProperties {
+		requirePositive("history-retention", historyRetention);
+		requirePositive("busy-delay", busyDelay);
+		requireAtLeastOne("max-concurrent-per-tenant", maxConcurrentPerTenant);
 		requirePositive("retry-backoff", retryBackoff);
 		requirePositive("retry-max-backoff", retryMaxBackoff);
 		requirePositive("send-lease", sendLease);

@@ -121,6 +121,14 @@ einvoice:
     disable-after-failing-for: 3d
     # Cuánto sigue firmando el secreto anterior después de rotarlo.
     secret-overlap: 24h
+    # Los avisos entregados o fallidos se borran pasado este tiempo (el worker purga cada hora). Los
+    # pendientes no se tocan.
+    history-retention: 90d
+    purge-interval-ms: 3600000
+    # Envíos en curso a la vez de una misma empresa: un receptor lento ocupa como mucho estos consumidores
+    # de la cola de avisos y deja libres los demás. Un aviso que no cabe se reintenta en busy-delay.
+    max-concurrent-per-tenant: 2
+    busy-delay: 5s
   rate-limit:
     # Tope de peticiones por usuario y minuto: todas, y dentro de ellas las que cambian datos. Se
     # cuentan en Redis; si Redis no responde, las peticiones pasan sin contarse.
