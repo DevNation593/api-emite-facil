@@ -146,7 +146,8 @@ Lo que estas pruebas no dicen: cómo se ve en Firefox o Safari, ni si el SRI rea
 
 - Certificado real y RUC habilitado (G3), y con ellos la primera activación de un emisor (G5).
 - Requisitos legales del proveedor (G6).
-- Proveedor de identidad de producción. Debe poner el correo del usuario en el token de acceso: sin él no se pueden aceptar invitaciones (doc 10).
+- Servidor de correo de producción: sin él no se puede confirmar el correo de una cuenta ni recuperar una contraseña olvidada (doc 10).
+- Un proxy de entrada que fije `X-Forwarded-For` delante de la web: la API limita los intentos de ingreso por la IP que le pasa la web.
 - Nube, registro de imágenes, gestor de claves y almacenamiento de objetos; con ellos, despliegue real, respaldos programados y recogida de métricas y registros.
 - Mirar la aplicación en Firefox y Safari: las pruebas con navegador usan solo Chromium (en escritorio y en el ancho de un teléfono).
 - Un enlace directo a un comprobante no dice de qué empresa es: quien trabaja en varias y lo abre con otra empresa activa ve "No se encontró ese comprobante en esta empresa".
