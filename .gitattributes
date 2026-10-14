@@ -1,2 +1,9 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+# Los XSD y XML de ejemplo se guardan byte a byte: su huella SHA-256 está en docs/xsd-source-registry.csv.
+src/main/resources/xsd/** -text
+# Scripts que se ejecutan en Linux (contenedores, CI): siempre con fin de línea LF.
+*.sh text eol=lf
 /mvnw text eol=lf
 *.cmd text eol=crlf
+infra/postgres/*.sql text eol=lf

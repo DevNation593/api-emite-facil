@@ -21,11 +21,11 @@ import org.junit.jupiter.params.provider.MethodSource;
  */
 class XsdAssetIntegrityTest {
 
-	static final Path REPO = Path.of("..").toAbsolutePath().normalize();
+	static final Path REPO = Path.of("").toAbsolutePath().normalize();
 
 	static final Path REGISTRY = REPO.resolve("docs/xsd-source-registry.csv");
 
-	static final Path XSD_ROOT = REPO.resolve("backend/src/main/resources/xsd");
+	static final Path XSD_ROOT = REPO.resolve("src/main/resources/xsd");
 
 	record Row(String localPath, String sha256) {
 	}

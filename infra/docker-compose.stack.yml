@@ -1,0 +1,75 @@
+# La aplicación completa en contenedores, sobre la infraestructura de docker-compose.yml: API,
+# worker y web construidos desde este repositorio. Sirve de referencia para un entorno de staging
+# y para comprobar las imágenes en local.
+#
+#   docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.stack.yml up -d --build
+#   infra/stack-smoke.sh
+#
+# Además de las variables de docker-compose.yml hacen falta EINVOICE_MASTER_KEY, OIDC_ISSUER y
+# SESSION_SECRET (ver .env.example). Solo la web publica un puerto, y solo en esta máquina: a la
+# API se llega a través de ella.
+#
+# El inicio de sesión necesita un proveedor de identidad cuya dirección sea la misma para el
+# navegador y para los contenedores. El Keycloak de desarrollo (http://localhost:8081) no lo es
+# desde dentro de un contenedor: en un staging real, OIDC_ISSUER es una dirección https pública.
+name: einvoice
+services:
+  api: &api
+    build:
+      context: ..
+    image: einvoice-api:local
+    environment: &api-environment
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/einvoice
+      SPRING_DATASOURCE_USERNAME: app
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?set}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:?set}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?set}
+      OIDC_ISSUER: ${OIDC_ISSUER:?set}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-einvoice-api}
+      EINVOICE_MASTER_KEY: ${EINVOICE_MASTER_KEY:?set}
+      EINVOICE_METRICS_TOKEN: ${EINVOICE_METRICS_TOKEN:-}
+      EINVOICE_INVITATIONS_ALLOW_WITHOUT_EMAIL: ${EINVOICE_INVITATIONS_ALLOW_WITHOUT_EMAIL:-false}
+      EINVOICE_WEBHOOKS_ENABLED: ${EINVOICE_WEBHOOKS_ENABLED:-false}
+      SRI_ENABLED_ENVIRONMENTS: ${SRI_ENABLED_ENVIRONMENTS:-}
+      # Esta instancia solo atiende la API; el trabajo en segundo plano lo hace "worker".
+      EINVOICE_WORKER_ENABLED: "false"
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      # La imagen no trae curl ni wget: se pregunta con bash por el puerto.
+      test:
+        - CMD
+        - bash
+        - -c
+        - exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health/readiness HTTP/1.0\r\n\r\n' >&3 && grep -q '"UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+  worker:
+    <<: *api
+    environment:
+      <<: *api-environment
+      EINVOICE_WORKER_ENABLED: "true"
+    depends_on:
+      # La API aplica las migraciones al arrancar; el worker espera a que termine.
+      api: { condition: service_healthy }
+  web:
+    build:
+      # La web está en su propio repositorio, clonado junto a este (o donde diga FRONTEND_DIR).
+      context: ${FRONTEND_DIR:-../../client-factura-facil}
+    image: einvoice-web:local
+    environment:
+      API_BASE_URL: http://api:8080
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      OIDC_ISSUER: ${OIDC_ISSUER:?set}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-einvoice-web}
+      SESSION_SECRET: ${SESSION_SECRET:?set}
+    ports: ["127.0.0.1:${WEB_PORT:-3000}:3000"]
+    depends_on:
+      api: { condition: service_healthy }

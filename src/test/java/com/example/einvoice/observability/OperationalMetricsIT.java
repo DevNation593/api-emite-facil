@@ -248,7 +248,7 @@ class OperationalMetricsIT extends AbstractIntegrationTest {
 
 	@Test
 	void everyAlertRuleNamesAMetricThatExists() throws Exception {
-		String rules = Files.readString(Path.of("..", "infra", "observability", "prometheus-alerts.yml"));
+		String rules = Files.readString(Path.of("infra", "observability", "prometheus-alerts.yml"));
 		Set<String> named = new TreeSet<>();
 		Matcher matcher = Pattern.compile("einvoice_[a-z_]+").matcher(rules);
 		while (matcher.find()) {

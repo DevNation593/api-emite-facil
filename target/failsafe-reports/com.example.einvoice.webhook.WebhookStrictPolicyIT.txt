@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.example.einvoice.webhook.WebhookStrictPolicyIT
--------------------------------------------------------------------------------
-Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.667 s -- in com.example.einvoice.webhook.WebhookStrictPolicyIT
