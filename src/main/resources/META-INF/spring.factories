@@ -1,2 +1,2 @@
 org.springframework.boot.EnvironmentPostProcessor=\
-com.example.einvoice.DatabaseUrlEnvironmentPostProcessor
+com.example.einvoice.ConnectionUrlsEnvironmentPostProcessor

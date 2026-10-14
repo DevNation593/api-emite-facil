@@ -3,8 +3,8 @@ spring:
     name: einvoice
   data:
     redis:
-      # Conexión en una sola variable: redis://:contraseña@host:puerto (rediss:// para TLS). La de
-      # PostgreSQL es DATABASE_URL (ver DatabaseUrlEnvironmentPostProcessor).
+      # Conexión en una sola variable: redis://:contraseña@host:puerto (rediss:// para TLS). Las de
+      # PostgreSQL y RabbitMQ son DATABASE_URL y RABBITMQ_URL (ver ConnectionUrlsEnvironmentPostProcessor).
       url: ${REDIS_URL:redis://localhost:6379}
       # Redis solo cuenta peticiones (límite por usuario). Si no contesta enseguida se sigue sin él:
       # sin estos plazos, cada petición esperaría un minuto a un Redis colgado.
