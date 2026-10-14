@@ -9,7 +9,16 @@ import { USERS, type TestUser } from "./env.ts";
 export async function login(page: Page, user: TestUser, startAt = "/"): Promise<void> {
   await page.goto(startAt);
   await signIn(page, user);
+  await signedIn(page);
+}
+
+/**
+ * Espera a que la aplicación esté cargada con la sesión. Tras ingresar, la web navega a donde iba el
+ * usuario y puede redirigir otra vez (de "/" a "/documentos"): pedir otra página antes la cortaría.
+ */
+export async function signedIn(page: Page): Promise<void> {
   await page.waitForURL((url) => !url.pathname.startsWith("/ingresar"));
+  await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
 }
 
 /** Rellena y envía el formulario de la pantalla de ingreso, que ya está abierta. */

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { URLS, type TestUser } from "../support/env.ts";
-import { expect, login, register, signIn, test } from "../support/fixtures.ts";
+import { expect, login, register, signIn, signedIn, test } from "../support/fixtures.ts";
 import { linkIn, waitForMail } from "../support/mail.ts";
 
 // Cada prueba es una persona nueva, sin sesión.
@@ -25,7 +25,7 @@ test("una cuenta nueva confirma su correo, cambia la contraseña y vuelve a entr
     await expect(page).toHaveURL(/\/ingresar/);
     await shot("ingresar");
     await signIn(page, user);
-    await page.waitForURL((url) => !url.pathname.startsWith("/ingresar"));
+    await signedIn(page);
     await page.goto("/cuenta");
     await expect(page.getByText("Sin confirmar")).toBeVisible();
     await shot("cuenta-sin-confirmar");
