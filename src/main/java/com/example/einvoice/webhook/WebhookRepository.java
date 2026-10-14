@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Avisos pendientes y enviados. Como en las entregas por correo, cada cambio de estado es una sola
@@ -57,12 +58,69 @@ public class WebhookRepository {
 			.list();
 	}
 
+	/** Avisos de prueba de la suscripción que se pueden intentar ahora, con el mismo criterio que {@link #pending}. */
+	public List<UUID> pendingTests(UUID tenantId, UUID subscriptionId, Duration lease) {
+		return jdbc.sql("""
+				SELECT id FROM webhook_deliveries
+				WHERE tenant_id = :tenantId AND subscription_id = :subscriptionId AND document_id IS NULL
+				 AND ((status = 'PENDING' AND (retry_after IS NULL OR retry_after <= now()))
+				  OR (status = 'SENDING'
+				   AND sending_since < now() - make_interval(secs => CAST(:lease AS double precision))))
+				ORDER BY occurred_at, id
+				""")
+			.param("tenantId", tenantId)
+			.param("subscriptionId", subscriptionId)
+			.param("lease", seconds(lease))
+			.query(UUID.class)
+			.list();
+	}
+
+	/** Espacio de los candados consultivos de este módulo, para no chocar con otros: "WEBK". */
+	private static final int TENANT_LOCK_SPACE = 0x5745424B;
+
 	/**
-	 * Reserva el aviso para enviarlo. Vacío si otro proceso se adelantó o si aún no ha pasado la espera
-	 * de su reintento. Queda programado al vencer el plazo de envío: si este proceso muere antes de
-	 * anotar el resultado, se retoma entonces.
+	 * Reserva el aviso para enviarlo. Vacío si otro proceso se adelantó, si aún no ha pasado la espera
+	 * de su reintento o si su empresa ya tiene {@code maxPerTenant} envíos en curso: entonces el aviso
+	 * se reprograma a {@code busyDelay}, sin gastar un intento, y quien lo iba a enviar queda libre para
+	 * otra empresa. Queda programado al vencer el plazo de envío: si este proceso muere antes de anotar
+	 * el resultado, se retoma entonces.
+	 *
+	 * <p>Las reservas de una misma empresa se hacen de una en una (candado de transacción por empresa)
+	 * y la cuenta de envíos en curso es una sentencia aparte, posterior al candado: así ve lo que otro
+	 * proceso acaba de reservar. El envío, que es lo lento, ocurre después, fuera de la transacción.
 	 */
-	public Optional<Claim> claim(UUID deliveryId, Duration lease) {
+	@Transactional
+	public Optional<Claim> claim(UUID deliveryId, Duration lease, int maxPerTenant, Duration busyDelay) {
+		Optional<UUID> tenant = jdbc.sql("SELECT tenant_id FROM webhook_deliveries WHERE id = :id")
+			.param("id", deliveryId)
+			.query(UUID.class)
+			.optional();
+		if (tenant.isEmpty()) {
+			return Optional.empty();
+		}
+		jdbc.sql("SELECT pg_advisory_xact_lock(:space, hashtext(CAST(:tenant AS text)))")
+			.param("space", TENANT_LOCK_SPACE)
+			.param("tenant", tenant.get())
+			.query()
+			.listOfRows();
+		long inFlight = jdbc.sql("""
+				SELECT count(*) FROM webhook_deliveries
+				 WHERE tenant_id = :tenant AND status = 'SENDING' AND id <> :id
+				   AND sending_since >= now() - make_interval(secs => CAST(:lease AS double precision))
+				""")
+			.param("tenant", tenant.get())
+			.param("id", deliveryId)
+			.param("lease", seconds(lease))
+			.query(Long.class)
+			.single();
+		if (inFlight >= maxPerTenant) {
+			jdbc.sql("""
+					UPDATE webhook_deliveries
+					   SET next_attempt_at = now() + make_interval(secs => CAST(:delay AS double precision))
+					 WHERE id = :id AND status = 'PENDING'
+					""").param("delay", seconds(busyDelay)).param("id", deliveryId).update();
+			return Optional.empty();
+		}
 		return jdbc.sql("""
 				UPDATE webhook_deliveries
 				SET status = 'SENDING', sending_since = now(), attempt_count = attempt_count + 1,

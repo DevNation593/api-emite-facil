@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.example.einvoice.observability.OperationalMetricsIT
--------------------------------------------------------------------------------
-Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 17.94 s -- in com.example.einvoice.observability.OperationalMetricsIT

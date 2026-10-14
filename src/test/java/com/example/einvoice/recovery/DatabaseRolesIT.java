@@ -42,7 +42,7 @@ class DatabaseRolesIT extends AbstractIntegrationTest {
 		database = "roles_" + UUID.randomUUID().toString().replace("-", "");
 		String superuser = postgres.getUsername();
 		exec("createdb", "-U", superuser, database);
-		postgres.copyFileToContainer(MountableFile.forHostPath("../infra/postgres/roles.sql"), "/tmp/roles.sql");
+		postgres.copyFileToContainer(MountableFile.forHostPath("infra/postgres/roles.sql"), "/tmp/roles.sql");
 		exec("psql", "-U", superuser, "-d", database, "-v", "ON_ERROR_STOP=1", "-v", "db=" + database, "-v",
 				"migrator_password=" + MIGRATOR_PASSWORD, "-v", "app_password=" + APP_PASSWORD, "-f", "/tmp/roles.sql");
 
@@ -66,7 +66,7 @@ class DatabaseRolesIT extends AbstractIntegrationTest {
 		exec("createdb", "-U", superuser, restoredName);
 		exec("psql", "-U", superuser, "-d", restoredName, "-v", "ON_ERROR_STOP=1", "-v", "db=" + restoredName, "-v",
 				"migrator_password=" + MIGRATOR_PASSWORD, "-v", "app_password=" + APP_PASSWORD, "-f", "/tmp/roles.sql");
-		postgres.copyFileToContainer(MountableFile.forHostPath("../infra/backup/restore.sh"), "/tmp/restore.sh");
+		postgres.copyFileToContainer(MountableFile.forHostPath("infra/backup/restore.sh"), "/tmp/restore.sh");
 		ExecResult restore = postgres.execInContainer("env", "PGUSER=einvoice_migrator",
 				"PGPASSWORD=" + MIGRATOR_PASSWORD, "PGHOST=127.0.0.1", "bash", "-c",
 				"cd /tmp && sha256sum " + restoredName + ".dump > " + restoredName + ".dump.sha256 && bash /tmp/restore.sh /tmp/"
@@ -110,7 +110,7 @@ class DatabaseRolesIT extends AbstractIntegrationTest {
 		exec("createdb", "-U", superuser, restoredName);
 		exec("psql", "-U", superuser, "-d", restoredName, "-v", "ON_ERROR_STOP=1", "-v", "db=" + restoredName, "-v",
 				"migrator_password=" + MIGRATOR_PASSWORD, "-v", "app_password=" + APP_PASSWORD, "-f", "/tmp/roles.sql");
-		postgres.copyFileToContainer(MountableFile.forHostPath("../infra/backup/restore.sh"), "/tmp/restore.sh");
+		postgres.copyFileToContainer(MountableFile.forHostPath("infra/backup/restore.sh"), "/tmp/restore.sh");
 
 		ExecResult restore = postgres.execInContainer("env", "PGUSER=einvoice_migrator",
 				"PGPASSWORD=" + MIGRATOR_PASSWORD, "PGHOST=127.0.0.1", "bash", "-c",

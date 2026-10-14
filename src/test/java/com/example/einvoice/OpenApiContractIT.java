@@ -24,7 +24,7 @@ import com.example.einvoice.support.AbstractIntegrationTest;
 /** El contrato contracts/openapi.yaml y los controladores describen exactamente las mismas rutas. */
 class OpenApiContractIT extends AbstractIntegrationTest {
 
-	static final Path CONTRACT = Path.of("..", "contracts", "openapi.yaml").toAbsolutePath().normalize();
+	static final Path CONTRACT = Path.of("contracts", "openapi.yaml").toAbsolutePath().normalize();
 
 	static final Set<String> HTTP_METHODS = Set.of("get", "post", "put", "patch", "delete");
 
