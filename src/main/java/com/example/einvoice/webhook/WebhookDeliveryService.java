@@ -69,7 +69,8 @@ public class WebhookDeliveryService {
 		}
 		int sent = 0;
 		for (UUID deliveryId : repository.pending(tenantId, documentId, properties.sendLease())) {
-			Optional<Claim> claim = repository.claim(deliveryId, properties.sendLease());
+			Optional<Claim> claim = repository.claim(deliveryId, properties.sendLease(),
+					properties.maxConcurrentPerTenant(), properties.busyDelay());
 			if (claim.isPresent() && attempt(tenantId, documentId, deliveryId, claim.get())) {
 				sent++;
 			}
@@ -88,7 +89,8 @@ public class WebhookDeliveryService {
 		}
 		int sent = 0;
 		for (UUID deliveryId : repository.pendingTests(tenantId, subscriptionId, properties.sendLease())) {
-			Optional<Claim> claim = repository.claim(deliveryId, properties.sendLease());
+			Optional<Claim> claim = repository.claim(deliveryId, properties.sendLease(),
+					properties.maxConcurrentPerTenant(), properties.busyDelay());
 			if (claim.isPresent() && attemptTest(tenantId, deliveryId, claim.get())) {
 				sent++;
 			}
