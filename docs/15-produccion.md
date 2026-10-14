@@ -153,4 +153,4 @@ Lo que estas pruebas no dicen: cómo se ve en Firefox o Safari, ni si el SRI rea
 - Los XSD oficiales de los demás comprobantes (nota de crédito, retención, guía): sin ellos el Plan 9 no puede empezar.
 - Confirmar en la ficha qué pasa con el secuencial de un comprobante rechazado: hoy se reemite con número nuevo y el rechazado no se reutiliza (doc 05).
 - Transferir la propiedad de una empresa.
-- Webhooks: decidir si se encienden, y con qué salida a internet para el worker. Faltan un aviso de prueba, la purga del historial de avisos, repartir el trabajo entre empresas (hoy un receptor muy lento puede ocupar a todos los consumidores de la cola de avisos durante sus 10 segundos por intento) y un acceso de máquina a la API para que el receptor consulte el detalle de un comprobante.
+- Webhooks: decidir si se encienden, y con qué salida a internet para el worker. Falta un acceso de máquina a la API, para que el receptor consulte el detalle de un comprobante: necesita su propio diseño de credenciales. El aviso de prueba, la purga del historial y el reparto entre empresas están hechos (Plan 6c).

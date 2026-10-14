@@ -77,7 +77,7 @@
 - `WebhookDeliveryService.processTests(UUID tenantId, UUID subscriptionId): int`.
 - En el contrato, `WebhookDelivery.eventType` usa un esquema nuevo, `WebhookDeliveryEventType` (los cuatro de siempre más `webhook.test`), y `documentId` admite nulo.
 
-- [ ] **Step 1:** pruebas en `WebhookTestIT`:
+- [x] **Step 1:** pruebas en `WebhookTestIT`:
   - Pedir una prueba sobre una suscripción activa → `202`. El receptor simulado recibe un `POST` firmado (la firma se verifica con el secreto) con `eventType` `webhook.test`, `subscriptionId` y sin `document`. El historial lo muestra `SENT`.
   - Un receptor que responde 500 → `FAILED` con `attemptCount` 1, sin reintento programado, y la suscripción con `consecutiveFailures` 0.
   - Una segunda prueba mientras la primera está `PENDING` → `409 WEBHOOK_TEST_PENDING`.
@@ -86,8 +86,8 @@
   - Un `BILLER` → `403`.
   - La suscripción de otra empresa → `404`.
   - Queda un evento de auditoría sin la dirección.
-- [ ] **Step 2:** migración, endpoint, servicio, enrutado y contrato hasta que pasen; `OpenApiContractIT` en verde.
-- [ ] **Step 3:** commit `feat: aviso de prueba de webhooks`.
+- [x] **Step 2:** migración, endpoint, servicio, enrutado y contrato hasta que pasen; `OpenApiContractIT` en verde.
+- [x] **Step 3:** commit `feat: aviso de prueba de webhooks`.
 
 ### Task 2: Purga del historial
 
@@ -95,8 +95,8 @@
 
 **Interfaces — Produces:** `WebhookHistoryPurge.purge(): int` (cuántos borró), programado cada `einvoice.webhooks.purge-interval-ms` (3 600 000) solo donde corre el worker.
 
-- [ ] **Step 1:** pruebas: con un retención de 90 días, avisos `SENT` y `FAILED` de hace 91 días se borran; uno `SENT` de hace 89 días y uno `PENDING` de hace 200 días quedan; con más de 1000 vencidos, `purge()` los borra en lotes hasta terminar.
-- [ ] **Step 2:** implementar. Commit `feat: purga del historial de webhooks`.
+- [x] **Step 1:** pruebas: con un retención de 90 días, avisos `SENT` y `FAILED` de hace 91 días se borran; uno `SENT` de hace 89 días y uno `PENDING` de hace 200 días quedan; con más de 1000 vencidos, `purge()` los borra en lotes hasta terminar.
+- [x] **Step 2:** implementar. Commit `feat: purga del historial de webhooks`.
 
 ### Task 3: Reparto entre empresas
 
@@ -106,30 +106,30 @@
 - `WebhookRepository.claim(UUID deliveryId, Duration lease, int maxPerTenant, Duration busyDelay): Optional<Claim>`, transaccional.
 - `einvoice.webhooks.max-concurrent-per-tenant` (2) y `einvoice.webhooks.busy-delay` (5 s).
 
-- [ ] **Step 1:** pruebas:
+- [x] **Step 1:** pruebas:
   - Con dos avisos de la misma empresa ya `SENDING`, reservar un tercero no lo reserva: sigue `PENDING`, con el mismo `attemptCount` y `next_attempt_at` a unos 5 s.
   - Con dos de otra empresa `SENDING`, se reserva.
   - Un envío `SENDING` vencido no cuenta.
   - Ocho hilos que reservan a la vez avisos de una misma empresa → como mucho dos quedan `SENDING`.
   - Extremo a extremo con el receptor simulado: una empresa cuyo receptor tarda 3 s y otra con uno inmediato. Con diez avisos de la primera y uno de la segunda encolados a la vez, el de la segunda se entrega antes de que terminen los de la primera.
-- [ ] **Step 2:** implementar. Commit `feat: los avisos de una empresa no acaparan el envío`.
+- [x] **Step 2:** implementar. Commit `feat: los avisos de una empresa no acaparan el envío`.
 
 ### Task 4: Pantalla "Integraciones" (web)
 
 **Files (client-factura-facil):** `contracts/openapi.yaml`, `src/api/schema.ts` (regenerado), `src/app/(app)/integraciones/page.tsx` y su prueba.
 
-- [ ] **Step 1:** pruebas de componente:
+- [x] **Step 1:** pruebas de componente:
   - Cada suscripción activa tiene "Enviar aviso de prueba"; al pulsarlo se llama al endpoint, se avisa "Aviso de prueba en camino" y se abre su historial.
   - En el historial, un `webhook.test` se lee "Aviso de prueba" y no tiene enlace a comprobante.
   - Un `409 WEBHOOK_TEST_PENDING` se explica con "Ya hay un aviso de prueba en camino".
-- [ ] **Step 2:** implementar. Commit `feat(web): aviso de prueba de webhooks`.
+- [x] **Step 2:** implementar. Commit `feat(web): aviso de prueba de webhooks`.
 
 ### Task 5: Navegador, documentación y PR
 
-- [ ] **Step 1:** `e2e/tests/integraciones.spec.ts`: enviar un aviso de prueba desde la pantalla. Llega firmado al receptor del simulador y el historial lo muestra entregado.
-- [ ] **Step 2:** documentación:
+- [x] **Step 1:** `e2e/tests/integraciones.spec.ts`: enviar un aviso de prueba desde la pantalla. Llega firmado al receptor del simulador y el historial lo muestra entregado.
+- [x] **Step 2:** documentación:
   - doc 11: endpoint y evento;
   - doc 10: límites del aviso de prueba;
   - doc 15: "Lo que sigue abierto" sin estos tres puntos y con el acceso de máquina;
   - plan maestro: fila P6c y decisión.
-- [ ] **Step 3:** API, web y navegador completos en verde. PR a `dev` en los dos repositorios.
+- [x] **Step 3:** API, web y navegador completos en verde. PR a `dev` en los dos repositorios.

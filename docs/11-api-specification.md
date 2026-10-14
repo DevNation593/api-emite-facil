@@ -30,6 +30,7 @@ El contrato vigente es [`contracts/openapi.yaml`](../contracts/openapi.yaml); un
 | GET | `/webhooks/subscriptions` | `OWNER`, `ADMIN` | suscripciones de la empresa, sin su secreto |
 | PUT | `/webhooks/subscriptions/{id}` | `OWNER`, `ADMIN` | cambia dirección, eventos y descripción; apaga o enciende (`enabled`) |
 | DELETE | `/webhooks/subscriptions/{id}` | `OWNER`, `ADMIN` | 204; borra también su historial de avisos |
+| POST | `/webhooks/subscriptions/{id}/test` | `OWNER`, `ADMIN` | 202 con el aviso de prueba anotado; `409 WEBHOOK_TEST_PENDING`, `409 WEBHOOK_SUBSCRIPTION_DISABLED`, `409 WEBHOOKS_DISABLED` |
 | POST | `/webhooks/subscriptions/{id}/secret` | `OWNER`, `ADMIN` | secreto nuevo (solo aparece aquí); el anterior vale 24 horas más |
 | GET | `/webhooks/subscriptions/{id}/deliveries` | `OWNER`, `ADMIN` | avisos de la suscripción, paginados, los más recientes primero |
 | POST | `/webhooks/deliveries/{id}/retry` | `OWNER`, `ADMIN` | 202: vuelve a enviar un aviso fallido; `409 WEBHOOK_DELIVERY_NOT_RETRYABLE`, `409 WEBHOOK_SUBSCRIPTION_DISABLED` |
@@ -153,6 +154,17 @@ def es_nuestro(secreto: str, cabeceras: dict, cuerpo: bytes) -> bool:
 ```
 
 **Entrega.** Al menos una vez, no exactamente una: el receptor debe tolerar repetidos y avisos fuera de orden. Cuenta como entregado cualquier respuesta 2xx recibida en 10 segundos; el cuerpo de la respuesta no se lee y las redirecciones no se siguen. Si no, se reintenta con una espera que se duplica (30 s, 1 min, 2 min...) hasta un tope de 6 h: 14 intentos en total, el último unas 26 horas después del primero. Después el aviso queda `FAILED` y se puede reintentar a mano. Una dirección que no resuelve o que ha dejado de ser pública se trata igual: no se conecta, y se reintenta. Una suscripción se apaga sola cuando acumula 100 intentos fallidos seguidos **y** lleva más de 3 días sin un solo envío correcto; una caída corta, aunque afecte a muchos comprobantes, no la apaga. La dirección debe ir en ASCII (lo demás, codificado con `%`) y su nombre no puede acabar en punto.
+
+
+**Aviso de prueba** (Plan 6c). `POST /webhooks/subscriptions/{id}/test` envía a una dirección activa un aviso `webhook.test`, firmado igual que los demás y por la misma cola, sin emitir nada. Su cuerpo no lleva comprobante:
+
+```json
+{"eventId": "…", "eventType": "webhook.test", "occurredAt": "2026-10-14T05:00:00Z", "tenantId": "…", "subscriptionId": "…"}
+```
+
+Se intenta una sola vez: no se reintenta (para probar de nuevo se pide otro) y su resultado no cuenta para apagar la suscripción. Mientras uno esté en camino no se admite otro (`409 WEBHOOK_TEST_PENDING`). Aparece en el historial con `eventType` `webhook.test` y `documentId` nulo.
+
+**Reparto y retención.** Como mucho dos avisos de una misma empresa se envían a la vez (`einvoice.webhooks.max-concurrent-per-tenant`). Los demás esperan unos segundos sin gastar un intento, de modo que un receptor lento no retrasa los avisos de otras empresas. El historial guarda los avisos entregados o fallidos 90 días (`einvoice.webhooks.history-retention`); el worker borra cada hora los más antiguos. Los pendientes no se borran.
 
 ## Políticas
 `Idempotency-Key` obligatorio en POST de emisión; 409 al variar payload; 429 por tenant y token; `X-Correlation-ID` opcional para diagnósticos; no exponer SOAP interno ni XML de otros tenants. `GET /documents/{id}` refleja que autorizado y recibido son estados distintos.
