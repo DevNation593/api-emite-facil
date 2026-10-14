@@ -127,7 +127,7 @@ Lo que estas pruebas no dicen: cómo se ve en Firefox o Safari, ni si el SRI rea
 - **Referencia de staging**: `infra/docker-compose.stack.yml` levanta API, worker y web sobre la infraestructura del compose; solo la web publica puerto. `infra/stack-smoke.sh` comprueba que todo está en pie. Comprobado el 2026-10-11 en local, salvo el inicio de sesión: necesita un proveedor de identidad con una dirección que valga igual para el navegador y para los contenedores.
 - **Base de datos**: en producción, dos usuarios. `infra/postgres/roles.sql` crea el que migra (dueño de las tablas) y el de la aplicación, que solo lee y escribe filas y no puede retirar las defensas de la base. La aplicación los usa con `SPRING_FLYWAY_USER`/`SPRING_FLYWAY_PASSWORD` y `SPRING_DATASOURCE_USERNAME`/`SPRING_DATASOURCE_PASSWORD`.
 - **Variables**: doc 13 y `.env.example`. La web exige `https` en `APP_BASE_URL` fuera de la propia máquina.
-- **CI**: cada repositorio tiene el suyo. En este (`.github/workflows/ci.yml`): pruebas, cobertura, SBOM, verificación de los XSD, las pruebas con navegador del recorrido completo (con la web clonada de su repositorio), construcción de la imagen y revisión de dependencias en cada pull request. En el de [la web](https://github.com/DevNation593/client-factura-facil): lint, tipos, pruebas, auditoría de dependencias, SBOM, imagen y que su copia del contrato sea la de este repositorio. Los dos repositorios son públicos, así que la revisión de dependencias corre. No publica imágenes ni despliega: el registro y la nube no están elegidos.
+- **CI**: cada repositorio tiene el suyo. En este (`.github/workflows/ci.yml`): pruebas, cobertura, SBOM, verificación de los XSD, las pruebas con navegador del recorrido completo (con la web clonada de su repositorio), y construcción de la imagen. En el de [la web](https://github.com/DevNation593/client-factura-facil): lint, tipos, pruebas, auditoría de dependencias, SBOM, imagen y que su copia del contrato sea la de este repositorio. No se usa Code Security de GitHub, así que las dependencias de Maven no tienen comprobación de vulnerabilidades en CI (las de npm sí, con `npm audit`). No publica imágenes ni despliega: el registro y la nube no están elegidos.
 
 ## Checklist de preproducción (doc 10)
 
@@ -139,7 +139,7 @@ Lo que estas pruebas no dicen: cómo se ve en Firefox o Safari, ni si el SRI rea
 | Restauración total | Ensayada en local; pendiente en el entorno definitivo | Equipo técnico |
 | Revisión de registros | Preparada (correlación, JSON, eventos del servidor web); pendiente dónde se recogen y quién los mira | Equipo técnico |
 | Límites de peticiones | Por usuario, en la API (1200 por minuto, 300 de escritura; configurables). Si Redis no contesta en medio segundo (`REDIS_TIMEOUT`) las peticiones pasan sin contarse y se le deja descansar 10 segundos. Lo que llega sin autenticar lo debe frenar el proxy de entrada, que no existe aún | Equipo técnico |
-| Análisis de dependencias | En CI: auditoría del frontend, revisión en pull requests y SBOM. Sin análisis de vulnerabilidades de las dependencias Java fuera de los pull requests | Equipo técnico |
+| Análisis de dependencias | En CI: auditoría de las dependencias de la web (`npm audit`) y SBOM de las dos. Las dependencias Java no tienen análisis de vulnerabilidades: no se usa Code Security de GitHub | Equipo técnico |
 | Política de privacidad, consentimientos y contratos de encargado | Pendiente | Responsable del producto |
 
 ## Lo que sigue abierto
