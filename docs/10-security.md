@@ -56,7 +56,7 @@ Pen test focalizado API/tenant; simulación robo credenciales; rotación P12; re
 - **No se revela quién tiene cuenta.** Registrarse con un correo que ya la tiene, o pedir la recuperación de uno que no, responde igual; al correo existente le llega un aviso. Un correo inexistente cuesta lo mismo que uno real al ingresar.
 - **Enlaces de los correos.** Confirmar el correo (24 horas) y cambiar la contraseña (1 hora) son enlaces de un solo uso a `EINVOICE_WEB_URL`, con el código en el fragmento (`#token=…`): el navegador no lo envía a ningún servidor ni queda en registros de acceso. Se guardan como SHA-256. Como mucho 5 correos de cada tipo por cuenta y hora. Cambiar la contraseña con el enlace confirma también el correo y cierra todas las sesiones.
 - Sin servidor SMTP (`spring.mail.host`) o sin remitente (`DELIVERY_EMAIL_FROM`) la aplicación funciona, pero esos correos no salen: no se puede confirmar el correo ni recuperar una contraseña olvidada.
-- **Equipo.** No hay invitaciones: cada usuario trabaja en las empresas que crea, como propietario. El rol de propietario no se concede, no se cambia y no se retira; tampoco se transfiere (hoy, un cambio manual en la base).
+- **Equipo.** No hay invitaciones ni pantalla de equipo: cada usuario trabaja en las empresas que crea, como propietario. El rol de propietario no se concede, no se cambia y no se retira; tampoco se transfiere (hoy, un cambio manual en la base).
 - Lo que no hay: MFA, confirmación obligatoria del correo antes de usar la aplicación, aviso al usuario de un ingreso desde otro lugar, ni lista de sesiones abiertas para cerrarlas una a una.
 
 ## Webhooks salientes: lo implementado y sus límites
