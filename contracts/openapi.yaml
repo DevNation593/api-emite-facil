@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Facturación electrónica Ecuador — API
-  version: 0.13.0
+  version: 0.14.0
   description: >
     Contrato de la API REST. Un test (OpenApiContractIT) falla si las rutas de este archivo y las
     de los controladores dejan de coincidir. El tenant activo nunca se envía en el cuerpo: se
@@ -17,7 +17,6 @@ security:
 tags:
   - name: auth
   - name: tenants
-  - name: team
   - name: taxpayers
   - name: establishments
   - name: emission-points
@@ -291,78 +290,6 @@ paths:
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
-  /members:
-    get:
-      tags: [team]
-      operationId: listMembers
-      summary: Miembros de la empresa activa, el más antiguo primero. Requiere rol OWNER o ADMIN.
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-      responses:
-        '200':
-          description: Miembros.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/Member' }
-        '400': { $ref: '#/components/responses/Problem' }
-        '401': { $ref: '#/components/responses/Problem' }
-        '403': { $ref: '#/components/responses/Problem' }
-  /members/{userId}/role:
-    put:
-      tags: [team]
-      operationId: changeMemberRole
-      summary: Cambia el rol de un miembro. Solo el OWNER; su propio rol no se cambia.
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [role]
-              properties:
-                role: { $ref: '#/components/schemas/Role' }
-      responses:
-        '200':
-          description: Miembro con su nuevo rol.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Member' }
-        '400': { $ref: '#/components/responses/Problem' }
-        '401': { $ref: '#/components/responses/Problem' }
-        '403': { $ref: '#/components/responses/Problem' }
-        '404': { $ref: '#/components/responses/Problem' }
-        '409':
-          description: errorCode OWNER_PROTECTED, el propietario no cambia de rol.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-  /members/{userId}:
-    delete:
-      tags: [team]
-      operationId: removeMember
-      summary: >
-        Retira a un miembro de la empresa; pierde el acceso en su siguiente petición. El OWNER retira
-        a cualquiera salvo a sí mismo; un ADMIN, solo a BILLER y AUDITOR (si no, 403 ROLE_NOT_GRANTABLE).
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
-      responses:
-        '204':
-          description: Retirado.
-        '400': { $ref: '#/components/responses/Problem' }
-        '401': { $ref: '#/components/responses/Problem' }
-        '403': { $ref: '#/components/responses/Problem' }
-        '404': { $ref: '#/components/responses/Problem' }
-        '409':
-          description: errorCode OWNER_PROTECTED, el propietario no se retira.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
   /taxpayers:
     post:
       tags: [taxpayers]
@@ -1419,8 +1346,6 @@ components:
             - INVALID_LINK
             - WEAK_PASSWORD
             - INVALID_CURRENT_PASSWORD
-            - ROLE_NOT_GRANTABLE
-            - OWNER_PROTECTED
             - PRODUCTION_REQUIREMENTS_NOT_MET
             - PAYMENT_METHOD_UNKNOWN
             - PAYMENTS_MISMATCH
@@ -1787,19 +1712,6 @@ components:
         name: { type: string }
         status: { type: string, enum: [ACTIVE, SUSPENDED] }
         role: { $ref: '#/components/schemas/Role' }
-    Member:
-      type: object
-      required: [userId, role, since, self]
-      properties:
-        userId: { type: string, format: uuid }
-        email:
-          type: [string, 'null']
-          description: Correo con el que el proveedor de identidad conoce a la persona, si lo informa.
-        role: { $ref: '#/components/schemas/Role' }
-        since: { type: string, format: date-time }
-        self:
-          type: boolean
-          description: Si es quien hace la consulta.
     WebhookEventType:
       type: string
       enum: [document.received, document.authorized, document.rejected, document.delivered]

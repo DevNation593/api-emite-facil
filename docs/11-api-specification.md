@@ -19,9 +19,6 @@ El contrato vigente es [`contracts/openapi.yaml`](../contracts/openapi.yaml); un
 | POST | `/tenants` | cualquier usuario autenticado | 201; el creador queda como `OWNER` |
 | GET | `/tenants` | cualquier usuario autenticado | empresas donde tiene membresía activa |
 | GET | `/tenants/current` | miembro | empresa activa y rol |
-| GET | `/members` | `OWNER`, `ADMIN` | miembros de la empresa, con su correo y su rol |
-| PUT | `/members/{userId}/role` | `OWNER` | cambia el rol; `409 OWNER_PROTECTED` sobre el propietario |
-| DELETE | `/members/{userId}` | `OWNER`, `ADMIN` | 204; nadie retira a quien tiene un rol igual o superior al suyo (`403 ROLE_NOT_GRANTABLE`) |
 | POST | `/webhooks/subscriptions` | `OWNER`, `ADMIN` | 201 con el secreto de firma, que solo aparece aquí; `422 WEBHOOK_URL_NOT_ALLOWED`, `409 WEBHOOK_LIMIT_REACHED`, `409 WEBHOOKS_DISABLED` |
 | GET | `/webhooks/subscriptions` | `OWNER`, `ADMIN` | suscripciones de la empresa, sin su secreto |
 | PUT | `/webhooks/subscriptions/{id}` | `OWNER`, `ADMIN` | cambia dirección, eventos y descripción; apaga o enciende (`enabled`) |
