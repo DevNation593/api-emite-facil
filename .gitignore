@@ -1,0 +1,48 @@
+# Secrets and credentials (never commit)
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.p8
+*.key
+*.pem
+*.jks
+*.keystore
+*.asc
+secrets/
+**/secrets/
+*.secret
+# local config / IDE / runtime
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+logs/
+*.log
+*.tmp
+# Java / Maven / Gradle
+**/target/
+**/build/
+.gradle/
+# Next.js / Node
+node_modules/
+.next/
+out/
+coverage/
+# Docker / test data
+.minio/
+pgdata/
+redis-data/
+rabbitmq-data/
+# SRI taxpayer documents (not test fixtures)
+private-invoices/
+private-xml/
+private-pdf/
+**/certificates/
+
+# Pruebas con navegador
+e2e/.tmp/
+e2e/test-results/
+e2e/playwright-report/

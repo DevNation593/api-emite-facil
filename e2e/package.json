@@ -1,0 +1,22 @@
+{
+  "name": "einvoice-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test \"simulator/*.test.mjs\"",
+    "typecheck": "tsc --noEmit",
+    "stack:up": "node scripts/stack.ts up",
+    "stack:down": "node scripts/stack.ts down",
+    "servers": "node scripts/servers.ts",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,1880 @@
+openapi: 3.1.0
+info:
+  title: Facturación electrónica Ecuador — API
+  version: 0.11.0
+  description: >
+    Contrato de la API REST. Un test (OpenApiContractIT) falla si las rutas de este archivo y las
+    de los controladores dejan de coincidir. El tenant activo nunca se envía en el cuerpo: se
+    resuelve con las membresías del usuario autenticado y, si tiene varias, con la cabecera
+    X-Tenant-Id. Cualquier operación puede responder 429 (errorCode RATE_LIMITED) si el usuario
+    supera su cupo de peticiones por minuto; la cabecera Retry-After dice cuántos segundos esperar.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+tags:
+  - name: tenants
+  - name: team
+  - name: taxpayers
+  - name: establishments
+  - name: emission-points
+  - name: catalogs
+  - name: customers
+  - name: products
+  - name: invoices
+  - name: documents
+  - name: certificates
+  - name: webhooks
+paths:
+  /tenants:
+    post:
+      tags: [tenants]
+      operationId: createTenant
+      summary: Crea una empresa; quien la crea queda como OWNER.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTenantRequest' }
+      responses:
+        '201':
+          description: Empresa creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [tenants]
+      operationId: listTenants
+      summary: Empresas en las que el usuario tiene una membresía activa.
+      responses:
+        '200':
+          description: Lista de empresas del usuario.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Tenant' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /tenants/current:
+    get:
+      tags: [tenants]
+      operationId: getCurrentTenant
+      summary: Empresa activa de la petición y rol del usuario en ella.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Empresa activa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /members:
+    get:
+      tags: [team]
+      operationId: listMembers
+      summary: Miembros de la empresa activa, el más antiguo primero. Requiere rol OWNER o ADMIN.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Miembros.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Member' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /members/{userId}/role:
+    put:
+      tags: [team]
+      operationId: changeMemberRole
+      summary: Cambia el rol de un miembro. Solo el OWNER; su propio rol no se cambia.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: '#/components/schemas/Role' }
+      responses:
+        '200':
+          description: Miembro con su nuevo rol.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: errorCode OWNER_PROTECTED, el propietario no cambia de rol.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /members/{userId}:
+    delete:
+      tags: [team]
+      operationId: removeMember
+      summary: >
+        Retira a un miembro de la empresa; pierde el acceso en su siguiente petición. El OWNER retira
+        a cualquiera salvo a sí mismo; un ADMIN, solo a BILLER y AUDITOR (si no, 403 ROLE_NOT_GRANTABLE).
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204':
+          description: Retirado.
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: errorCode OWNER_PROTECTED, el propietario no se retira.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /invitations:
+    post:
+      tags: [team]
+      operationId: createInvitation
+      summary: >
+        Invita a un correo a la empresa con un rol. Requiere OWNER o ADMIN, y nadie concede un rol
+        igual o superior al suyo (403 ROLE_NOT_GRANTABLE). La respuesta trae el código de la
+        invitación: es la única vez que se muestra. Invitar de nuevo al mismo correo anula la anterior
+        (queda como revocada en la auditoría), salvo que quien invita no pudiera revocarla: entonces
+        403 ROLE_NOT_GRANTABLE y la anterior sigue en pie.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                role: { $ref: '#/components/schemas/Role' }
+      responses:
+        '201':
+          description: Invitación creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedInvitation' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: >
+            errorCode ALREADY_MEMBER (esa persona ya es miembro) o INVITATION_LIMIT_REACHED (la
+            empresa tiene 50 invitaciones pendientes).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [team]
+      operationId: listInvitations
+      summary: Invitaciones pendientes y vigentes de la empresa, sin su código. Requiere OWNER o ADMIN.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Invitaciones pendientes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Invitation' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /invitations/{id}:
+    delete:
+      tags: [team]
+      operationId: revokeInvitation
+      summary: Anula una invitación pendiente; su enlace deja de valer.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204':
+          description: Anulada.
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /invitations/preview:
+    post:
+      tags: [team]
+      operationId: previewInvitation
+      summary: >
+        Qué empresa y qué rol ofrece un código de invitación. Con sesión, sin empresa activa. Mismas
+        respuestas de error que al aceptar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvitationToken' }
+      responses:
+        '200':
+          description: Lo que ofrece la invitación.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationPreview' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /invitations/accept:
+    post:
+      tags: [team]
+      operationId: acceptInvitation
+      summary: >
+        Acepta una invitación: quien inició sesión pasa a ser miembro de esa empresa con el rol
+        ofrecido. Su token debe traer el correo invitado. Con sesión, sin empresa activa.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvitationToken' }
+      responses:
+        '200':
+          description: Empresa a la que ahora pertenece, con su rol.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tenant' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403':
+          description: >
+            errorCode INVITATION_EMAIL_MISMATCH (la invitación es para otro correo, o el token no
+            informa del correo) o EMAIL_NOT_VERIFIED.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: >
+            errorCode INVITATION_NOT_VALID: el código no existe, caducó, se anuló o ya se usó. La
+            respuesta no distingue cuál.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: errorCode ALREADY_MEMBER.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /taxpayers:
+    post:
+      tags: [taxpayers]
+      operationId: createTaxpayer
+      summary: Da de alta un emisor. Requiere rol OWNER o ADMIN.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaxpayerRequest' }
+      responses:
+        '201':
+          description: Emisor creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Taxpayer' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: El RUC ya está registrado en la plataforma (errorCode RUC_ALREADY_REGISTERED).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: >
+            errorCode PRODUCTION_NOT_ENABLED: un emisor se da de alta en el ambiente de pruebas y pasa
+            a producción con la activación. O RIMPE_REGIME_UNSUPPORTED.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [taxpayers]
+      operationId: listTaxpayers
+      summary: Emisores de la empresa activa.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Lista de emisores.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Taxpayer' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /taxpayers/{id}:
+    get:
+      tags: [taxpayers]
+      operationId: getTaxpayer
+      summary: Un emisor de la empresa activa.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Emisor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Taxpayer' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /taxpayers/{id}/production-readiness:
+    get:
+      tags: [taxpayers]
+      operationId: getProductionReadiness
+      summary: Qué tiene y qué le falta al emisor para pasar a producción.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Estado de los requisitos.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionReadiness' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /taxpayers/{id}/production-activation:
+    post:
+      tags: [taxpayers]
+      operationId: activateProduction
+      summary: >
+        Pasa el emisor a producción. Requiere rol OWNER, un certificado vigente, al menos un
+        comprobante autorizado por el SRI en el ambiente de pruebas y la declaración de que el SRI
+        habilitó el RUC para producción. Repetirla no cambia nada.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sriProductionAuthorized]
+              properties:
+                sriProductionAuthorized:
+                  type: boolean
+                  description: El propietario declara que el SRI habilitó este RUC para emitir en producción.
+      responses:
+        '200':
+          description: Emisor en producción.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductionReadiness' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422':
+          description: >
+            errorCode PRODUCTION_REQUIREMENTS_NOT_MET. `errors` nombra lo que falta: certificate,
+            testAuthorization o sriProductionAuthorized.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /taxpayers/{taxpayerId}/establishments:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - name: taxpayerId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [establishments]
+      operationId: createEstablishment
+      summary: Crea un establecimiento del emisor. Requiere rol OWNER o ADMIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateEstablishmentRequest' }
+      responses:
+        '201':
+          description: Establecimiento creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Establishment' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: Código ya usado por el emisor (errorCode ESTABLISHMENT_CODE_TAKEN).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [establishments]
+      operationId: listEstablishments
+      summary: Establecimientos del emisor, ordenados por código.
+      responses:
+        '200':
+          description: Lista de establecimientos.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Establishment' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /emission-points:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [emission-points]
+      operationId: createEmissionPoint
+      summary: Crea un punto de emisión en un establecimiento. Requiere rol OWNER o ADMIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateEmissionPointRequest' }
+      responses:
+        '201':
+          description: Punto de emisión creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmissionPoint' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: Código ya usado en el establecimiento (errorCode EMISSION_POINT_CODE_TAKEN).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [emission-points]
+      operationId: listEmissionPoints
+      summary: Puntos de emisión de un establecimiento, ordenados por código.
+      parameters:
+        - name: establishmentId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Lista de puntos de emisión.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/EmissionPoint' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /catalogs/identification-types:
+    get:
+      tags: [catalogs]
+      operationId: listIdentificationTypes
+      summary: Tipos de identificación del comprador (ficha técnica, tabla 6).
+      responses:
+        '200':
+          description: Catálogo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CodeName' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /catalogs/payment-methods:
+    get:
+      tags: [catalogs]
+      operationId: listPaymentMethods
+      summary: Formas de pago con su vigencia (ficha técnica, tabla 24).
+      responses:
+        '200':
+          description: Catálogo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PaymentMethod' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /catalogs/tax-rates:
+    get:
+      tags: [catalogs]
+      operationId: listTaxRates
+      summary: Tarifas de impuesto por código (ficha técnica, tablas 16 y 17).
+      responses:
+        '200':
+          description: Catálogo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TaxRate' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /customers:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [customers]
+      operationId: createCustomer
+      summary: Registra un cliente. Requiere rol OWNER, ADMIN o BILLER.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCustomerRequest' }
+      responses:
+        '201':
+          description: Cliente creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [customers]
+      operationId: listCustomers
+      summary: Clientes de la empresa activa, paginados; q busca por nombre o prefijo de identificación.
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Página de clientes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, page, size, total]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Customer' } }
+                  page: { type: integer }
+                  size: { type: integer }
+                  total: { type: integer }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /customers/{id}:
+    get:
+      tags: [customers]
+      operationId: getCustomer
+      summary: Un cliente de la empresa activa.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Cliente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /products:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [products]
+      operationId: createProduct
+      summary: Registra un producto o servicio. Requiere rol OWNER o ADMIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProductRequest' }
+      responses:
+        '201':
+          description: Producto creado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [products]
+      operationId: listProducts
+      summary: Productos de la empresa activa, paginados; q busca en nombre o código.
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Página de productos.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, page, size, total]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Product' } }
+                  page: { type: integer }
+                  size: { type: integer }
+                  total: { type: integer }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /products/{id}:
+    get:
+      tags: [products]
+      operationId: getProduct
+      summary: Un producto de la empresa activa.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Producto.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /emission-points/{id}/sequence:
+    put:
+      tags: [emission-points]
+      operationId: setEmissionPointSequence
+      summary: >
+        Fija el próximo secuencial de un punto de emisión que aún no ha emitido comprobantes de ese
+        tipo y ambiente. Requiere rol OWNER o ADMIN.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetSequenceRequest' }
+      responses:
+        '200':
+          description: Secuencial fijado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sequence' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: El contador ya emitió comprobantes (errorCode SEQUENCE_ALREADY_USED).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /invoices:
+    post:
+      tags: [invoices]
+      operationId: issueInvoice
+      summary: >
+        Emite una factura: la calcula, le asigna secuencial y clave de acceso y la deja en RESERVED.
+        202 significa aceptada para procesamiento, no autorizada por el SRI. Requiere rol OWNER,
+        ADMIN o BILLER.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >
+            Identifica el intento de emisión (hasta 100 caracteres: letras, dígitos y . _ : -).
+            Repetirlo con el mismo cuerpo devuelve el mismo documento; con otro cuerpo responde
+            409 IDEMPOTENCY_KEY_REUSED.
+          schema: { type: string, maxLength: 100 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IssueInvoiceRequest' }
+      responses:
+        '202':
+          description: Factura aceptada y reservada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuedDocument' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '422':
+          description: >
+            Regla fiscal incumplida. errorCode: UNSUPPORTED_CURRENCY, INVALID_ISSUE_DATE,
+            EMISSION_POINT_DISABLED, INVALID_LINE, AMOUNT_TOO_LARGE, TAX_RATE_UNKNOWN,
+            PAYMENT_METHOD_UNKNOWN, INVALID_PAYMENT, PAYMENTS_MISMATCH,
+            FINAL_CONSUMER_LIMIT_EXCEEDED o SEQUENCE_EXHAUSTED.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /documents:
+    get:
+      tags: [documents]
+      operationId: listDocuments
+      summary: Comprobantes de la empresa activa, del más reciente al más antiguo.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Página de comprobantes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, page, size, total]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/DocumentSummary' } }
+                  page: { type: integer }
+                  size: { type: integer }
+                  total: { type: integer }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /documents/{id}:
+    get:
+      tags: [documents]
+      operationId: getDocument
+      summary: Un comprobante con su estado actual, totales, líneas y pagos.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Comprobante.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /documents/{id}/artifacts/{kind}:
+    get:
+      tags: [documents]
+      operationId: downloadDocumentArtifact
+      summary: >
+        Descarga un artefacto del comprobante, como adjunto con el número del comprobante en el
+        nombre. La cabecera ETag lleva su SHA-256.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, enum: [xml-unsigned, xml-signed, sri-authorization, xml-authorized, ride] }
+          description: >
+            xml-unsigned y xml-signed son el comprobante; sri-authorization es la respuesta del SRI
+            que lo autorizó, tal como llegó. xml-authorized (el XML autorizado que se entrega al
+            receptor) y ride (su representación impresa, en PDF) existen cuando el comprobante
+            autorizado ya se archivó, poco después de pasar a AUTHORIZED.
+      responses:
+        '200':
+          description: Contenido del artefacto.
+          headers:
+            ETag:
+              description: SHA-256 del contenido, entre comillas.
+              schema: { type: string }
+            Content-Disposition:
+              description: 'attachment, con un nombre como factura-001-001-000000123-ride.pdf.'
+              schema: { type: string }
+          content:
+            application/xml:
+              schema: { type: string, format: binary }
+            application/pdf:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /documents/{id}/deliveries:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [documents]
+      operationId: listDocumentDeliveries
+      summary: Entregas del comprobante al receptor, la más reciente primero.
+      responses:
+        '200':
+          description: Entregas.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Delivery' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [documents]
+      operationId: requestDocumentDelivery
+      summary: >
+        Pide un nuevo envío del comprobante autorizado por correo, con el RIDE y el XML autorizado
+        adjuntos, a la dirección del cliente o a la indicada. El envío es asíncrono. Requiere rol
+        OWNER, ADMIN o BILLER.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeliveryRequest' }
+      responses:
+        '202':
+          description: Entrega registrada en estado PENDING.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Delivery' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: >
+            No se puede entregar. errorCode: DOCUMENT_NOT_AUTHORIZED (el comprobante no está
+            autorizado), DELIVERY_DISABLED (el envío por correo no está habilitado en la plataforma)
+            o DELIVERY_LIMIT_REACHED (el comprobante ya tiene 10 entregas).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: >
+            errorCode DELIVERY_RECIPIENT_MISSING: el comprobante no tiene correo del cliente y no se
+            indicó ninguna dirección.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /documents/{id}/retry:
+    post:
+      tags: [documents]
+      operationId: retryDocument
+      summary: >
+        Devuelve a la cola un comprobante que quedó a medio camino (sin firmar por falta de
+        certificado, o sin respuesta definitiva del SRI). No cambia su estado: el procesamiento lo
+        retoma donde está. Requiere rol OWNER, ADMIN o BILLER.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202':
+          description: Reintento aceptado; el estado es el que tenía el comprobante.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentRetryAccepted' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: >
+            El comprobante no admite reintento. errorCode: DOCUMENT_NOT_RETRYABLE. Solo se reintenta
+            desde RESERVED, GENERATED, SIGNATURE_FAILED, SIGNED, SENDING o RECEIVED.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /documents/{id}/sri-attempts:
+    get:
+      tags: [documents]
+      operationId: listDocumentSriAttempts
+      summary: Llamadas al SRI hechas para el comprobante, la más reciente primero, con sus mensajes.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Intentos ante el SRI.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SriAttempt' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /certificates:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    post:
+      tags: [certificates]
+      operationId: uploadCertificate
+      summary: >
+        Carga el certificado de firma (.p12) de un emisor y lo deja como el activo. Se guarda cifrado
+        y nunca se devuelve. Requiere rol OWNER o ADMIN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UploadCertificateRequest' }
+      responses:
+        '201':
+          description: Certificado aceptado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Certificate' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422':
+          description: >
+            Certificado no utilizable. errorCode: CERTIFICATE_UNREADABLE (no es PKCS#12 o contraseña
+            incorrecta), CERTIFICATE_NO_PRIVATE_KEY, CERTIFICATE_AMBIGUOUS, CERTIFICATE_KEY_MISMATCH,
+            CERTIFICATE_EXPIRED, CERTIFICATE_NOT_YET_VALID o CERTIFICATE_KEY_UNSUPPORTED.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [certificates]
+      operationId: listCertificates
+      summary: Metadatos de los certificados de un emisor, el más reciente primero.
+      parameters:
+        - { name: taxpayerId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Certificados del emisor.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Certificate' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /webhooks/subscriptions:
+    post:
+      tags: [webhooks]
+      operationId: createWebhookSubscription
+      summary: >
+        Registra una dirección a la que avisar de lo que pasa con los comprobantes de la empresa.
+        Requiere OWNER o ADMIN. La respuesta trae el secreto con que se firman los avisos: es la
+        única vez que se muestra. La dirección debe ser https y de un servidor público de internet
+        (422 WEBHOOK_URL_NOT_ALLOWED). Hasta 10 por empresa.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookSubscriptionInput' }
+      responses:
+        '201':
+          description: Suscripción creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedWebhookSubscription' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: >
+            errorCode WEBHOOKS_DISABLED (la instalación no tiene habilitados los avisos) o
+            WEBHOOK_LIMIT_REACHED (la empresa ya tiene 10 suscripciones).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [webhooks]
+      operationId: listWebhookSubscriptions
+      summary: Suscripciones de la empresa, sin su secreto. Requiere OWNER o ADMIN.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Suscripciones.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WebhookSubscription' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /webhooks/subscriptions/{id}:
+    put:
+      tags: [webhooks]
+      operationId: updateWebhookSubscription
+      summary: >
+        Cambia la dirección, los eventos o la descripción, y la apaga o la vuelve a encender.
+        Encenderla pone a cero su cuenta de fallos (409 WEBHOOKS_DISABLED si la instalación no tiene
+        habilitados los avisos).
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookSubscriptionInput'
+                - type: object
+                  required: [enabled]
+                  properties:
+                    enabled: { type: boolean }
+      responses:
+        '200':
+          description: Suscripción actualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookSubscription' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [webhooks]
+      operationId: deleteWebhookSubscription
+      summary: Borra la suscripción y su historial de avisos.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204':
+          description: Borrada.
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /webhooks/subscriptions/{id}/deliveries:
+    get:
+      tags: [webhooks]
+      operationId: listWebhookDeliveries
+      summary: >
+        Avisos de la suscripción, los más recientes primero: qué se envió, qué espera un reintento
+        y qué falló, con el código que respondió el receptor. Requiere OWNER o ADMIN.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Página de avisos.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDeliveryPage' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /webhooks/deliveries/{id}/retry:
+    post:
+      tags: [webhooks]
+      operationId: retryWebhookDelivery
+      summary: >
+        Vuelve a poner en marcha un aviso que agotó sus intentos. Sale en segundos, con el mismo
+        identificador de evento. Requiere OWNER o ADMIN.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202':
+          description: El aviso volvió a la cola.
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: >
+            errorCode WEBHOOK_DELIVERY_NOT_RETRYABLE (el aviso no está fallido),
+            WEBHOOK_SUBSCRIPTION_DISABLED (su suscripción está desactivada) o WEBHOOKS_DISABLED.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /webhooks/subscriptions/{id}/secret:
+    post:
+      tags: [webhooks]
+      operationId: rotateWebhookSecret
+      summary: >
+        Cambia el secreto de firma y devuelve el nuevo: es la única vez que se muestra. Durante 24
+        horas los avisos llevan dos firmas, la del secreto nuevo y la del anterior.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Secreto nuevo.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [secret, previousSecretExpiresAt]
+                properties:
+                  secret: { type: string }
+                  previousSecretExpiresAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token de acceso del proveedor OIDC configurado en OIDC_ISSUER.
+  headers:
+    X-Correlation-ID:
+      description: >
+        Identificador de la petición. Se devuelve en toda respuesta; se respeta el enviado por el
+        cliente si cumple [A-Za-z0-9._-]{1,64}.
+      schema: { type: string }
+  parameters:
+    TenantId:
+      name: X-Tenant-Id
+      in: header
+      required: false
+      description: >
+        Empresa activa. Opcional si el usuario pertenece a una sola; obligatoria si pertenece a
+        varias (400 TENANT_REQUIRED). Una empresa ajena o inexistente responde 403 TENANT_FORBIDDEN.
+      schema: { type: string, format: uuid }
+  responses:
+    Problem:
+      description: Error en formato RFC 9457.
+      headers:
+        X-Correlation-ID: { $ref: '#/components/headers/X-Correlation-ID' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RateLimited:
+      description: El usuario superó su cupo de peticiones por minuto (errorCode RATE_LIMITED).
+      headers:
+        Retry-After:
+          description: Segundos hasta que empiece la siguiente ventana.
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Problem:
+      type: object
+      required: [status, errorCode, correlationId]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        errorCode:
+          type: string
+          enum:
+            - UNAUTHENTICATED
+            - FORBIDDEN
+            - TENANT_REQUIRED
+            - TENANT_HEADER_INVALID
+            - TENANT_FORBIDDEN
+            - ROLE_FORBIDDEN
+            - NOT_FOUND
+            - VALIDATION_FAILED
+            - MALFORMED_REQUEST
+            - METHOD_NOT_ALLOWED
+            - UNSUPPORTED_MEDIA_TYPE
+            - REQUEST_REJECTED
+            - RUC_ALREADY_REGISTERED
+            - ESTABLISHMENT_CODE_TAKEN
+            - EMISSION_POINT_CODE_TAKEN
+            - IDENTIFICATION_TYPE_UNKNOWN
+            - IDENTIFICATION_INVALID
+            - CUSTOMER_ALREADY_EXISTS
+            - TAX_RATE_UNKNOWN
+            - PRODUCT_SKU_TAKEN
+            - SEQUENCE_ALREADY_USED
+            - IDEMPOTENCY_KEY_REQUIRED
+            - IDEMPOTENCY_KEY_INVALID
+            - IDEMPOTENCY_KEY_REUSED
+            - UNSUPPORTED_CURRENCY
+            - INVALID_ISSUE_DATE
+            - EMISSION_POINT_DISABLED
+            - INVALID_LINE
+            - AMOUNT_TOO_LARGE
+            - INVALID_PAYMENT
+            - CERTIFICATE_UNREADABLE
+            - CERTIFICATE_NO_PRIVATE_KEY
+            - CERTIFICATE_AMBIGUOUS
+            - CERTIFICATE_EXPIRED
+            - CERTIFICATE_NOT_YET_VALID
+            - CERTIFICATE_KEY_UNSUPPORTED
+            - CERTIFICATE_KEY_MISMATCH
+            - DOCUMENT_NOT_RETRYABLE
+            - DOCUMENT_NOT_AUTHORIZED
+            - DELIVERY_DISABLED
+            - DELIVERY_LIMIT_REACHED
+            - DELIVERY_RECIPIENT_MISSING
+            - RIMPE_REGIME_UNSUPPORTED
+            - PRODUCTION_NOT_ENABLED
+            - RATE_LIMITED
+            - REPLACED_DOCUMENT_NOT_REJECTED
+            - WEBHOOKS_DISABLED
+            - WEBHOOK_URL_NOT_ALLOWED
+            - WEBHOOK_LIMIT_REACHED
+            - WEBHOOK_DELIVERY_NOT_RETRYABLE
+            - WEBHOOK_SUBSCRIPTION_DISABLED
+            - REPLACED_DOCUMENT_OTHER_ISSUER
+            - DOCUMENT_ALREADY_REPLACED
+            - INVITATION_NOT_VALID
+            - INVITATION_EMAIL_MISMATCH
+            - EMAIL_NOT_VERIFIED
+            - ALREADY_MEMBER
+            - ROLE_NOT_GRANTABLE
+            - OWNER_PROTECTED
+            - INVITATION_LIMIT_REACHED
+            - PRODUCTION_REQUIREMENTS_NOT_MET
+            - PAYMENT_METHOD_UNKNOWN
+            - PAYMENTS_MISMATCH
+            - FINAL_CONSUMER_LIMIT_EXCEEDED
+            - SEQUENCE_EXHAUSTED
+            - INTERNAL_ERROR
+        correlationId: { type: string }
+        errors:
+          type: array
+          description: Solo con VALIDATION_FAILED.
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+    CodeName:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string }
+        name: { type: string }
+    PaymentMethod:
+      type: object
+      required: [code, name, validFrom]
+      properties:
+        code: { type: string }
+        name: { type: string }
+        validFrom: { type: string, format: date }
+        validTo: { type: [string, 'null'], format: date }
+    Decimal:
+      type: string
+      pattern: '^[0-9]+(\.[0-9]+)?$'
+      description: Importe o cantidad como cadena decimal, para no perder precisión.
+    TaxRate:
+      type: object
+      required: [taxCode, rateCode, description, rate]
+      properties:
+        taxCode: { type: string, description: 'Impuesto: 2 es IVA.' }
+        rateCode: { type: string }
+        description: { type: string }
+        rate: { $ref: '#/components/schemas/Decimal' }
+    CreateCustomerRequest:
+      type: object
+      required: [idType, idNumber, name]
+      properties:
+        idType: { type: string, description: 'Código de la tabla 6 de la ficha: 04, 05, 06, 07 u 08.' }
+        idNumber: { type: string, maxLength: 20 }
+        name: { type: string, minLength: 1, maxLength: 300 }
+        email: { type: [string, 'null'], format: email, maxLength: 254 }
+        address: { type: [string, 'null'], maxLength: 300 }
+        phone: { type: [string, 'null'], maxLength: 30 }
+    Customer:
+      type: object
+      required: [id, idType, idNumber, name]
+      properties:
+        id: { type: string, format: uuid }
+        idType: { type: string }
+        idNumber: { type: string }
+        name: { type: string }
+        email: { type: [string, 'null'] }
+        address: { type: [string, 'null'] }
+        phone: { type: [string, 'null'] }
+    CreateProductRequest:
+      type: object
+      required: [sku, name, unitPrice, ivaRateCode]
+      properties:
+        sku: { type: string, pattern: '^[A-Za-z0-9._-]{1,25}$' }
+        name: { type: string, minLength: 1, maxLength: 300 }
+        unitPrice:
+          allOf: [{ $ref: '#/components/schemas/Decimal' }]
+          description: Hasta 12 enteros y 6 decimales.
+        ivaRateCode: { type: string, description: 'Código de tarifa de IVA del catálogo (ficha, tabla 17).' }
+    Product:
+      type: object
+      required: [id, sku, name, unitPrice, ivaRateCode]
+      properties:
+        id: { type: string, format: uuid }
+        sku: { type: string }
+        name: { type: string }
+        unitPrice: { $ref: '#/components/schemas/Decimal' }
+        ivaRateCode: { type: string }
+    SetSequenceRequest:
+      type: object
+      required: [environment, documentType, nextValue]
+      properties:
+        environment: { type: string, enum: ['1', '2'] }
+        documentType: { type: string, enum: ['01'] }
+        nextValue: { type: integer, minimum: 1, maximum: 999999999 }
+    Sequence:
+      type: object
+      required: [emissionPointId, environment, documentType, nextValue]
+      properties:
+        emissionPointId: { type: string, format: uuid }
+        environment: { type: string }
+        documentType: { type: string }
+        nextValue: { type: integer }
+    IssueInvoiceRequest:
+      type: object
+      required: [taxpayerId, establishmentCode, emissionPointCode, customerId, lines, payments]
+      properties:
+        taxpayerId: { type: string, format: uuid }
+        establishmentCode: { type: string, description: Tres dígitos. }
+        emissionPointCode: { type: string, description: Tres dígitos. }
+        customerId: { type: string, format: uuid }
+        issueDate:
+          type: [string, 'null']
+          format: date
+          description: Por defecto hoy en Ecuador. No puede ser futura ni anterior al último comprobante del punto.
+        currency:
+          type: [string, 'null']
+          description: Solo USD, que es el valor por defecto.
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: object
+            required: [productId, quantity]
+            properties:
+              productId: { type: string, format: uuid }
+              quantity: { $ref: '#/components/schemas/Decimal' }
+              unitPrice:
+                description: Por defecto, el precio del producto. Hasta 6 decimales.
+                type: [string, 'null']
+              discount:
+                description: Por defecto 0.00. Hasta 2 decimales.
+                type: [string, 'null']
+        payments:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: Su suma debe ser igual al total que calcula el servidor.
+          items:
+            type: object
+            required: [methodCode, amount]
+            properties:
+              methodCode: { type: string, description: 'Forma de pago del catálogo (ficha, tabla 24).' }
+              amount: { $ref: '#/components/schemas/Decimal' }
+        replacesDocumentId:
+          type: [string, 'null']
+          format: uuid
+          description: >
+            Comprobante de la misma empresa y del mismo emisor, en estado RETURNED, NOT_AUTHORIZED o
+            XSD_INVALID, al que esta factura reemplaza. La nueva lleva su propio secuencial y su propia
+            clave; el reemplazado no cambia. 409 REPLACED_DOCUMENT_NOT_REJECTED si está en otro estado,
+            409 REPLACED_DOCUMENT_OTHER_ISSUER si es de otro emisor y 409 DOCUMENT_ALREADY_REPLACED si
+            ya tiene reemplazo.
+    IssuedDocument:
+      type: object
+      required: [id, state, statusUrl]
+      properties:
+        id: { type: string, format: uuid }
+        state:
+          type: string
+          description: Estado actual del documento. RESERVED al emitir; en un reintento puede haber avanzado.
+        statusUrl: { type: string }
+    DocumentSummary:
+      type: object
+      required: [id, documentType, state, number, issueDate, customerName, total]
+      properties:
+        id: { type: string, format: uuid }
+        documentType: { type: string }
+        state: { $ref: '#/components/schemas/DocumentState' }
+        number: { type: string, description: 'establecimiento-punto-secuencial, por ejemplo 001-002-000000123.' }
+        issueDate: { type: string, format: date }
+        customerName: { type: string }
+        total: { $ref: '#/components/schemas/Decimal' }
+    DocumentState:
+      type: string
+      description: >
+        Estado interno del comprobante. RESERVED (secuencial y clave asignados), GENERATED (XML
+        válido), SIGNED (firmado; aquí espera si la transmisión del ambiente no está habilitada),
+        SENDING (envío en curso o de resultado incierto), RECEIVED (el SRI lo recibió; pendiente de
+        autorización), AUTHORIZED. Estados de fallo: XSD_INVALID, SIGNATURE_FAILED, RETURNED (la
+        recepción lo devolvió) y NOT_AUTHORIZED.
+      enum: [RESERVED, GENERATED, SIGNED, SENDING, RECEIVED, AUTHORIZED, XSD_INVALID, SIGNATURE_FAILED,
+             RETURNED, NOT_AUTHORIZED]
+    DocumentRetryAccepted:
+      type: object
+      required: [id, state]
+      properties:
+        id: { type: string, format: uuid }
+        state: { $ref: '#/components/schemas/DocumentState' }
+    DeliveryRequest:
+      type: object
+      properties:
+        email:
+          type: [string, 'null']
+          format: email
+          maxLength: 254
+          description: Dirección a la que enviar; si falta, la del cliente que consta en el comprobante.
+    Delivery:
+      type: object
+      required: [id, channel, recipient, status, attemptCount, createdAt, automatic]
+      properties:
+        id: { type: string, format: uuid }
+        channel: { type: string, enum: [EMAIL] }
+        recipient: { type: string }
+        status:
+          type: string
+          enum: [PENDING, SENDING, SENT, FAILED]
+          description: >
+            PENDING (por enviar o esperando un reintento), SENDING (envío en curso), SENT (el servidor
+            de correo lo aceptó; no implica que el receptor lo haya leído ni que no rebote después) o
+            FAILED (rechazo definitivo o reintentos agotados). No afecta al estado fiscal del comprobante.
+        attemptCount: { type: integer }
+        lastError: { type: [string, 'null'], description: 'Motivo del último fallo, si lo hubo.' }
+        createdAt: { type: string, format: date-time }
+        sentAt: { type: [string, 'null'], format: date-time }
+        automatic:
+          type: boolean
+          description: true si es la entrega que se crea sola al autorizarse el comprobante; false si la pidió un usuario.
+    SriMessage:
+      type: object
+      description: Error o advertencia que devolvió el SRI, tal como llegó.
+      properties:
+        identifier: { type: [string, 'null'], description: Código del catálogo de la ficha técnica. }
+        message: { type: [string, 'null'] }
+        additionalInfo: { type: [string, 'null'] }
+        type: { type: [string, 'null'], description: ERROR, ADVERTENCIA o INFORMATIVO. }
+    SriAttempt:
+      type: object
+      required: [id, operation, startedAt, messages]
+      properties:
+        id: { type: string, format: uuid }
+        operation: { type: string, enum: [RECEPTION, AUTHORIZATION] }
+        outcome:
+          type: [string, 'null']
+          description: >
+            Cómo se interpretó el intento; nulo mientras está en curso. Recepción: RECEIVED,
+            ALREADY_REGISTERED (el SRI ya tenía la clave), RETURNED, UNCERTAIN (sin respuesta válida)
+            o ABANDONED. Autorización: AUTHORIZED, NOT_AUTHORIZED, PROCESSING, NOT_FOUND, MISMATCH
+            (la respuesta era de otra clave o de otro ambiente) o UNCERTAIN.
+        sriStatus: { type: [string, 'null'], description: Estado literal devuelto por el SRI. }
+        httpStatus: { type: [integer, 'null'] }
+        startedAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/SriMessage' }
+    Document:
+      type: object
+      required: [id, documentType, state, environment, taxpayerId, number, sequence, accessKey, issueDate, currency,
+                 customer, subtotal, totalDiscount, taxes, totalTax, total, lines, payments]
+      properties:
+        id: { type: string, format: uuid }
+        documentType: { type: string }
+        state: { $ref: '#/components/schemas/DocumentState' }
+        environment: { type: string, enum: ['1', '2'] }
+        taxpayerId: { type: string, format: uuid }
+        number: { type: string }
+        sequence: { type: string, description: Nueve dígitos. }
+        authorizationNumber:
+          type: [string, 'null']
+          description: Número de autorización del SRI; nulo hasta que el comprobante está AUTHORIZED.
+        authorizedAt:
+          type: [string, 'null']
+          format: date-time
+          description: Fecha y hora de autorización que devolvió el SRI, en UTC.
+        customerId:
+          type: string
+          format: uuid
+          description: Cliente del catálogo al que se emitió.
+        replacesDocumentId:
+          type: [string, 'null']
+          format: uuid
+          description: Comprobante rechazado al que este reemplaza.
+        replacedByDocumentId:
+          type: [string, 'null']
+          format: uuid
+          description: Comprobante que reemplazó a este, si fue rechazado y se emitió de nuevo.
+        accessKey: { type: string, description: Clave de acceso de 49 dígitos. }
+        issueDate: { type: string, format: date }
+        currency: { type: string }
+        customer:
+          type: object
+          required: [idType, idNumber, name]
+          properties:
+            idType: { type: string }
+            idNumber: { type: string }
+            name: { type: string }
+        subtotal: { $ref: '#/components/schemas/Decimal' }
+        totalDiscount: { $ref: '#/components/schemas/Decimal' }
+        taxes:
+          type: array
+          items:
+            type: object
+            required: [taxCode, rateCode, rate, base, amount]
+            properties:
+              taxCode: { type: string }
+              rateCode: { type: string }
+              rate: { $ref: '#/components/schemas/Decimal' }
+              base: { $ref: '#/components/schemas/Decimal' }
+              amount: { $ref: '#/components/schemas/Decimal' }
+        totalTax: { $ref: '#/components/schemas/Decimal' }
+        total: { $ref: '#/components/schemas/Decimal' }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [lineNo, mainCode, description, quantity, unitPrice, discount, subtotal, taxCode, taxRateCode,
+                       taxRate, taxAmount]
+            properties:
+              lineNo: { type: integer }
+              productId:
+                type: [string, 'null']
+                format: uuid
+                description: Producto del catálogo del que salió la línea.
+              mainCode: { type: string }
+              description: { type: string }
+              quantity: { $ref: '#/components/schemas/Decimal' }
+              unitPrice: { $ref: '#/components/schemas/Decimal' }
+              discount: { $ref: '#/components/schemas/Decimal' }
+              subtotal: { $ref: '#/components/schemas/Decimal' }
+              taxCode: { type: string }
+              taxRateCode: { type: string }
+              taxRate: { $ref: '#/components/schemas/Decimal' }
+              taxAmount: { $ref: '#/components/schemas/Decimal' }
+        payments:
+          type: array
+          items:
+            type: object
+            required: [methodCode, amount]
+            properties:
+              methodCode: { type: string }
+              amount: { $ref: '#/components/schemas/Decimal' }
+    UploadCertificateRequest:
+      type: object
+      required: [taxpayerId, p12, password]
+      properties:
+        taxpayerId: { type: string, format: uuid }
+        p12:
+          type: string
+          format: byte
+          maxLength: 90000
+          description: Archivo PKCS#12 en Base64; hasta unos 64 KB de archivo.
+        password: { type: string, format: password, maxLength: 200 }
+    Certificate:
+      type: object
+      required: [id, taxpayerId, subject, issuer, serialNumber, fingerprintSha256, validFrom, validTo, status]
+      properties:
+        id: { type: string, format: uuid }
+        taxpayerId: { type: string, format: uuid }
+        subject: { type: string }
+        issuer: { type: string }
+        serialNumber: { type: string }
+        fingerprintSha256: { type: string }
+        validFrom: { type: string, format: date-time }
+        validTo: { type: string, format: date-time }
+        status: { type: string, enum: [ACTIVE, REPLACED] }
+    Role:
+      type: string
+      enum: [OWNER, ADMIN, BILLER, AUDITOR]
+    CreateTenantRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+    Tenant:
+      type: object
+      required: [id, name, status, role]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        status: { type: string, enum: [ACTIVE, SUSPENDED] }
+        role: { $ref: '#/components/schemas/Role' }
+    Member:
+      type: object
+      required: [userId, role, since, self]
+      properties:
+        userId: { type: string, format: uuid }
+        email:
+          type: [string, 'null']
+          description: Correo con el que el proveedor de identidad conoce a la persona, si lo informa.
+        role: { $ref: '#/components/schemas/Role' }
+        since: { type: string, format: date-time }
+        self:
+          type: boolean
+          description: Si es quien hace la consulta.
+    Invitation:
+      type: object
+      required: [id, email, role, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        expiresAt: { type: string, format: date-time }
+        invitedBy:
+          type: [string, 'null']
+          description: Correo de quien la creó.
+    WebhookEventType:
+      type: string
+      enum: [document.received, document.authorized, document.rejected, document.delivered]
+      description: >
+        document.received: el SRI recibió el comprobante. document.authorized: lo autorizó.
+        document.rejected: lo devolvió o no lo autorizó (el campo state del aviso dice cuál).
+        document.delivered: salió un correo de entrega al cliente.
+    WebhookSubscriptionInput:
+      type: object
+      required: [url, eventTypes]
+      properties:
+        url: { type: string, maxLength: 2048, description: 'Dirección https de un servidor público.' }
+        eventTypes:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items: { $ref: '#/components/schemas/WebhookEventType' }
+        description: { type: [string, 'null'], maxLength: 200 }
+    WebhookSubscription:
+      type: object
+      required: [id, url, eventTypes, status, consecutiveFailures, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string }
+        eventTypes:
+          type: array
+          items: { $ref: '#/components/schemas/WebhookEventType' }
+        description: { type: [string, 'null'] }
+        status: { type: string, enum: [ACTIVE, DISABLED] }
+        disabledReason:
+          type: [string, 'null']
+          enum: [MANUAL, TOO_MANY_FAILURES, null]
+          description: MANUAL si la apagó la empresa; TOO_MANY_FAILURES si se apagó sola tras fallar muchas veces seguidas.
+        consecutiveFailures: { type: integer, description: Intentos fallidos seguidos; un envío correcto lo pone a cero. }
+        createdAt: { type: string, format: date-time }
+        previousSecretExpiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: Hasta cuándo sigue firmando el secreto anterior, si se rotó hace poco.
+    WebhookDelivery:
+      type: object
+      required: [id, eventId, eventType, documentId, status, attemptCount, occurredAt]
+      properties:
+        id: { type: string, format: uuid }
+        eventId: { type: string, format: uuid, description: El webhook-id con que viaja el aviso. }
+        eventType: { $ref: '#/components/schemas/WebhookEventType' }
+        documentId: { type: string, format: uuid }
+        status: { type: string, enum: [PENDING, SENDING, SENT, FAILED] }
+        attemptCount: { type: integer }
+        lastStatus: { type: [integer, 'null'], description: Código HTTP de la última respuesta del receptor, si la hubo. }
+        lastError: { type: [string, 'null'] }
+        occurredAt: { type: string, format: date-time }
+        sentAt: { type: [string, 'null'], format: date-time }
+        nextAttemptAt: { type: [string, 'null'], format: date-time }
+    WebhookDeliveryPage:
+      type: object
+      required: [items, page, size, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WebhookDelivery' }
+        page: { type: integer }
+        size: { type: integer }
+        total: { type: integer, format: int64 }
+    CreatedWebhookSubscription:
+      type: object
+      required: [id, url, eventTypes, status, createdAt, secret]
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string }
+        eventTypes:
+          type: array
+          items: { $ref: '#/components/schemas/WebhookEventType' }
+        description: { type: [string, 'null'] }
+        status: { type: string, enum: [ACTIVE, DISABLED] }
+        createdAt: { type: string, format: date-time }
+        secret: { type: string, description: 'Secreto de firma (whsec_...). No se vuelve a mostrar.' }
+    CreatedInvitation:
+      type: object
+      required: [id, email, role, expiresAt, token]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        expiresAt: { type: string, format: date-time }
+        token:
+          type: string
+          description: >
+            Código de la invitación. Solo aparece aquí: el servidor guarda su huella, no el código.
+            Quien invita lo comparte con la persona invitada.
+    InvitationToken:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, minLength: 1, maxLength: 200 }
+    InvitationPreview:
+      type: object
+      required: [tenantName, role, email, expiresAt]
+      properties:
+        tenantName: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        email: { type: string }
+        expiresAt: { type: string, format: date-time }
+    CreateTaxpayerRequest:
+      type: object
+      required: [ruc, legalName, headOfficeAddress, defaultEnvironment]
+      properties:
+        ruc:
+          type: string
+          pattern: '^[0-9]{10}001$'
+          description: RUC del emisor, diez dígitos seguidos de 001 (lo exige el XSD del SRI).
+        legalName: { type: string, minLength: 1, maxLength: 300 }
+        tradeName: { type: [string, 'null'], maxLength: 300 }
+        headOfficeAddress: { type: string, minLength: 1, maxLength: 300 }
+        defaultEnvironment:
+          type: string
+          enum: ['1', '2']
+          description: >
+            Siempre 1 (pruebas): con 2 la petición se rechaza con 422 PRODUCTION_NOT_ENABLED. A
+            producción se pasa con la activación.
+        accountingRequired:
+          type: boolean
+          description: Obligado a llevar contabilidad. Por defecto false.
+        specialTaxpayerCode:
+          type: [string, 'null']
+          pattern: '^[A-Za-z0-9]{3,13}$'
+          description: Código de contribuyente especial, de 3 a 13 caracteres alfanuméricos.
+        withholdingAgentCode:
+          type: [string, 'null']
+          pattern: '^[1-9][0-9]{0,7}$'
+          description: Número de la resolución de agente de retención, sin ceros a la izquierda (hasta 8 dígitos).
+        rimpeRegime:
+          type: string
+          enum: [NONE, EMPRENDEDOR, NEGOCIO_POPULAR]
+          description: >
+            Régimen RIMPE del emisor. Por defecto NONE. NEGOCIO_POPULAR se rechaza por ahora con 422
+            RIMPE_REGIME_UNSUPPORTED: el XSD incorporado no admite su leyenda.
+    Taxpayer:
+      type: object
+      required: [id, ruc, legalName, headOfficeAddress, defaultEnvironment]
+      properties:
+        id: { type: string, format: uuid }
+        ruc: { type: string, pattern: '^[0-9]{13}$' }
+        legalName: { type: string }
+        tradeName: { type: [string, 'null'] }
+        headOfficeAddress: { type: string }
+        defaultEnvironment: { type: string, enum: ['1', '2'] }
+        productionEnabledAt:
+          type: [string, 'null']
+          format: date-time
+          description: Cuándo se activó la emisión en producción; nulo mientras el emisor siga en pruebas.
+        accountingRequired:
+          type: boolean
+          description: Obligado a llevar contabilidad. Por defecto false.
+        specialTaxpayerCode:
+          type: [string, 'null']
+          pattern: '^[A-Za-z0-9]{3,13}$'
+          description: Código de contribuyente especial, de 3 a 13 caracteres alfanuméricos.
+        withholdingAgentCode:
+          type: [string, 'null']
+          pattern: '^[1-9][0-9]{0,7}$'
+          description: Número de la resolución de agente de retención, sin ceros a la izquierda (hasta 8 dígitos).
+        rimpeRegime:
+          type: string
+          enum: [NONE, EMPRENDEDOR, NEGOCIO_POPULAR]
+          description: >
+            Régimen RIMPE del emisor. Por defecto NONE. NEGOCIO_POPULAR se rechaza por ahora con 422
+            RIMPE_REGIME_UNSUPPORTED: el XSD incorporado no admite su leyenda.
+    ProductionReadiness:
+      type: object
+      required: [authorizedTestDocuments, transmissionOpen, missing]
+      properties:
+        certificateValidUntil:
+          type: [string, 'null']
+          format: date-time
+          description: Hasta cuándo vale el certificado activo; nulo si no hay uno vigente.
+        authorizedTestDocuments:
+          type: integer
+          description: Comprobantes del emisor que el SRI autorizó en el ambiente de pruebas.
+        transmissionOpen:
+          type: boolean
+          description: >
+            Si la plataforma transmite hoy al SRI de producción. Es decisión del proveedor, no un
+            requisito del emisor: con false, los comprobantes de producción esperan firmados.
+        activatedAt:
+          type: [string, 'null']
+          format: date-time
+          description: Cuándo se activó la producción; nulo si aún no.
+        missing:
+          type: array
+          description: Requisitos que el sistema comprueba y aún no se cumplen.
+          items: { type: string, enum: [CERTIFICATE, TEST_AUTHORIZATION] }
+    CreateEstablishmentRequest:
+      type: object
+      required: [code, address]
+      properties:
+        code: { type: string, pattern: '^[0-9]{3}$' }
+        address: { type: string, minLength: 1, maxLength: 300 }
+    Establishment:
+      type: object
+      required: [id, taxpayerId, code, address]
+      properties:
+        id: { type: string, format: uuid }
+        taxpayerId: { type: string, format: uuid }
+        code: { type: string, pattern: '^[0-9]{3}$' }
+        address: { type: string }
+    CreateEmissionPointRequest:
+      type: object
+      required: [establishmentId, code]
+      properties:
+        establishmentId: { type: string, format: uuid }
+        code: { type: string, pattern: '^[0-9]{3}$' }
+    EmissionPoint:
+      type: object
+      required: [id, establishmentId, code, enabled]
+      properties:
+        id: { type: string, format: uuid }
+        establishmentId: { type: string, format: uuid }
+        code: { type: string, pattern: '^[0-9]{3}$' }
+        enabled: { type: boolean }

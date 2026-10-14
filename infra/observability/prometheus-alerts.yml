@@ -1,0 +1,119 @@
+# Reglas de alerta de partida para Prometheus. Los umbrales son un punto de inicio: ajústelos a la
+# operación real. Una prueba (OperationalMetricsIT) comprueba que cada métrica nombrada aquí existe.
+groups:
+  - name: einvoice
+    rules:
+      - alert: MensajesMuertos
+        expr: einvoice_queue_messages{queue=~".*\\.dlq"} > 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: Hay mensajes en una cola de mensajes muertos
+          description: >
+            Un evento no se pudo procesar tras sus reintentos. Revise el log del worker con el
+            identificador del mensaje y reencólelo cuando la causa esté corregida.
+
+      - alert: ColaSinConsumir
+        expr: einvoice_queue_messages{queue!~".*\\.dlq"} > 500
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: La cola de trabajo crece y no se consume
+          description: Compruebe que hay al menos una instancia con EINVOICE_WORKER_ENABLED=true.
+
+      - alert: OutboxAtascado
+        expr: einvoice_outbox_oldest_seconds > 300
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: Hay eventos sin publicar desde hace más de cinco minutos
+          description: >
+            El worker no está publicando el outbox (einvoice_outbox_pending da cuántos). Revise
+            RabbitMQ y que haya una instancia worker en marcha.
+
+      - alert: ComprobanteSinRespuestaDelSri
+        expr: einvoice_documents_oldest_seconds{state="SENDING"} > 1800
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: Un comprobante lleva más de 30 minutos enviándose al SRI
+          description: El envío no dejó resultado y nadie lo ha retomado. Revise el worker y la conexión con el SRI.
+
+      - alert: AutorizacionDemorada
+        expr: einvoice_documents_oldest_seconds{state="RECEIVED"} > 7200
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: Un comprobante recibido lleva más de dos horas sin autorización
+          description: El SRI puede tardar hasta 24 horas; si se repite, revise la disponibilidad del servicio de autorización.
+
+      - alert: ComprobantesRechazados
+        expr: increase(einvoice_sri_calls_seconds_count{outcome=~"RETURNED|NOT_AUTHORIZED"}[1h]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: El SRI devolvió o no autorizó comprobantes en la última hora
+          description: Revise los mensajes del SRI en el detalle de cada comprobante.
+
+      - alert: ComprobantesQueNoSePuedenFirmar
+        expr: einvoice_documents{state=~"SIGNATURE_FAILED|XSD_INVALID"} > 0
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: Hay comprobantes que no se pudieron generar o firmar
+          description: Suele ser un emisor sin certificado vigente (SIGNATURE_FAILED) o un dato que el esquema no admite (XSD_INVALID).
+
+      - alert: CertificadosPorCaducar
+        expr: einvoice_certificates_expiring > 0
+        for: 1h
+        labels: { severity: warning }
+        annotations:
+          summary: Hay certificados de firma caducados o que caducan en menos de 30 días
+          description: Sus emisores dejarán de poder firmar. Avíseles para que carguen el certificado renovado.
+
+      - alert: ArchivoAlterado
+        expr: einvoice_artifacts_corrupt > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Un artefacto guardado ya no corresponde a su huella
+          description: >
+            Alguien modificó un XML o un RIDE archivado, o el almacenamiento se dañó. El log del worker
+            nombra el artefacto. Trátelo como incidente: conserve la base y compare con el último respaldo.
+
+      - alert: VerificacionDelArchivoAtrasada
+        expr: einvoice_artifacts_unverified_oldest_seconds > 172800
+        for: 1h
+        labels: { severity: warning }
+        annotations:
+          summary: Hay artefactos que llevan más de dos días sin verificarse por primera vez
+          description: >
+            Las pasadas de verificación no dan abasto (einvoice_artifacts_unverified dice cuántos esperan)
+            o el worker no las está haciendo. Suba einvoice.integrity.batch-size o revise el worker.
+
+      - alert: EntregasFallidas
+        expr: einvoice_deliveries{status="FAILED"} > 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: Hay correos de comprobantes que no se pudieron entregar
+          description: Revise el servidor SMTP y el último error de cada entrega.
+
+      - alert: WebhooksFallidos
+        expr: delta(einvoice_webhooks{status="FAILED"}[1h]) > 20
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: Están fallando muchos avisos a los sistemas de las empresas
+          description: >
+            Más de 20 avisos agotaron sus reintentos en una hora. Si son de varias empresas, revise la
+            salida a internet del worker; si son de una, ella ve el motivo en su pantalla de
+            integraciones.
+
+      - alert: SuscripcionesDesactivadas
+        expr: einvoice_webhooks_disabled > 0
+        for: 1h
+        labels: { severity: info }
+        annotations:
+          summary: Hay suscripciones de avisos que se apagaron solas
+          description: >
+            Fallaron demasiadas veces seguidas. No reciben nada hasta que la empresa las vuelva a
+            activar desde su pantalla de integraciones.
