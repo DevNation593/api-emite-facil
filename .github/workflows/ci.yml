@@ -116,7 +116,23 @@ jobs:
     if: github.event_name == 'pull_request' && !github.event.repository.private
     runs-on: ubuntu-latest
     steps:
+      # La revisión necesita el grafo de dependencias, que se activa en Settings > Code security. Si
+      # no está activado, la acción falla siempre; en vez de eso, se avisa y no se revisa. En cuanto se
+      # active, la revisión corre y bloquea sola.
+      - name: Grafo de dependencias activado
+        id: graph
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/dependency-graph/sbom" --silent 2>/dev/null; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::La revisión de dependencias no corre: active el grafo de dependencias en Settings > Code security de este repositorio."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v7
+        if: steps.graph.outputs.enabled == 'true'
       - uses: actions/dependency-review-action@v5
+        if: steps.graph.outputs.enabled == 'true'
         with:
           fail-on-severity: high
