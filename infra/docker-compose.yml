@@ -62,20 +62,5 @@ services:
       test: ["CMD-SHELL", 'REDISCLI_AUTH="$$(sh /connection-url.sh password "$$CONNECTION_URL")" redis-cli ping | grep -q PONG']
       interval: 10s
       retries: 5
-  # Proveedor OIDC SOLO para desarrollo local: da el inicio de sesión que la API y la aplicación web
-  # necesitan. No se arranca salvo que se pida el perfil: docker compose --profile idp ... up -d
-  # En producción se usa el proveedor de identidad que se elija, no este.
-  keycloak:
-    profiles: [idp]
-    image: quay.io/keycloak/keycloak:26.6
-    command: ["start-dev", "--import-realm"]
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
-      # Contraseña del usuario "demo" del reino importado (infra/keycloak/einvoice-realm.json).
-      KEYCLOAK_DEMO_PASSWORD: ${KEYCLOAK_DEMO_PASSWORD:-}
-    ports: ["127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"]
-    volumes:
-      - ./keycloak/einvoice-realm.json:/opt/keycloak/data/import/einvoice-realm.json:ro
 volumes:
   pgdata: {}

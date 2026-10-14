@@ -90,8 +90,8 @@ class RateLimitIT extends AbstractIntegrationTest {
 		// Cuántos segundos faltan para la siguiente ventana.
 		assertThat(Integer.parseInt(refused.getResponse().getHeader("Retry-After"))).isEqualTo(30);
 		// La petición rechazada no llegó a crear nada.
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM tenants t JOIN memberships m ON m.tenant_id = t.id"
-				+ " JOIN users u ON u.id = m.user_id WHERE u.subject = ?", Integer.class, subjectOf(user)))
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM memberships WHERE user_id = ?::uuid", Integer.class,
+				subjectOf(user)))
 			.isEqualTo(3);
 	}
 

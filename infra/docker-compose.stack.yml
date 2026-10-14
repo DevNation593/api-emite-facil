@@ -5,13 +5,9 @@
 #   docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.stack.yml up -d --build
 #   infra/stack-smoke.sh
 #
-# Además de las variables de docker-compose.yml hacen falta EINVOICE_MASTER_KEY, OIDC_ISSUER y
-# SESSION_SECRET (ver .env.example). Solo la web publica un puerto, y solo en esta máquina: a la
-# API se llega a través de ella.
-#
-# El inicio de sesión necesita un proveedor de identidad cuya dirección sea la misma para el
-# navegador y para los contenedores. El Keycloak de desarrollo (http://localhost:8081) no lo es
-# desde dentro de un contenedor: en un staging real, OIDC_ISSUER es una dirección https pública.
+# Además de las variables de docker-compose.yml hacen falta EINVOICE_MASTER_KEY, EINVOICE_JWT_SECRET
+# y SESSION_SECRET (ver .env.example). Solo la web publica un puerto, y solo en esta máquina: a la
+# API se llega a través de ella. Las cuentas y el inicio de sesión los lleva la propia API.
 name: einvoice
 services:
   api: &api
@@ -33,11 +29,11 @@ services:
       DATABASE_URL: ${DATABASE_URL:?set}
       RABBITMQ_URL: ${RABBITMQ_URL:?set}
       REDIS_URL: ${REDIS_URL:?set}
-      OIDC_ISSUER: ${OIDC_ISSUER:?set}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-einvoice-api}
+      EINVOICE_JWT_SECRET: ${EINVOICE_JWT_SECRET:?set}
+      # Los enlaces de los correos llevan a la web.
+      EINVOICE_WEB_URL: ${APP_BASE_URL:-http://localhost:3000}
       EINVOICE_MASTER_KEY: ${EINVOICE_MASTER_KEY:?set}
       EINVOICE_METRICS_TOKEN: ${EINVOICE_METRICS_TOKEN:-}
-      EINVOICE_INVITATIONS_ALLOW_WITHOUT_EMAIL: ${EINVOICE_INVITATIONS_ALLOW_WITHOUT_EMAIL:-false}
       EINVOICE_WEBHOOKS_ENABLED: ${EINVOICE_WEBHOOKS_ENABLED:-false}
       SRI_ENABLED_ENVIRONMENTS: ${SRI_ENABLED_ENVIRONMENTS:-}
       # Esta instancia solo atiende la API; el trabajo en segundo plano lo hace "worker".
@@ -73,8 +69,6 @@ services:
     environment:
       API_BASE_URL: http://api:8080
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
-      OIDC_ISSUER: ${OIDC_ISSUER:?set}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-einvoice-web}
       SESSION_SECRET: ${SESSION_SECRET:?set}
     ports: ["127.0.0.1:${WEB_PORT:-3000}:3000"]
     depends_on:
