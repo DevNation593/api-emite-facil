@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>XadesVerifier.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.signature</a> &gt; <span class="el_source">XadesVerifier.java</span></div><h1>XadesVerifier.java</h1><pre class="source lang-java linenums">package com.example.einvoice.signature;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.List;
+
+import javax.xml.crypto.MarshalException;
+import javax.xml.crypto.dsig.Reference;
+import javax.xml.crypto.dsig.Transform;
+import javax.xml.crypto.dsig.XMLSignature;
+import javax.xml.crypto.dsig.XMLSignatureException;
+import javax.xml.crypto.dsig.XMLSignatureFactory;
+import javax.xml.crypto.dsig.dom.DOMValidateContext;
+
+import org.springframework.stereotype.Component;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
+
+/**
+ * Comprueba que un comprobante firmado cumple el perfil de la ficha técnica y que su firma es
+ * criptográficamente válida con el certificado que lleva dentro. Se usa antes de dar un XML por
+ * firmado. No valida la cadena de confianza ni la revocación del certificado: eso lo hace el SRI.
+ */
+@Component
+<span class="fc" id="L35">public class XadesVerifier {</span>
+
+	public SignatureVerification verify(byte[] signedXml) {
+<span class="fc" id="L38">		List&lt;String&gt; errors = new ArrayList&lt;&gt;();</span>
+		try {
+<span class="fc" id="L40">			check(XadesProfile.parse(signedXml), errors);</span>
+		}
+<span class="fc" id="L42">		catch (SAXException | IOException ex) {</span>
+<span class="fc" id="L43">			errors.add(&quot;El comprobante no es un XML legible&quot;);</span>
+		}
+<span class="nc" id="L45">		catch (GeneralSecurityException | MarshalException | XMLSignatureException | RuntimeException ex) {</span>
+<span class="nc" id="L46">			errors.add(&quot;La firma no se pudo evaluar: &quot; + ex.getClass().getSimpleName());</span>
+<span class="fc" id="L47">		}</span>
+<span class="fc" id="L48">		return SignatureVerification.of(errors);</span>
+	}
+
+	private static void check(Document document, List&lt;String&gt; errors)
+			throws GeneralSecurityException, MarshalException, XMLSignatureException {
+<span class="fc" id="L53">		Element root = document.getDocumentElement();</span>
+<span class="fc" id="L54">		NodeList signatures = document.getElementsByTagNameNS(XadesProfile.DS, &quot;Signature&quot;);</span>
+<span class="fc bfc" id="L55" title="All 4 branches covered.">		if (signatures.getLength() != 1 || signatures.item(0).getParentNode() != root) {</span>
+<span class="fc" id="L56">			errors.add(&quot;Debe haber exactamente una firma, hija del elemento raíz&quot;);</span>
+<span class="fc" id="L57">			return;</span>
+		}
+<span class="fc" id="L59">		Element signatureElement = (Element) signatures.item(0);</span>
+<span class="fc" id="L60">		Element signedProperties = single(signatureElement, XadesProfile.XADES, &quot;SignedProperties&quot;);</span>
+<span class="fc" id="L61">		Element keyInfoElement = single(signatureElement, XadesProfile.DS, &quot;KeyInfo&quot;);</span>
+<span class="fc" id="L62">		Element certificateElement = single(signatureElement, XadesProfile.DS, &quot;X509Certificate&quot;);</span>
+<span class="pc bpc" id="L63" title="3 of 6 branches missed.">		if (signedProperties == null || keyInfoElement == null || certificateElement == null</span>
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">				|| !XadesProfile.DOCUMENT_ID.equals(root.getAttribute(&quot;id&quot;))) {</span>
+<span class="nc" id="L65">			errors.add(&quot;La firma no tiene la estructura XAdES-BES esperada&quot;);</span>
+<span class="nc" id="L66">			return;</span>
+		}
+<span class="fc" id="L68">		X509Certificate certificate = (X509Certificate) CertificateFactory.getInstance(&quot;X.509&quot;)</span>
+<span class="fc" id="L69">			.generateCertificate(new ByteArrayInputStream(</span>
+<span class="fc" id="L70">					Base64.getMimeDecoder().decode(certificateElement.getTextContent())));</span>
+
+<span class="fc" id="L72">		DOMValidateContext context = new DOMValidateContext(certificate.getPublicKey(), signatureElement);</span>
+		// El SRI exige RSA-SHA1, que la validación segura del JDK rechaza por defecto. A cambio, abajo
+		// se comprueba que la firma solo usa las referencias, transformaciones y algoritmos del perfil.
+<span class="fc" id="L75">		context.setProperty(&quot;org.jcp.xml.dsig.secureValidation&quot;, Boolean.FALSE);</span>
+<span class="fc" id="L76">		context.setIdAttributeNS(root, null, &quot;id&quot;);</span>
+<span class="fc" id="L77">		context.setIdAttributeNS(signedProperties, null, &quot;Id&quot;);</span>
+<span class="fc" id="L78">		XMLSignature signature = XMLSignatureFactory.getInstance(&quot;DOM&quot;).unmarshalXMLSignature(context);</span>
+
+<span class="fc" id="L80">		checkProfile(signature, signedProperties.getAttribute(&quot;Id&quot;), keyInfoElement.getAttribute(&quot;Id&quot;), errors);</span>
+<span class="fc" id="L81">		checkSigningCertificate(signedProperties, certificate, errors);</span>
+<span class="fc bfc" id="L82" title="All 2 branches covered.">		if (!errors.isEmpty()) {</span>
+<span class="fc" id="L83">			return;</span>
+		}
+<span class="fc bfc" id="L85" title="All 2 branches covered.">		if (!signature.validate(context)) {</span>
+<span class="fc bfc" id="L86" title="All 2 branches covered.">			if (!signature.getSignatureValue().validate(context)) {</span>
+<span class="fc" id="L87">				errors.add(&quot;El valor de la firma no corresponde al certificado&quot;);</span>
+			}
+<span class="fc bfc" id="L89" title="All 2 branches covered.">			for (Reference reference : signature.getSignedInfo().getReferences()) {</span>
+<span class="fc bfc" id="L90" title="All 2 branches covered.">				if (!reference.validate(context)) {</span>
+<span class="fc" id="L91">					errors.add(&quot;El contenido referido por &quot; + reference.getURI() + &quot; fue alterado&quot;);</span>
+				}
+<span class="fc" id="L93">			}</span>
+<span class="pc bpc" id="L94" title="1 of 2 branches missed.">			if (errors.isEmpty()) {</span>
+<span class="nc" id="L95">				errors.add(&quot;La firma no es válida&quot;);</span>
+			}
+		}
+<span class="fc" id="L98">	}</span>
+
+	/** Exactamente las tres referencias del Anexo 14, con sus algoritmos y sin transformaciones de más. */
+	private static void checkProfile(XMLSignature signature, String signedPropertiesId, String keyInfoId,
+			List&lt;String&gt; errors) {
+<span class="pc bpc" id="L103" title="1 of 2 branches missed.">		if (!XadesProfile.C14N.equals(signature.getSignedInfo().getCanonicalizationMethod().getAlgorithm())</span>
+<span class="pc bpc" id="L104" title="1 of 2 branches missed.">				|| !XadesProfile.RSA_SHA1.equals(signature.getSignedInfo().getSignatureMethod().getAlgorithm())) {</span>
+<span class="nc" id="L105">			errors.add(&quot;La firma no usa los algoritmos del perfil del SRI&quot;);</span>
+		}
+<span class="fc" id="L107">		List&lt;Reference&gt; references = signature.getSignedInfo().getReferences();</span>
+<span class="fc" id="L108">		boolean properties = false;</span>
+<span class="fc" id="L109">		boolean keyInfo = false;</span>
+<span class="fc" id="L110">		boolean document = false;</span>
+<span class="fc bfc" id="L111" title="All 2 branches covered.">		for (Reference reference : references) {</span>
+<span class="fc" id="L112">			List&lt;Transform&gt; transforms = reference.getTransforms();</span>
+<span class="pc bpc" id="L113" title="1 of 2 branches missed.">			if (!XadesProfile.SHA1.equals(reference.getDigestMethod().getAlgorithm())) {</span>
+<span class="nc" id="L114">				errors.add(&quot;Una referencia no usa el digest del perfil del SRI&quot;);</span>
+			}
+<span class="fc bfc" id="L116" title="All 2 branches covered.">			if ((&quot;#&quot; + signedPropertiesId).equals(reference.getURI())</span>
+<span class="pc bpc" id="L117" title="2 of 4 branches missed.">					&amp;&amp; XadesProfile.SIGNED_PROPERTIES_TYPE.equals(reference.getType()) &amp;&amp; transforms.isEmpty()) {</span>
+<span class="fc" id="L118">				properties = true;</span>
+			}
+<span class="pc bpc" id="L120" title="2 of 6 branches missed.">			else if ((&quot;#&quot; + keyInfoId).equals(reference.getURI()) &amp;&amp; !keyInfoId.isEmpty() &amp;&amp; transforms.isEmpty()) {</span>
+<span class="fc" id="L121">				keyInfo = true;</span>
+			}
+<span class="pc bpc" id="L123" title="2 of 4 branches missed.">			else if ((&quot;#&quot; + XadesProfile.DOCUMENT_ID).equals(reference.getURI()) &amp;&amp; transforms.size() == 1</span>
+<span class="pc bpc" id="L124" title="1 of 2 branches missed.">					&amp;&amp; XadesProfile.ENVELOPED.equals(transforms.get(0).getAlgorithm())) {</span>
+<span class="fc" id="L125">				document = true;</span>
+			}
+			else {
+<span class="nc" id="L128">				errors.add(&quot;La firma contiene una referencia que el perfil no admite&quot;);</span>
+			}
+<span class="fc" id="L130">		}</span>
+<span class="pc bpc" id="L131" title="4 of 8 branches missed.">		if (references.size() != 3 || !properties || !keyInfo || !document) {</span>
+<span class="nc" id="L132">			errors.add(&quot;La firma debe cubrir el comprobante, SignedProperties y KeyInfo&quot;);</span>
+		}
+<span class="fc" id="L134">	}</span>
+
+	/** El certificado de KeyInfo debe ser el que declara SigningCertificate. */
+	private static void checkSigningCertificate(Element signedProperties, X509Certificate certificate,
+			List&lt;String&gt; errors) throws GeneralSecurityException {
+<span class="fc" id="L139">		Element certDigest = single(signedProperties, XadesProfile.XADES, &quot;CertDigest&quot;);</span>
+<span class="pc bpc" id="L140" title="1 of 2 branches missed.">		Element digestValue = certDigest == null ? null : single(certDigest, XadesProfile.DS, &quot;DigestValue&quot;);</span>
+<span class="fc" id="L141">		Element issuerName = single(signedProperties, XadesProfile.DS, &quot;X509IssuerName&quot;);</span>
+<span class="fc" id="L142">		Element serialNumber = single(signedProperties, XadesProfile.DS, &quot;X509SerialNumber&quot;);</span>
+<span class="pc bpc" id="L143" title="3 of 6 branches missed.">		if (digestValue == null || issuerName == null || serialNumber == null) {</span>
+<span class="nc" id="L144">			errors.add(&quot;SigningCertificate está incompleto&quot;);</span>
+<span class="nc" id="L145">			return;</span>
+		}
+<span class="fc" id="L147">		byte[] declared = Base64.getMimeDecoder().decode(digestValue.getTextContent());</span>
+<span class="fc" id="L148">		byte[] actual = MessageDigest.getInstance(&quot;SHA-1&quot;).digest(certificate.getEncoded());</span>
+<span class="fc bfc" id="L149" title="All 2 branches covered.">		if (!Arrays.equals(declared, actual)</span>
+<span class="pc bpc" id="L150" title="1 of 2 branches missed.">				|| !certificate.getIssuerX500Principal().getName().equals(issuerName.getTextContent())</span>
+<span class="pc bpc" id="L151" title="1 of 2 branches missed.">				|| !certificate.getSerialNumber().toString().equals(serialNumber.getTextContent().strip())) {</span>
+<span class="fc" id="L152">			errors.add(&quot;El certificado de KeyInfo no es el declarado en SigningCertificate&quot;);</span>
+		}
+<span class="fc" id="L154">	}</span>
+
+	/** El único descendiente con ese nombre, o nulo si no hay exactamente uno. */
+	private static Element single(Element parent, String namespace, String localName) {
+<span class="fc" id="L158">		NodeList nodes = parent.getElementsByTagNameNS(namespace, localName);</span>
+<span class="pc bpc" id="L159" title="1 of 2 branches missed.">		Node node = nodes.getLength() == 1 ? nodes.item(0) : null;</span>
+<span class="fc" id="L160">		return (Element) node;</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

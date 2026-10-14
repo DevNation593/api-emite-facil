@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WebhookProperties.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.webhook</a> &gt; <span class="el_source">WebhookProperties.java</span></div><h1>WebhookProperties.java</h1><pre class="source lang-java linenums">package com.example.einvoice.webhook;
+
+import java.time.Duration;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+/**
+ * Avisos a los sistemas de cada empresa. Apagados mientras no se habiliten expresamente: llamar a
+ * direcciones que eligen los clientes es una decisión de quien opera.
+ *
+ * @param allowInsecureHttp solo para desarrollo y pruebas: admite http sin cifrar
+ * @param allowPrivateAddresses solo para desarrollo y pruebas: admite direcciones locales o privadas
+ * @param sendLease plazo tras el cual un envío sin resultado se considera abandonado
+ * @param totalTimeout tope de un intento completo, de la conexión a la línea de estado
+ * @param disableAfterFailures intentos fallidos seguidos a partir de los que una suscripción puede apagarse sola
+ * @param disableAfterFailingFor tiempo que debe llevar fallando, además, para apagarse: una caída corta
+ * con muchos comprobantes no basta
+ * @param secretOverlap cuánto sigue firmando el secreto anterior después de rotarlo
+ */
+@ConfigurationProperties(&quot;einvoice.webhooks&quot;)
+public record WebhookProperties(boolean enabled, boolean allowInsecureHttp, boolean allowPrivateAddresses,
+		int maxSubscriptions, Duration retryBackoff, Duration retryMaxBackoff, int retryMaxAttempts, Duration sendLease,
+		Duration connectTimeout, Duration totalTimeout, int disableAfterFailures, Duration disableAfterFailingFor,
+		Duration secretOverlap) {
+
+<span class="fc" id="L26">	public WebhookProperties {</span>
+<span class="fc" id="L27">		requirePositive(&quot;retry-backoff&quot;, retryBackoff);</span>
+<span class="fc" id="L28">		requirePositive(&quot;retry-max-backoff&quot;, retryMaxBackoff);</span>
+<span class="fc" id="L29">		requirePositive(&quot;send-lease&quot;, sendLease);</span>
+<span class="fc" id="L30">		requirePositive(&quot;connect-timeout&quot;, connectTimeout);</span>
+<span class="fc" id="L31">		requirePositive(&quot;total-timeout&quot;, totalTimeout);</span>
+<span class="fc" id="L32">		requirePositive(&quot;secret-overlap&quot;, secretOverlap);</span>
+<span class="fc" id="L33">		requirePositive(&quot;disable-after-failing-for&quot;, disableAfterFailingFor);</span>
+<span class="fc" id="L34">		requireAtLeastOne(&quot;max-subscriptions&quot;, maxSubscriptions);</span>
+<span class="fc" id="L35">		requireAtLeastOne(&quot;retry-max-attempts&quot;, retryMaxAttempts);</span>
+<span class="fc" id="L36">		requireAtLeastOne(&quot;disable-after-failures&quot;, disableAfterFailures);</span>
+<span class="pc bpc" id="L37" title="1 of 2 branches missed.">		if (sendLease.compareTo(totalTimeout) &lt;= 0) {</span>
+			// Si no, un envío todavía en curso se daría por abandonado y saldría dos veces.
+<span class="nc" id="L39">			throw new IllegalStateException(&quot;einvoice.webhooks.send-lease debe ser mayor que total-timeout&quot;);</span>
+		}
+<span class="fc" id="L41">	}</span>
+
+	private static void requirePositive(String name, Duration value) {
+<span class="pc bpc" id="L44" title="3 of 6 branches missed.">		if (value == null || value.isZero() || value.isNegative()) {</span>
+<span class="nc" id="L45">			throw new IllegalStateException(&quot;einvoice.webhooks.&quot; + name + &quot; debe ser mayor que cero&quot;);</span>
+		}
+<span class="fc" id="L47">	}</span>
+
+	private static void requireAtLeastOne(String name, int value) {
+<span class="pc bpc" id="L50" title="1 of 2 branches missed.">		if (value &lt; 1) {</span>
+<span class="nc" id="L51">			throw new IllegalStateException(&quot;einvoice.webhooks.&quot; + name + &quot; debe ser al menos 1&quot;);</span>
+		}
+<span class="fc" id="L53">	}</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

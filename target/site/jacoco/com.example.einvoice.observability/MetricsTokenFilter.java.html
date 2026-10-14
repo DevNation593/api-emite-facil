@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MetricsTokenFilter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.observability</a> &gt; <span class="el_source">MetricsTokenFilter.java</span></div><h1>MetricsTokenFilter.java</h1><pre class="source lang-java linenums">package com.example.einvoice.observability;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+
+import org.springframework.http.HttpHeaders;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+/**
+ * Guarda las métricas con una ficha propia, que no es el token de ningún usuario: quien las recoge
+ * no pertenece a ninguna empresa. Sin ficha configurada las métricas no existen.
+ */
+class MetricsTokenFilter extends OncePerRequestFilter {
+
+	private static final int MIN_LENGTH = 24;
+
+	private final byte[] expected;
+
+<span class="fc" id="L25">	MetricsTokenFilter(String token) {</span>
+<span class="pc bpc" id="L26" title="1 of 2 branches missed.">		String value = token == null ? &quot;&quot; : token.strip();</span>
+<span class="fc bfc" id="L27" title="All 4 branches covered.">		if (!value.isEmpty() &amp;&amp; value.length() &lt; MIN_LENGTH) {</span>
+<span class="fc" id="L28">			throw new IllegalStateException(</span>
+					&quot;EINVOICE_METRICS_TOKEN debe tener al menos &quot; + MIN_LENGTH + &quot; caracteres aleatorios&quot;);
+		}
+<span class="fc bfc" id="L31" title="All 2 branches covered.">		this.expected = value.isEmpty() ? null : (&quot;Bearer &quot; + value).getBytes(StandardCharsets.UTF_8);</span>
+<span class="fc" id="L32">	}</span>
+
+	@Override
+	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+			throws ServletException, IOException {
+<span class="fc bfc" id="L37" title="All 2 branches covered.">		if (expected == null) {</span>
+			// Estado directo, sin sendError: el despacho de errores del contenedor pasaría por la
+			// seguridad de la API y el 404 saldría convertido en 401.
+<span class="fc" id="L40">			response.setStatus(HttpServletResponse.SC_NOT_FOUND);</span>
+<span class="fc" id="L41">			return;</span>
+		}
+<span class="fc" id="L43">		String header = request.getHeader(HttpHeaders.AUTHORIZATION);</span>
+<span class="fc bfc" id="L44" title="All 2 branches covered.">		byte[] given = header == null ? new byte[0] : header.getBytes(StandardCharsets.UTF_8);</span>
+		// Comparación en tiempo constante: el tiempo de respuesta no revela cuánto de la ficha se acertó.
+<span class="fc bfc" id="L46" title="All 2 branches covered.">		if (!MessageDigest.isEqual(expected, given)) {</span>
+<span class="fc" id="L47">			response.setHeader(HttpHeaders.WWW_AUTHENTICATE, &quot;Bearer&quot;);</span>
+<span class="fc" id="L48">			response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);</span>
+<span class="fc" id="L49">			return;</span>
+		}
+<span class="fc" id="L51">		chain.doFilter(request, response);</span>
+<span class="fc" id="L52">	}</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

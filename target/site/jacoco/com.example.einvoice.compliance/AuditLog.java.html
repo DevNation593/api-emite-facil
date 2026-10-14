@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AuditLog.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.compliance</a> &gt; <span class="el_source">AuditLog.java</span></div><h1>AuditLog.java</h1><pre class="source lang-java linenums">package com.example.einvoice.compliance;
+
+import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * Bitácora de auditoría. Se escribe dentro de la transacción del cambio que registra: si el cambio
+ * no se confirma, el evento tampoco.
+ */
+@Component
+public class AuditLog {
+
+	private final JdbcClient jdbc;
+
+	private final JsonMapper json;
+
+<span class="fc" id="L24">	public AuditLog(JdbcClient jdbc, JsonMapper json) {</span>
+<span class="fc" id="L25">		this.jdbc = jdbc;</span>
+<span class="fc" id="L26">		this.json = json;</span>
+<span class="fc" id="L27">	}</span>
+
+	@Transactional(propagation = Propagation.MANDATORY)
+	public void record(UUID tenantId, UUID actorId, String action, String entityType, UUID entityId,
+			Map&lt;String, Object&gt; metadata) {
+<span class="fc" id="L32">		jdbc.sql(&quot;&quot;&quot;</span>
+				INSERT INTO audit_events (tenant_id, actor_id, action, entity_type, entity_id, metadata)
+				VALUES (:tenantId, :actorId, :action, :entityType, :entityId, CAST(:metadata AS jsonb))
+				&quot;&quot;&quot;)
+<span class="fc" id="L36">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L37">			.param(&quot;actorId&quot;, actorId)</span>
+<span class="fc" id="L38">			.param(&quot;action&quot;, action)</span>
+<span class="fc" id="L39">			.param(&quot;entityType&quot;, entityType)</span>
+<span class="fc" id="L40">			.param(&quot;entityId&quot;, entityId)</span>
+<span class="fc" id="L41">			.param(&quot;metadata&quot;, json.writeValueAsString(metadata))</span>
+<span class="fc" id="L42">			.update();</span>
+<span class="fc" id="L43">	}</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

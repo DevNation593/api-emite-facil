@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RateLimitFilter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.web</a> &gt; <span class="el_source">RateLimitFilter.java</span></div><h1>RateLimitFilter.java</h1><pre class="source lang-java linenums">package com.example.einvoice.web;
+
+import java.io.IOException;
+import java.util.Set;
+
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.servlet.HandlerExceptionResolver;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+/**
+ * Aplica el límite de peticiones al usuario ya autenticado. Lo que llega sin usuario no se cuenta
+ * aquí: frenar ese tráfico es tarea del proxy de entrada.
+ */
+public class RateLimitFilter extends OncePerRequestFilter {
+
+<span class="fc" id="L25">	private static final Set&lt;String&gt; READS = Set.of(&quot;GET&quot;, &quot;HEAD&quot;, &quot;OPTIONS&quot;);</span>
+
+	private final RateLimiter limiter;
+
+	private final HandlerExceptionResolver resolver;
+
+<span class="fc" id="L31">	public RateLimitFilter(RateLimiter limiter, HandlerExceptionResolver resolver) {</span>
+<span class="fc" id="L32">		this.limiter = limiter;</span>
+<span class="fc" id="L33">		this.resolver = resolver;</span>
+<span class="fc" id="L34">	}</span>
+
+	@Override
+	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+			throws ServletException, IOException {
+<span class="fc" id="L39">		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();</span>
+<span class="pc bpc" id="L40" title="2 of 6 branches missed.">		if (authentication == null || !authentication.isAuthenticated()</span>
+				|| authentication instanceof AnonymousAuthenticationToken) {
+<span class="fc" id="L42">			chain.doFilter(request, response);</span>
+<span class="fc" id="L43">			return;</span>
+		}
+<span class="fc bfc" id="L45" title="All 2 branches covered.">		RateLimiter.Decision decision = limiter.check(authentication.getName(), !READS.contains(request.getMethod()));</span>
+<span class="fc bfc" id="L46" title="All 2 branches covered.">		if (decision.allowed()) {</span>
+<span class="fc" id="L47">			chain.doFilter(request, response);</span>
+<span class="fc" id="L48">			return;</span>
+		}
+<span class="fc" id="L50">		response.setHeader(HttpHeaders.RETRY_AFTER, Long.toString(decision.retryAfterSeconds()));</span>
+		// Sale como problem+json, igual que el resto de errores de la API.
+<span class="fc" id="L52">		resolver.resolveException(request, response, null, new ApiException(HttpStatus.TOO_MANY_REQUESTS,</span>
+				&quot;RATE_LIMITED&quot;, &quot;Demasiadas peticiones en poco tiempo; espere unos segundos&quot;));
+<span class="fc" id="L54">	}</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

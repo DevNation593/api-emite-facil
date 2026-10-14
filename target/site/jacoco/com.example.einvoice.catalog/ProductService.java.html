@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ProductService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.catalog</a> &gt; <span class="el_source">ProductService.java</span></div><h1>ProductService.java</h1><pre class="source lang-java linenums">package com.example.einvoice.catalog;
+
+import java.math.BigDecimal;
+import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.einvoice.compliance.AuditLog;
+import com.example.einvoice.tenancy.TenantAccess;
+import com.example.einvoice.web.ApiException;
+import com.example.einvoice.web.LikeTerms;
+
+@Service
+public class ProductService {
+
+	private final ProductRepository products;
+
+	private final CatalogRepository catalogs;
+
+	private final AuditLog audit;
+
+<span class="fc" id="L28">	public ProductService(ProductRepository products, CatalogRepository catalogs, AuditLog audit) {</span>
+<span class="fc" id="L29">		this.products = products;</span>
+<span class="fc" id="L30">		this.catalogs = catalogs;</span>
+<span class="fc" id="L31">		this.audit = audit;</span>
+<span class="fc" id="L32">	}</span>
+
+	@Transactional
+	public Product create(TenantAccess access, String sku, String name, BigDecimal unitPrice, String ivaRateCode) {
+<span class="fc" id="L36">		access.requireWrite();</span>
+<span class="fc bfc" id="L37" title="All 2 branches covered.">		if (catalogs.ivaRate(ivaRateCode).isEmpty()) {</span>
+<span class="fc" id="L38">			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, &quot;TAX_RATE_UNKNOWN&quot;,</span>
+					&quot;La tarifa de IVA no existe en el catálogo&quot;);
+		}
+		Product product;
+		try {
+<span class="fc" id="L43">			product = products</span>
+<span class="fc" id="L44">				.saveAndFlush(new Product(access.tenantId(), sku, name.strip(), unitPrice, ivaRateCode));</span>
+		}
+<span class="fc" id="L46">		catch (DataIntegrityViolationException ex) {</span>
+<span class="pc bpc" id="L47" title="1 of 2 branches missed.">			if (CustomerService.mentions(ex, &quot;products_sku_key&quot;)) {</span>
+<span class="fc" id="L48">				throw new ApiException(HttpStatus.CONFLICT, &quot;PRODUCT_SKU_TAKEN&quot;, &quot;Ya existe un producto con ese código&quot;);</span>
+			}
+<span class="nc" id="L50">			throw ex;</span>
+<span class="fc" id="L51">		}</span>
+<span class="fc" id="L52">		audit.record(access.tenantId(), access.userId(), &quot;PRODUCT_CREATED&quot;, &quot;PRODUCT&quot;, product.getId(),</span>
+<span class="fc" id="L53">				Map.of(&quot;sku&quot;, sku));</span>
+<span class="fc" id="L54">		return product;</span>
+	}
+
+	@Transactional(readOnly = true)
+	public Page&lt;Product&gt; search(TenantAccess access, String term, Pageable pageable) {
+<span class="fc" id="L59">		return products.search(access.tenantId(), LikeTerms.escape(term), pageable);</span>
+	}
+
+	@Transactional(readOnly = true)
+	public Product get(TenantAccess access, UUID id) {
+<span class="fc" id="L64">		return products.findByIdAndTenantId(id, access.tenantId()).orElseThrow(ApiException::notFound);</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

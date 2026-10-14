@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TaxpayerController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.taxpayer</a> &gt; <span class="el_source">TaxpayerController.java</span></div><h1>TaxpayerController.java</h1><pre class="source lang-java linenums">package com.example.einvoice.taxpayer;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.example.einvoice.tenancy.TenantAccess;
+import com.example.einvoice.web.TextRules;
+
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
+@RestController
+@RequestMapping(&quot;/api/v1/taxpayers&quot;)
+public class TaxpayerController {
+
+	private final TaxpayerService service;
+
+<span class="fc" id="L31">	public TaxpayerController(TaxpayerService service) {</span>
+<span class="fc" id="L32">		this.service = service;</span>
+<span class="fc" id="L33">	}</span>
+
+<span class="fc" id="L35">	record CreateTaxpayerRequest(@NotNull @Pattern(regexp = &quot;[0-9]{10}001&quot;) String ruc,</span>
+			@NotBlank @Size(max = 300) @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String legalName,
+			@Size(max = 300) @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String tradeName,
+			@NotBlank @Size(max = 300) @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String headOfficeAddress,
+			@NotNull @Pattern(regexp = &quot;[12]&quot;) String defaultEnvironment, Boolean accountingRequired,
+			@Pattern(regexp = &quot;[A-Za-z0-9]{3,13}&quot;) String specialTaxpayerCode,
+			@Pattern(regexp = &quot;[1-9][0-9]{0,7}&quot;) String withholdingAgentCode, RimpeRegime rimpeRegime) {
+
+		Taxpayer.FiscalData fiscalData() {
+<span class="fc" id="L44">			return new Taxpayer.FiscalData(Boolean.TRUE.equals(accountingRequired), specialTaxpayerCode,</span>
+<span class="fc bfc" id="L45" title="All 2 branches covered.">					withholdingAgentCode, rimpeRegime == null ? RimpeRegime.NONE : rimpeRegime);</span>
+		}
+
+	}
+
+<span class="fc" id="L50">	record TaxpayerResponse(UUID id, String ruc, String legalName, String tradeName, String headOfficeAddress,</span>
+			String defaultEnvironment, boolean accountingRequired, String specialTaxpayerCode,
+			String withholdingAgentCode, RimpeRegime rimpeRegime, Instant productionEnabledAt) {
+
+		static TaxpayerResponse of(Taxpayer taxpayer) {
+<span class="fc" id="L55">			return new TaxpayerResponse(taxpayer.getId(), taxpayer.getRuc(), taxpayer.getLegalName(),</span>
+<span class="fc" id="L56">					taxpayer.getTradeName(), taxpayer.getHeadOfficeAddress(), taxpayer.getDefaultEnvironment(),</span>
+<span class="fc" id="L57">					taxpayer.isAccountingRequired(), taxpayer.getSpecialTaxpayerCode(),</span>
+<span class="fc" id="L58">					taxpayer.getWithholdingAgentCode(), taxpayer.getRimpeRegime(), taxpayer.getProductionEnabledAt());</span>
+		}
+
+	}
+
+	@PostMapping
+	@ResponseStatus(HttpStatus.CREATED)
+	TaxpayerResponse create(TenantAccess access, @Valid @RequestBody CreateTaxpayerRequest request) {
+<span class="fc" id="L66">		return TaxpayerResponse.of(service.create(access, request.ruc(), request.legalName(), request.tradeName(),</span>
+<span class="fc" id="L67">				request.headOfficeAddress(), request.defaultEnvironment(), request.fiscalData()));</span>
+	}
+
+	@GetMapping
+	List&lt;TaxpayerResponse&gt; list(TenantAccess access) {
+<span class="fc" id="L72">		return service.list(access).stream().map(TaxpayerResponse::of).toList();</span>
+	}
+
+	@GetMapping(&quot;/{id}&quot;)
+	TaxpayerResponse get(TenantAccess access, @PathVariable UUID id) {
+<span class="fc" id="L77">		return TaxpayerResponse.of(service.get(access, id));</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

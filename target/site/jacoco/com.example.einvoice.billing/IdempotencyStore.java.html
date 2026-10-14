@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>IdempotencyStore.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.billing</a> &gt; <span class="el_source">IdempotencyStore.java</span></div><h1>IdempotencyStore.java</h1><pre class="source lang-java linenums">package com.example.einvoice.billing;
+
+import java.util.Optional;
+import java.util.UUID;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.einvoice.web.ApiException;
+
+/**
+ * Registro de claves de idempotencia por tenant. La unicidad la garantiza la clave primaria: un
+ * segundo intento simultáneo espera a que el primero confirme o revierta, y entonces o encuentra el
+ * documento ya creado o toma él la clave.
+ */
+@Component
+public class IdempotencyStore {
+
+<span class="fc" id="L22">	private record Existing(String requestHash, UUID documentId) {</span>
+	}
+
+	private final JdbcClient jdbc;
+
+<span class="fc" id="L27">	public IdempotencyStore(JdbcClient jdbc) {</span>
+<span class="fc" id="L28">		this.jdbc = jdbc;</span>
+<span class="fc" id="L29">	}</span>
+
+	/**
+	 * Toma la clave para la transacción en curso. Devuelve vacío si es un intento nuevo, o el
+	 * documento del intento anterior si la clave ya se usó con la misma petición.
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public Optional&lt;UUID&gt; begin(UUID tenantId, String key, String requestHash) {
+<span class="fc" id="L37">		int inserted = jdbc.sql(&quot;&quot;&quot;</span>
+				INSERT INTO idempotency_records (tenant_id, idempotency_key, request_hash)
+				VALUES (:tenant, :key, :hash)
+				ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+<span class="fc" id="L41">				&quot;&quot;&quot;).param(&quot;tenant&quot;, tenantId).param(&quot;key&quot;, key).param(&quot;hash&quot;, requestHash).update();</span>
+<span class="fc bfc" id="L42" title="All 2 branches covered.">		if (inserted == 1) {</span>
+<span class="fc" id="L43">			return Optional.empty();</span>
+		}
+<span class="fc" id="L45">		Existing existing = jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT request_hash, document_id FROM idempotency_records
+				WHERE tenant_id = :tenant AND idempotency_key = :key
+<span class="fc" id="L48">				&quot;&quot;&quot;).param(&quot;tenant&quot;, tenantId).param(&quot;key&quot;, key).query(Existing.class).single();</span>
+<span class="pc bpc" id="L49" title="1 of 4 branches missed.">		if (!existing.requestHash().equals(requestHash) || existing.documentId() == null) {</span>
+<span class="fc" id="L50">			throw new ApiException(HttpStatus.CONFLICT, &quot;IDEMPOTENCY_KEY_REUSED&quot;,</span>
+					&quot;La clave de idempotencia ya se usó con una petición distinta&quot;);
+		}
+<span class="fc" id="L53">		return Optional.of(existing.documentId());</span>
+	}
+
+	@Transactional(propagation = Propagation.MANDATORY)
+	public void complete(UUID tenantId, String key, UUID documentId) {
+<span class="fc" id="L58">		jdbc.sql(&quot;&quot;&quot;</span>
+				UPDATE idempotency_records SET document_id = :document
+				WHERE tenant_id = :tenant AND idempotency_key = :key
+<span class="fc" id="L61">				&quot;&quot;&quot;).param(&quot;document&quot;, documentId).param(&quot;tenant&quot;, tenantId).param(&quot;key&quot;, key).update();</span>
+<span class="fc" id="L62">	}</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

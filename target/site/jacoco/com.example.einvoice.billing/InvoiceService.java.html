@@ -1,0 +1,298 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InvoiceService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.billing</a> &gt; <span class="el_source">InvoiceService.java</span></div><h1>InvoiceService.java</h1><pre class="source lang-java linenums">package com.example.einvoice.billing;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.einvoice.billing.FiscalDocumentRepository.NewDocument;
+import com.example.einvoice.billing.FiscalDocumentRepository.NewLine;
+import com.example.einvoice.billing.FiscalDocumentRepository.NewPayment;
+import com.example.einvoice.catalog.CatalogRepository;
+import com.example.einvoice.catalog.Customer;
+import com.example.einvoice.catalog.CustomerService;
+import com.example.einvoice.catalog.Product;
+import com.example.einvoice.catalog.ProductService;
+import com.example.einvoice.compliance.AuditLog;
+import com.example.einvoice.sequence.AccessKeyParts;
+import com.example.einvoice.sequence.FiscalClock;
+import com.example.einvoice.sequence.NumericCodeGenerator;
+import com.example.einvoice.sequence.SequenceService;
+import com.example.einvoice.taxpayer.Taxpayer;
+import com.example.einvoice.taxpayer.TaxpayerService;
+import com.example.einvoice.tenancy.TenantAccess;
+import com.example.einvoice.web.ApiException;
+
+/**
+ * Emisión de una factura hasta el estado RESERVED. Todo ocurre en una transacción: si algo falla no
+ * queda documento, ni secuencial consumido, ni evento por publicar. Las validaciones van antes de
+ * reservar el secuencial para no retener el contador más de lo necesario.
+ */
+@Service
+public class InvoiceService {
+
+	/** Código de factura en el catálogo de tipos de comprobante del SRI. */
+	public static final String INVOICE = &quot;01&quot;;
+
+	public static final String STATE_RESERVED = &quot;RESERVED&quot;;
+
+	/** Tipo de emisión normal: el único del esquema off-line. */
+	private static final String NORMAL_EMISSION = &quot;1&quot;;
+
+	private static final String CURRENCY = &quot;USD&quot;;
+
+	/** Mayor importe que cabe en las columnas numeric(14,2) del documento. */
+<span class="fc" id="L57">	private static final BigDecimal MAX_AMOUNT = new BigDecimal(&quot;999999999999.99&quot;);</span>
+
+<span class="fc" id="L59">	public record LineCommand(UUID productId, BigDecimal quantity, BigDecimal unitPrice, BigDecimal discount) {</span>
+	}
+
+<span class="fc" id="L62">	public record PaymentCommand(String methodCode, BigDecimal amount) {</span>
+	}
+
+	/** Estados en los que el SRI rechazó el comprobante de forma definitiva. */
+	/** Fallos sin reintento posible: el SRI lo rechazó, o con esos datos no sale un XML válido. */
+<span class="fc" id="L67">	private static final Set&lt;String&gt; REPLACEABLE_STATES = Set.of(&quot;RETURNED&quot;, &quot;NOT_AUTHORIZED&quot;, &quot;XSD_INVALID&quot;);</span>
+
+<span class="fc" id="L69">	public record IssueInvoiceCommand(UUID taxpayerId, String establishmentCode, String emissionPointCode,</span>
+			UUID customerId, LocalDate issueDate, String currency, List&lt;LineCommand&gt; lines,
+			List&lt;PaymentCommand&gt; payments, UUID replacesDocumentId) {
+	}
+
+<span class="fc" id="L74">	private record EmissionPointRef(UUID id, boolean enabled, String establishmentAddress) {</span>
+	}
+
+	private final TaxpayerService taxpayers;
+
+	private final CustomerService customers;
+
+	private final ProductService products;
+
+	private final CatalogRepository catalogs;
+
+	private final SequenceService sequences;
+
+	private final NumericCodeGenerator numericCodes;
+
+	private final FiscalDocumentRepository documents;
+
+	private final OutboxWriter outbox;
+
+	private final AuditLog audit;
+
+	private final IdempotencyStore idempotency;
+
+	private final JdbcClient jdbc;
+
+	private final BigDecimal finalConsumerLimit;
+
+	/** Plazo tras el cual un comprobante que nadie procesó vuelve a la cola. */
+	private final Duration redeliveryLease;
+
+	/** RUC del proveedor del sistema de facturación (ficha, Anexo 26); nulo si no está configurado. */
+	private final String providerRuc;
+
+	public InvoiceService(TaxpayerService taxpayers, CustomerService customers, ProductService products,
+			CatalogRepository catalogs, SequenceService sequences, NumericCodeGenerator numericCodes,
+			FiscalDocumentRepository documents, OutboxWriter outbox, AuditLog audit, IdempotencyStore idempotency,
+			JdbcClient jdbc,
+			@Value(&quot;${einvoice.invoice.final-consumer-limit}&quot;) BigDecimal finalConsumerLimit,
+			@Value(&quot;${einvoice.provider.ruc:}&quot;) String providerRuc,
+<span class="fc" id="L113">			@Value(&quot;${einvoice.worker.redelivery-lease:5m}&quot;) Duration redeliveryLease) {</span>
+<span class="fc" id="L114">		this.redeliveryLease = redeliveryLease;</span>
+<span class="fc" id="L115">		this.taxpayers = taxpayers;</span>
+<span class="fc" id="L116">		this.customers = customers;</span>
+<span class="fc" id="L117">		this.products = products;</span>
+<span class="fc" id="L118">		this.catalogs = catalogs;</span>
+<span class="fc" id="L119">		this.sequences = sequences;</span>
+<span class="fc" id="L120">		this.numericCodes = numericCodes;</span>
+<span class="fc" id="L121">		this.documents = documents;</span>
+<span class="fc" id="L122">		this.outbox = outbox;</span>
+<span class="fc" id="L123">		this.audit = audit;</span>
+<span class="fc" id="L124">		this.idempotency = idempotency;</span>
+<span class="fc" id="L125">		this.jdbc = jdbc;</span>
+<span class="fc" id="L126">		this.finalConsumerLimit = finalConsumerLimit;</span>
+<span class="pc bpc" id="L127" title="2 of 4 branches missed.">		if (!providerRuc.isBlank() &amp;&amp; !providerRuc.matches(&quot;[0-9]{13}&quot;)) {</span>
+<span class="nc" id="L128">			throw new IllegalStateException(&quot;einvoice.provider.ruc debe ser un RUC de 13 dígitos&quot;);</span>
+		}
+<span class="pc bpc" id="L130" title="1 of 2 branches missed.">		this.providerRuc = providerRuc.isBlank() ? null : providerRuc;</span>
+<span class="fc" id="L131">	}</span>
+
+	/**
+	 * Emite la factura, o devuelve la ya emitida si la clave de idempotencia se repite con la misma
+	 * petición. Si la emisión falla, la transacción se revierte y la clave queda libre para reintentar.
+	 */
+	/**
+	 * Solo se reemplaza un comprobante propio que el SRI devolvió o no autorizó, y una sola vez. Lo
+	 * deja bloqueado: dos reemisiones a la vez del mismo comprobante se deciden de una en una.
+	 */
+	private void requireReplaceable(TenantAccess access, UUID replacedId, UUID taxpayerId) {
+<span class="fc" id="L142">		var replaced = documents.lockForProcessing(access.tenantId(), replacedId).orElseThrow(ApiException::notFound);</span>
+<span class="fc bfc" id="L143" title="All 2 branches covered.">		if (!REPLACEABLE_STATES.contains(replaced.state())) {</span>
+<span class="fc" id="L144">			throw new ApiException(HttpStatus.CONFLICT, &quot;REPLACED_DOCUMENT_NOT_REJECTED&quot;,</span>
+					&quot;Solo se reemplaza un comprobante devuelto o no autorizado por el SRI, o cuyo XML no se pudo generar&quot;);
+		}
+		// El enlace es único y no se deshace: no se gasta en un comprobante de otro RUC.
+<span class="fc bfc" id="L148" title="All 2 branches covered.">		if (!replaced.taxpayerId().equals(taxpayerId)) {</span>
+<span class="fc" id="L149">			throw new ApiException(HttpStatus.CONFLICT, &quot;REPLACED_DOCUMENT_OTHER_ISSUER&quot;,</span>
+					&quot;El comprobante que se reemplaza es de otro emisor de la empresa&quot;);
+		}
+<span class="fc bfc" id="L152" title="All 2 branches covered.">		if (documents.replacementOf(access.tenantId(), replacedId).isPresent()) {</span>
+<span class="fc" id="L153">			throw new ApiException(HttpStatus.CONFLICT, &quot;DOCUMENT_ALREADY_REPLACED&quot;,</span>
+					&quot;Ese comprobante ya fue reemplazado por otro&quot;);
+		}
+<span class="fc" id="L156">	}</span>
+
+	@Transactional
+	public UUID issue(TenantAccess access, String idempotencyKey, String requestHash, IssueInvoiceCommand command) {
+<span class="fc" id="L160">		access.requireBilling();</span>
+<span class="fc" id="L161">		Optional&lt;UUID&gt; previous = idempotency.begin(access.tenantId(), idempotencyKey, requestHash);</span>
+<span class="fc bfc" id="L162" title="All 2 branches covered.">		if (previous.isPresent()) {</span>
+<span class="fc" id="L163">			return previous.get();</span>
+		}
+<span class="fc bfc" id="L165" title="All 2 branches covered.">		if (command.replacesDocumentId() != null) {</span>
+<span class="fc" id="L166">			requireReplaceable(access, command.replacesDocumentId(), command.taxpayerId());</span>
+		}
+<span class="fc" id="L168">		Taxpayer taxpayer = taxpayers.get(access, command.taxpayerId());</span>
+<span class="fc" id="L169">		EmissionPointRef point = emissionPoint(access, taxpayer, command);</span>
+<span class="fc" id="L170">		Customer customer = customers.get(access, command.customerId());</span>
+<span class="fc bfc" id="L171" title="All 2 branches covered.">		if (!point.enabled()) {</span>
+<span class="fc" id="L172">			throw unprocessable(&quot;EMISSION_POINT_DISABLED&quot;, &quot;El punto de emisión está deshabilitado&quot;);</span>
+		}
+<span class="fc bfc" id="L174" title="All 2 branches covered.">		String currency = command.currency() == null ? CURRENCY : command.currency();</span>
+<span class="fc bfc" id="L175" title="All 2 branches covered.">		if (!CURRENCY.equals(currency)) {</span>
+<span class="fc" id="L176">			throw unprocessable(&quot;UNSUPPORTED_CURRENCY&quot;, &quot;Solo se emiten comprobantes en USD&quot;);</span>
+		}
+<span class="fc" id="L178">		LocalDate today = FiscalClock.dateOf(Instant.now());</span>
+<span class="fc bfc" id="L179" title="All 2 branches covered.">		LocalDate issueDate = command.issueDate() == null ? today : command.issueDate();</span>
+<span class="fc bfc" id="L180" title="All 2 branches covered.">		if (issueDate.isAfter(today)) {</span>
+<span class="fc" id="L181">			throw unprocessable(&quot;INVALID_ISSUE_DATE&quot;, &quot;La fecha de emisión no puede ser futura&quot;);</span>
+		}
+
+<span class="fc" id="L184">		List&lt;Product&gt; lineProducts = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L185">		List&lt;InvoiceLineInput&gt; inputs = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L186" title="All 2 branches covered.">		for (LineCommand line : command.lines()) {</span>
+<span class="fc" id="L187">			Product product = products.get(access, line.productId());</span>
+<span class="fc" id="L188">			BigDecimal rate = catalogs.ivaRate(product.getIvaRateCode())</span>
+<span class="pc" id="L189">				.orElseThrow(() -&gt; unprocessable(&quot;TAX_RATE_UNKNOWN&quot;, &quot;La tarifa de IVA del producto no existe&quot;));</span>
+<span class="fc" id="L190">			lineProducts.add(product);</span>
+<span class="fc" id="L191">			inputs.add(new InvoiceLineInput(line.quantity(),</span>
+<span class="fc bfc" id="L192" title="All 2 branches covered.">					line.unitPrice() == null ? product.getUnitPrice() : line.unitPrice(),</span>
+<span class="fc bfc" id="L193" title="All 2 branches covered.">					line.discount() == null ? BigDecimal.ZERO : line.discount(), product.getIvaRateCode(), rate));</span>
+<span class="fc" id="L194">		}</span>
+		InvoiceTotals totals;
+		try {
+<span class="fc" id="L197">			totals = InvoiceCalculator.calculate(inputs);</span>
+		}
+<span class="fc" id="L199">		catch (IllegalArgumentException ex) {</span>
+<span class="fc" id="L200">			throw unprocessable(&quot;INVALID_LINE&quot;, ex.getMessage());</span>
+<span class="fc" id="L201">		}</span>
+
+<span class="fc bfc" id="L203" title="All 4 branches covered.">		boolean storable = totals.lines().stream().allMatch(line -&gt; line.subtotal().compareTo(MAX_AMOUNT) &lt;= 0)</span>
+<span class="pc bpc" id="L204" title="1 of 4 branches missed.">				&amp;&amp; totals.subtotal().compareTo(MAX_AMOUNT) &lt;= 0 &amp;&amp; totals.totalDiscount().compareTo(MAX_AMOUNT) &lt;= 0</span>
+<span class="pc bpc" id="L205" title="1 of 2 branches missed.">				&amp;&amp; totals.total().compareTo(MAX_AMOUNT) &lt;= 0;</span>
+<span class="fc bfc" id="L206" title="All 2 branches covered.">		if (!storable) {</span>
+<span class="fc" id="L207">			throw unprocessable(&quot;AMOUNT_TOO_LARGE&quot;, &quot;Los importes del comprobante superan el máximo admitido&quot;);</span>
+		}
+
+<span class="fc" id="L210">		BigDecimal paid = BigDecimal.ZERO;</span>
+<span class="fc bfc" id="L211" title="All 2 branches covered.">		for (PaymentCommand payment : command.payments()) {</span>
+			// Un pago en cero solo tiene sentido cuando el comprobante entero vale cero.
+<span class="fc bfc" id="L213" title="All 4 branches covered.">			if (payment.amount().signum() == 0 &amp;&amp; totals.total().signum() != 0) {</span>
+<span class="fc" id="L214">				throw unprocessable(&quot;INVALID_PAYMENT&quot;, &quot;Un pago no puede ser cero si el comprobante tiene valor&quot;);</span>
+			}
+<span class="fc bfc" id="L216" title="All 2 branches covered.">			if (!catalogs.paymentMethodValidOn(payment.methodCode(), issueDate)) {</span>
+<span class="fc" id="L217">				throw unprocessable(&quot;PAYMENT_METHOD_UNKNOWN&quot;,</span>
+						&quot;La forma de pago no existe o no está vigente en la fecha de emisión&quot;);
+			}
+<span class="fc" id="L220">			paid = paid.add(payment.amount());</span>
+<span class="fc" id="L221">		}</span>
+<span class="fc bfc" id="L222" title="All 2 branches covered.">		if (paid.compareTo(totals.total()) != 0) {</span>
+<span class="fc" id="L223">			throw unprocessable(&quot;PAYMENTS_MISMATCH&quot;, &quot;La suma de los pagos no coincide con el total del comprobante&quot;);</span>
+		}
+<span class="fc" id="L225">		boolean finalConsumer = catalogs.identificationType(customer.getIdType())</span>
+<span class="fc" id="L226">			.map(CatalogRepository.IdentificationType::finalConsumer)</span>
+<span class="fc" id="L227">			.orElse(false);</span>
+<span class="fc bfc" id="L228" title="All 4 branches covered.">		if (finalConsumer &amp;&amp; totals.total().compareTo(finalConsumerLimit) &gt; 0) {</span>
+<span class="fc" id="L229">			throw unprocessable(&quot;FINAL_CONSUMER_LIMIT_EXCEEDED&quot;,</span>
+					&quot;Una venta a consumidor final no puede superar el monto máximo; identifique al adquirente&quot;);
+		}
+
+<span class="fc" id="L233">		String environment = taxpayer.getDefaultEnvironment();</span>
+<span class="fc" id="L234">		int sequence = sequences.reserve(access.tenantId(), point.id(), environment, INVOICE, issueDate);</span>
+<span class="fc" id="L235">		String accessKey = new AccessKeyParts(issueDate, INVOICE, taxpayer.getRuc(), environment,</span>
+<span class="fc" id="L236">				command.establishmentCode(), command.emissionPointCode(), sequence, numericCodes.next(),</span>
+				NORMAL_EMISSION)
+<span class="fc" id="L238">			.toAccessKey();</span>
+
+<span class="fc" id="L240">		List&lt;NewLine&gt; lines = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L241" title="All 2 branches covered.">		for (int i = 0; i &lt; inputs.size(); i++) {</span>
+<span class="fc" id="L242">			InvoiceLineInput input = inputs.get(i);</span>
+<span class="fc" id="L243">			Product product = lineProducts.get(i);</span>
+<span class="fc" id="L244">			LineAmounts amounts = totals.lines().get(i);</span>
+<span class="fc" id="L245">			lines.add(new NewLine(product.getId(), product.getSku(), product.getName(), input.quantity(),</span>
+<span class="fc" id="L246">					input.unitPrice(), input.discount(), amounts.subtotal(), CatalogRepository.IVA_TAX_CODE,</span>
+<span class="fc" id="L247">					input.ivaRateCode(), input.ivaRate(), amounts.taxAmount()));</span>
+		}
+<span class="fc" id="L249">		List&lt;NewPayment&gt; payments = command.payments()</span>
+<span class="fc" id="L250">			.stream()</span>
+<span class="fc" id="L251">			.map(payment -&gt; new NewPayment(payment.methodCode(), payment.amount()))</span>
+<span class="fc" id="L252">			.toList();</span>
+<span class="fc" id="L253">		UUID documentId = documents.insert(new NewDocument(access.tenantId(), taxpayer.getId(), point.id(),</span>
+<span class="fc" id="L254">				customer.getId(), INVOICE, environment, taxpayer.getRuc(), command.establishmentCode(),</span>
+<span class="fc" id="L255">				command.emissionPointCode(), sequence, accessKey, STATE_RESERVED, issueDate, currency,</span>
+<span class="fc" id="L256">				customer.getIdType(), customer.getIdNumber(), customer.getName(), customer.getAddress(),</span>
+<span class="fc" id="L257">				customer.getEmail(), totals, access.userId(), taxpayer.getLegalName(), taxpayer.getTradeName(),</span>
+<span class="fc" id="L258">				taxpayer.getHeadOfficeAddress(), point.establishmentAddress(), taxpayer.isAccountingRequired(),</span>
+<span class="fc" id="L259">				taxpayer.getSpecialTaxpayerCode(), taxpayer.getWithholdingAgentCode(),</span>
+<span class="fc" id="L260">				taxpayer.getRimpeRegime().name(), providerRuc), lines, payments);</span>
+<span class="fc" id="L261">		documents.recordStateChange(access.tenantId(), documentId, null, STATE_RESERVED, null);</span>
+<span class="fc" id="L262">		audit.record(access.tenantId(), access.userId(), &quot;INVOICE_RESERVED&quot;, &quot;FISCAL_DOCUMENT&quot;, documentId,</span>
+<span class="fc" id="L263">				Map.of(&quot;sequence&quot;, sequence, &quot;environment&quot;, environment));</span>
+<span class="fc" id="L264">		outbox.write(access.tenantId(), documentId, &quot;INVOICE_RESERVED&quot;, Map.of(&quot;documentId&quot;, documentId.toString()));</span>
+<span class="fc bfc" id="L265" title="All 2 branches covered.">		if (command.replacesDocumentId() != null) {</span>
+<span class="fc" id="L266">			documents.linkReplacement(access.tenantId(), documentId, command.replacesDocumentId());</span>
+<span class="fc" id="L267">			audit.record(access.tenantId(), access.userId(), &quot;DOCUMENT_REPLACED&quot;, &quot;FISCAL_DOCUMENT&quot;,</span>
+<span class="fc" id="L268">					command.replacesDocumentId(), Map.of(&quot;replacedBy&quot;, documentId.toString()));</span>
+		}
+		// Red de seguridad: si ese evento se pierde o nadie logra procesarlo, el planificador retoma el documento.
+<span class="fc" id="L271">		documents.schedule(access.tenantId(), documentId, redeliveryLease, 0);</span>
+<span class="fc" id="L272">		idempotency.complete(access.tenantId(), idempotencyKey, documentId);</span>
+<span class="fc" id="L273">		return documentId;</span>
+	}
+
+	/** El punto de emisión se localiza por los códigos del comprobante, siempre dentro del emisor y del tenant. */
+	private EmissionPointRef emissionPoint(TenantAccess access, Taxpayer taxpayer, IssueInvoiceCommand command) {
+<span class="fc" id="L278">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT ep.id, ep.enabled, e.address AS establishment_address
+				FROM emission_points ep JOIN establishments e ON e.id = ep.establishment_id
+				WHERE e.tenant_id = :tenant AND e.taxpayer_id = :taxpayer
+				  AND e.code = :establishmentCode AND ep.code = :emissionPointCode
+				&quot;&quot;&quot;)
+<span class="fc" id="L284">			.param(&quot;tenant&quot;, access.tenantId())</span>
+<span class="fc" id="L285">			.param(&quot;taxpayer&quot;, taxpayer.getId())</span>
+<span class="fc" id="L286">			.param(&quot;establishmentCode&quot;, command.establishmentCode())</span>
+<span class="fc" id="L287">			.param(&quot;emissionPointCode&quot;, command.emissionPointCode())</span>
+<span class="fc" id="L288">			.query(EmissionPointRef.class)</span>
+<span class="fc" id="L289">			.optional()</span>
+<span class="fc" id="L290">			.orElseThrow(ApiException::notFound);</span>
+	}
+
+	private static ApiException unprocessable(String errorCode, String detail) {
+<span class="fc" id="L294">		return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, errorCode, detail);</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

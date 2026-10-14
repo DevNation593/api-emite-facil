@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DocumentController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.billing</a> &gt; <span class="el_source">DocumentController.java</span></div><h1>DocumentController.java</h1><pre class="source lang-java linenums">package com.example.einvoice.billing;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.example.einvoice.billing.FiscalDocumentRepository.DocumentRow;
+import com.example.einvoice.tenancy.TenantAccess;
+import com.example.einvoice.web.ApiException;
+import com.example.einvoice.web.Decimals;
+import com.example.einvoice.web.PageResponse;
+
+/** Consulta de comprobantes. Los importes salen como cadenas decimales. */
+@RestController
+@RequestMapping(&quot;/api/v1/documents&quot;)
+public class DocumentController {
+
+	private final FiscalDocumentRepository documents;
+
+<span class="fc" id="L29">	public DocumentController(FiscalDocumentRepository documents) {</span>
+<span class="fc" id="L30">		this.documents = documents;</span>
+<span class="fc" id="L31">	}</span>
+
+<span class="fc" id="L33">	record CustomerView(String idType, String idNumber, String name) {</span>
+	}
+
+<span class="fc" id="L36">	record TaxView(String taxCode, String rateCode, String rate, String base, String amount) {</span>
+	}
+
+<span class="fc" id="L39">	record LineView(int lineNo, UUID productId, String mainCode, String description, String quantity,</span>
+			String unitPrice, String discount, String subtotal, String taxCode, String taxRateCode, String taxRate,
+			String taxAmount) {
+	}
+
+<span class="fc" id="L44">	record PaymentView(String methodCode, String amount) {</span>
+	}
+
+<span class="fc" id="L47">	record DocumentSummary(UUID id, String documentType, String state, String number, LocalDate issueDate,</span>
+			String customerName, String total) {
+
+		static DocumentSummary of(DocumentRow row) {
+<span class="fc" id="L51">			return new DocumentSummary(row.id(), row.documentType(), row.state(), formatNumber(row), row.issueDate(),</span>
+<span class="fc" id="L52">					row.customerName(), Decimals.format(row.total(), 2));</span>
+		}
+
+	}
+
+<span class="fc" id="L57">	record DocumentView(UUID id, String documentType, String state, String environment, UUID taxpayerId,</span>
+			String number, String sequence, String accessKey, LocalDate issueDate, String currency,
+			CustomerView customer, String subtotal, String totalDiscount, List&lt;TaxView&gt; taxes, String totalTax,
+			String total, List&lt;LineView&gt; lines, List&lt;PaymentView&gt; payments, String authorizationNumber,
+			Instant authorizedAt, UUID customerId, UUID replacesDocumentId, UUID replacedByDocumentId) {
+	}
+
+	@GetMapping(&quot;/{id}&quot;)
+	@Transactional(readOnly = true)
+	public DocumentView get(TenantAccess access, @PathVariable UUID id) {
+<span class="fc" id="L67">		DocumentRow row = documents.find(access.tenantId(), id).orElseThrow(ApiException::notFound);</span>
+<span class="fc" id="L68">		FiscalDocumentRepository.Links links = documents.links(access.tenantId(), id);</span>
+<span class="fc" id="L69">		List&lt;TaxView&gt; taxes = documents.taxes(access.tenantId(), id)</span>
+<span class="fc" id="L70">			.stream()</span>
+<span class="fc" id="L71">			.map(tax -&gt; new TaxView(tax.taxCode(), tax.rateCode(), Decimals.format(tax.rate(), 2),</span>
+<span class="fc" id="L72">					Decimals.format(tax.base(), 2), Decimals.format(tax.amount(), 2)))</span>
+<span class="fc" id="L73">			.toList();</span>
+<span class="fc" id="L74">		List&lt;LineView&gt; lines = documents.lines(access.tenantId(), id)</span>
+<span class="fc" id="L75">			.stream()</span>
+<span class="fc" id="L76">			.map(line -&gt; new LineView(line.lineNo(), line.productId(), line.mainCode(), line.description(),</span>
+<span class="fc" id="L77">					Decimals.format(line.quantity(), 6), Decimals.format(line.unitPrice(), 6),</span>
+<span class="fc" id="L78">					Decimals.format(line.discount(), 2), Decimals.format(line.subtotal(), 2), line.taxCode(),</span>
+<span class="fc" id="L79">					line.taxRateCode(), Decimals.format(line.taxRate(), 2), Decimals.format(line.taxAmount(), 2)))</span>
+<span class="fc" id="L80">			.toList();</span>
+<span class="fc" id="L81">		List&lt;PaymentView&gt; payments = documents.payments(access.tenantId(), id)</span>
+<span class="fc" id="L82">			.stream()</span>
+<span class="fc" id="L83">			.map(payment -&gt; new PaymentView(payment.methodCode(), Decimals.format(payment.amount(), 2)))</span>
+<span class="fc" id="L84">			.toList();</span>
+<span class="fc" id="L85">		return new DocumentView(row.id(), row.documentType(), row.state(), row.environment(), row.taxpayerId(),</span>
+<span class="fc" id="L86">				formatNumber(row), formatSequence(row), row.accessKey(), row.issueDate(), row.currency(),</span>
+<span class="fc" id="L87">				new CustomerView(row.customerIdType(), row.customerIdNumber(), row.customerName()),</span>
+<span class="fc" id="L88">				Decimals.format(row.subtotal(), 2), Decimals.format(row.totalDiscount(), 2), taxes,</span>
+<span class="fc" id="L89">				Decimals.format(row.totalTax(), 2), Decimals.format(row.total(), 2), lines, payments,</span>
+<span class="fc bfc" id="L90" title="All 2 branches covered.">				row.authorizationNumber(), row.authorizedAt() == null ? null : row.authorizedAt().toInstant(),</span>
+<span class="fc" id="L91">				links.customerId(), links.replacesDocumentId(), links.replacedByDocumentId());</span>
+	}
+
+	@GetMapping
+	@Transactional(readOnly = true)
+	public PageResponse&lt;DocumentSummary&gt; list(TenantAccess access, @RequestParam(defaultValue = &quot;0&quot;) int page,
+			@RequestParam(defaultValue = &quot;20&quot;) int size) {
+<span class="fc" id="L98">		PageResponse.request(page, size);</span>
+<span class="fc" id="L99">		List&lt;DocumentSummary&gt; items = documents.page(access.tenantId(), page, size)</span>
+<span class="fc" id="L100">			.stream()</span>
+<span class="fc" id="L101">			.map(DocumentSummary::of)</span>
+<span class="fc" id="L102">			.toList();</span>
+<span class="fc" id="L103">		return new PageResponse&lt;&gt;(items, page, size, documents.count(access.tenantId()));</span>
+	}
+
+	private static String formatSequence(DocumentRow row) {
+<span class="fc" id="L107">		return String.format(Locale.ROOT, &quot;%09d&quot;, row.sequence());</span>
+	}
+
+	/** Número del comprobante como se imprime: establecimiento-punto-secuencial. */
+	private static String formatNumber(DocumentRow row) {
+<span class="fc" id="L112">		return row.establishmentCode() + &quot;-&quot; + row.emissionPointCode() + &quot;-&quot; + formatSequence(row);</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

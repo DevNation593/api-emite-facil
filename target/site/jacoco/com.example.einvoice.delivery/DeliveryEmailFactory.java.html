@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DeliveryEmailFactory.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.delivery</a> &gt; <span class="el_source">DeliveryEmailFactory.java</span></div><h1>DeliveryEmailFactory.java</h1><pre class="source lang-java linenums">package com.example.einvoice.delivery;
+
+import java.math.RoundingMode;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Locale;
+
+import com.example.einvoice.delivery.DeliveryEmail.Attachment;
+import com.example.einvoice.xml.InvoiceXmlData;
+
+/**
+ * Redacta el correo de entrega de una factura autorizada, con el RIDE y el XML autorizado adjuntos
+ * (ficha técnica, 4.7: el emisor debe enviar el comprobante al receptor por correo electrónico).
+ */
+public final class DeliveryEmailFactory {
+
+<span class="fc" id="L17">	private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern(&quot;dd/MM/yyyy&quot;);</span>
+
+	private static final int MAX_NAME = 120;
+
+	private static final int MAX_SUBJECT = 200;
+
+	private DeliveryEmailFactory() {
+	}
+
+	public static DeliveryEmail build(String from, RideData data, String recipient, byte[] ridePdf,
+			byte[] authorizedXml) {
+<span class="fc" id="L28">		InvoiceXmlData invoice = data.invoice();</span>
+<span class="fc" id="L29">		String number = invoice.establishmentCode() + &quot;-&quot; + invoice.emissionPointCode() + &quot;-&quot;</span>
+<span class="fc" id="L30">				+ String.format(Locale.ROOT, &quot;%09d&quot;, invoice.sequence());</span>
+<span class="fc" id="L31">		String tradeName = headerSafe(invoice.issuerTradeName(), MAX_NAME);</span>
+<span class="fc bfc" id="L32" title="All 2 branches covered.">		String issuer = tradeName.isEmpty() ? headerSafe(invoice.issuerLegalName(), MAX_NAME) : tradeName;</span>
+<span class="fc" id="L33">		String subject = headerSafe(&quot;Factura &quot; + number + &quot; de &quot; + issuer, MAX_SUBJECT);</span>
+<span class="fc" id="L34">		String text = &quot;Estimado(a) &quot; + invoice.customerName() + &quot;:\n\n&quot; + invoice.issuerLegalName() + &quot; (RUC &quot;</span>
+<span class="fc" id="L35">				+ invoice.issuerRuc() + &quot;) le ha emitido la factura electrónica &quot; + number + &quot;.\n\n&quot;</span>
+<span class="fc" id="L36">				+ &quot;Fecha de emisión: &quot; + DATE.format(invoice.issueDate()) + &quot;\n&quot; + &quot;Valor total: &quot;</span>
+<span class="fc" id="L37">				+ invoice.total().setScale(2, RoundingMode.UNNECESSARY).toPlainString() + &quot; USD\n&quot;</span>
+<span class="fc" id="L38">				+ &quot;Clave de acceso: &quot; + invoice.accessKey() + &quot;\n&quot; + &quot;Número de autorización: &quot;</span>
+<span class="fc" id="L39">				+ data.authorizationNumber() + &quot;\n\n&quot;</span>
+				+ &quot;Se adjuntan el RIDE (PDF) y el comprobante autorizado (XML). Puede verificar su validez en el&quot;
+				+ &quot; portal del SRI con la clave de acceso.\n&quot;;
+<span class="fc" id="L42">		return new DeliveryEmail(from, issuer, recipient, subject, text,</span>
+<span class="fc" id="L43">				List.of(new Attachment(&quot;factura-&quot; + number + &quot;.pdf&quot;, &quot;application/pdf&quot;, ridePdf),</span>
+<span class="fc" id="L44">						new Attachment(invoice.accessKey() + &quot;.xml&quot;, &quot;application/xml&quot;, authorizedXml)));</span>
+	}
+
+	/**
+	 * Texto apto para una cabecera del correo: sin caracteres de control (un salto de línea permitiría
+	 * añadir cabeceras), con los espacios reducidos y de longitud acotada.
+	 */
+	static String headerSafe(String value, int max) {
+<span class="fc bfc" id="L52" title="All 2 branches covered.">		if (value == null) {</span>
+<span class="fc" id="L53">			return &quot;&quot;;</span>
+		}
+<span class="fc" id="L55">		StringBuilder out = new StringBuilder(value.length());</span>
+<span class="fc" id="L56">		value.codePoints().forEach(codePoint -&gt; {</span>
+<span class="fc bfc" id="L57" title="All 4 branches covered.">			if (Character.isISOControl(codePoint) || Character.isWhitespace(codePoint)) {</span>
+<span class="pc bpc" id="L58" title="1 of 4 branches missed.">				if (out.length() &gt; 0 &amp;&amp; out.charAt(out.length() - 1) != ' ') {</span>
+<span class="fc" id="L59">					out.append(' ');</span>
+				}
+			}
+			else {
+<span class="fc" id="L63">				out.appendCodePoint(codePoint);</span>
+			}
+<span class="fc" id="L65">		});</span>
+<span class="fc" id="L66">		String clean = out.toString().trim();</span>
+<span class="fc bfc" id="L67" title="All 2 branches covered.">		return clean.length() &lt;= max ? clean : clean.substring(0, max).trim();</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

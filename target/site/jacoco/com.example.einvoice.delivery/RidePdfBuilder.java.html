@@ -1,0 +1,376 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RidePdfBuilder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.delivery</a> &gt; <span class="el_source">RidePdfBuilder.java</span></div><h1>RidePdfBuilder.java</h1><pre class="source lang-java linenums">package com.example.einvoice.delivery;
+
+import java.awt.Color;
+import java.io.ByteArrayOutputStream;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetEncoder;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+
+import org.openpdf.text.Document;
+import org.openpdf.text.DocumentException;
+import org.openpdf.text.Element;
+import org.openpdf.text.Font;
+import org.openpdf.text.FontFactory;
+import org.openpdf.text.Image;
+import org.openpdf.text.PageSize;
+import org.openpdf.text.Paragraph;
+import org.openpdf.text.Phrase;
+import org.openpdf.text.Rectangle;
+import org.openpdf.text.pdf.Barcode128;
+import org.openpdf.text.pdf.PdfPCell;
+import org.openpdf.text.pdf.PdfPTable;
+import org.openpdf.text.pdf.PdfWriter;
+
+import com.example.einvoice.xml.InvoiceXmlData;
+
+/**
+ * Representación impresa (RIDE) de una factura autorizada, en PDF, con la disposición habitual de
+ * estos documentos: emisor a la izquierda; RUC, número, autorización y clave de acceso a la derecha;
+ * adquirente; detalle; información adicional, formas de pago y totales. Está pendiente de cotejar
+ * campo a campo con el modelo del Anexo 2 de la ficha técnica v2.34, que es una imagen.
+ *
+ * &lt;p&gt;El RIDE no sustituye al XML firmado: lo representa. Usa Helvetica, así que los caracteres que
+ * esa fuente no tiene (fuera de CP1252) se omiten.
+ */
+public final class RidePdfBuilder {
+
+	/** Hora de Ecuador continental. */
+<span class="fc" id="L42">	private static final ZoneOffset ECUADOR = ZoneOffset.ofHours(-5);</span>
+
+<span class="fc" id="L44">	private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern(&quot;dd/MM/yyyy&quot;);</span>
+
+<span class="fc" id="L46">	private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern(&quot;dd/MM/yyyy HH:mm:ss&quot;);</span>
+
+<span class="fc" id="L48">	private static final Charset CP1252 = Charset.forName(&quot;windows-1252&quot;);</span>
+
+<span class="fc" id="L50">	private static final Font TITLE = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12);</span>
+
+<span class="fc" id="L52">	private static final Font BOLD = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8);</span>
+
+<span class="fc" id="L54">	private static final Font NORMAL = FontFactory.getFont(FontFactory.HELVETICA, 8);</span>
+
+<span class="fc" id="L56">	private static final Font SMALL = FontFactory.getFont(FontFactory.HELVETICA, 7);</span>
+
+<span class="fc" id="L58">	private static final Color HEADER_FILL = new Color(230, 230, 230);</span>
+
+	private RidePdfBuilder() {
+	}
+
+	public static byte[] build(RideData data) {
+<span class="pc bpc" id="L64" title="1 of 4 branches missed.">		if (data.authorizationNumber() == null || data.authorizationNumber().isBlank()</span>
+<span class="fc bfc" id="L65" title="All 2 branches covered.">				|| data.authorizedAt() == null) {</span>
+<span class="fc" id="L66">			throw new IllegalArgumentException(&quot;Solo un comprobante autorizado tiene RIDE&quot;);</span>
+		}
+<span class="fc" id="L68">		InvoiceXmlData invoice = data.invoice();</span>
+<span class="fc" id="L69">		ByteArrayOutputStream out = new ByteArrayOutputStream();</span>
+<span class="fc" id="L70">		Document document = new Document(PageSize.A4, 28, 28, 28, 28);</span>
+		try {
+<span class="fc" id="L72">			PdfWriter writer = PdfWriter.getInstance(document, out);</span>
+<span class="fc" id="L73">			document.addTitle(&quot;Factura &quot; + number(invoice));</span>
+<span class="fc" id="L74">			document.open();</span>
+<span class="fc" id="L75">			document.add(header(data, writer));</span>
+<span class="fc" id="L76">			document.add(spacer());</span>
+<span class="fc" id="L77">			document.add(buyer(invoice));</span>
+<span class="fc" id="L78">			document.add(spacer());</span>
+<span class="fc" id="L79">			document.add(detail(invoice));</span>
+<span class="fc" id="L80">			document.add(spacer());</span>
+<span class="fc" id="L81">			document.add(footer(data));</span>
+<span class="fc" id="L82">			document.close();</span>
+		}
+<span class="nc" id="L84">		catch (DocumentException ex) {</span>
+<span class="nc" id="L85">			throw new IllegalStateException(&quot;No se pudo generar el RIDE&quot;, ex);</span>
+<span class="fc" id="L86">		}</span>
+<span class="fc" id="L87">		return out.toByteArray();</span>
+	}
+
+	private static PdfPTable header(RideData data, PdfWriter writer) {
+<span class="fc" id="L91">		InvoiceXmlData invoice = data.invoice();</span>
+<span class="fc" id="L92">		PdfPTable issuer = box();</span>
+<span class="fc" id="L93">		issuer.addCell(line(invoice.issuerLegalName(), TITLE));</span>
+<span class="pc bpc" id="L94" title="1 of 2 branches missed.">		if (invoice.issuerTradeName() != null) {</span>
+<span class="fc" id="L95">			issuer.addCell(line(invoice.issuerTradeName(), BOLD));</span>
+		}
+<span class="fc" id="L97">		issuer.addCell(labelled(&quot;Dirección Matriz: &quot;, invoice.headOfficeAddress()));</span>
+<span class="fc" id="L98">		issuer.addCell(labelled(&quot;Dirección Sucursal: &quot;, invoice.establishmentAddress()));</span>
+<span class="fc bfc" id="L99" title="All 2 branches covered.">		if (invoice.specialTaxpayerCode() != null) {</span>
+<span class="fc" id="L100">			issuer.addCell(labelled(&quot;Contribuyente Especial Nro: &quot;, invoice.specialTaxpayerCode()));</span>
+		}
+<span class="fc bfc" id="L102" title="All 2 branches covered.">		issuer.addCell(labelled(&quot;OBLIGADO A LLEVAR CONTABILIDAD: &quot;, invoice.accountingRequired() ? &quot;SI&quot; : &quot;NO&quot;));</span>
+<span class="fc bfc" id="L103" title="All 2 branches covered.">		if (invoice.withholdingAgentCode() != null) {</span>
+<span class="fc" id="L104">			issuer.addCell(labelled(&quot;Agente de Retención Resolución No. &quot;, invoice.withholdingAgentCode()));</span>
+		}
+<span class="fc" id="L106">		String rimpe = rimpeLegend(invoice.rimpeRegime());</span>
+<span class="fc bfc" id="L107" title="All 2 branches covered.">		if (rimpe != null) {</span>
+<span class="fc" id="L108">			issuer.addCell(line(rimpe, BOLD));</span>
+		}
+
+<span class="fc" id="L111">		PdfPTable fiscal = box();</span>
+<span class="fc" id="L112">		fiscal.addCell(labelled(&quot;R.U.C.: &quot;, invoice.issuerRuc()));</span>
+<span class="fc" id="L113">		fiscal.addCell(line(&quot;FACTURA&quot;, TITLE));</span>
+<span class="fc" id="L114">		fiscal.addCell(labelled(&quot;No. &quot;, number(invoice)));</span>
+<span class="fc" id="L115">		fiscal.addCell(line(&quot;NÚMERO DE AUTORIZACIÓN&quot;, BOLD));</span>
+<span class="fc" id="L116">		fiscal.addCell(digits(data.authorizationNumber()));</span>
+<span class="fc" id="L117">		fiscal.addCell(labelled(&quot;FECHA Y HORA DE AUTORIZACIÓN: &quot;,</span>
+<span class="fc" id="L118">				DATE_TIME.format(data.authorizedAt().withOffsetSameInstant(ECUADOR))));</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">		fiscal.addCell(labelled(&quot;AMBIENTE: &quot;, &quot;2&quot;.equals(invoice.environment()) ? &quot;PRODUCCIÓN&quot; : &quot;PRUEBAS&quot;));</span>
+<span class="fc" id="L120">		fiscal.addCell(labelled(&quot;EMISIÓN: &quot;, &quot;NORMAL&quot;));</span>
+<span class="fc" id="L121">		fiscal.addCell(line(&quot;CLAVE DE ACCESO&quot;, BOLD));</span>
+<span class="fc" id="L122">		fiscal.addCell(barcode(invoice.accessKey(), writer));</span>
+<span class="fc" id="L123">		fiscal.addCell(digits(invoice.accessKey()));</span>
+
+<span class="fc" id="L125">		PdfPTable header = new PdfPTable(new float[] { 48, 52 });</span>
+<span class="fc" id="L126">		header.setWidthPercentage(100);</span>
+<span class="fc" id="L127">		header.addCell(framed(issuer));</span>
+<span class="fc" id="L128">		header.addCell(framed(fiscal));</span>
+<span class="fc" id="L129">		return header;</span>
+	}
+
+	private static PdfPTable buyer(InvoiceXmlData invoice) {
+<span class="fc" id="L133">		PdfPTable inner = new PdfPTable(new float[] { 62, 38 });</span>
+<span class="fc" id="L134">		inner.setWidthPercentage(100);</span>
+<span class="fc" id="L135">		inner.addCell(plain(labelled(&quot;Razón Social / Nombres y Apellidos: &quot;, invoice.customerName())));</span>
+<span class="fc" id="L136">		inner.addCell(plain(labelled(&quot;Identificación: &quot;, invoice.customerIdNumber())));</span>
+<span class="pc bpc" id="L137" title="1 of 2 branches missed.">		inner.addCell(plain(labelled(&quot;Dirección: &quot;, invoice.customerAddress() == null ? &quot;&quot; : invoice.customerAddress())));</span>
+<span class="fc" id="L138">		inner.addCell(plain(labelled(&quot;Fecha Emisión: &quot;, DATE.format(invoice.issueDate()))));</span>
+<span class="fc" id="L139">		PdfPTable buyer = new PdfPTable(1);</span>
+<span class="fc" id="L140">		buyer.setWidthPercentage(100);</span>
+<span class="fc" id="L141">		buyer.addCell(framed(inner));</span>
+<span class="fc" id="L142">		return buyer;</span>
+	}
+
+	private static PdfPTable detail(InvoiceXmlData invoice) {
+<span class="fc" id="L146">		PdfPTable table = new PdfPTable(new float[] { 14, 9, 41, 13, 10, 13 });</span>
+<span class="fc" id="L147">		table.setWidthPercentage(100);</span>
+<span class="fc" id="L148">		table.setHeaderRows(1);</span>
+<span class="fc bfc" id="L149" title="All 2 branches covered.">		for (String title : new String[] { &quot;Cod. Principal&quot;, &quot;Cantidad&quot;, &quot;Descripción&quot;, &quot;Precio Unitario&quot;, &quot;Descuento&quot;,</span>
+				&quot;Precio Total&quot; }) {
+<span class="fc" id="L151">			PdfPCell cell = new PdfPCell(new Phrase(title, BOLD));</span>
+<span class="fc" id="L152">			cell.setBackgroundColor(HEADER_FILL);</span>
+<span class="fc" id="L153">			cell.setHorizontalAlignment(Element.ALIGN_CENTER);</span>
+<span class="fc" id="L154">			cell.setPadding(3);</span>
+<span class="fc" id="L155">			table.addCell(cell);</span>
+		}
+<span class="fc bfc" id="L157" title="All 2 branches covered.">		for (InvoiceXmlData.Line line : invoice.lines()) {</span>
+<span class="fc" id="L158">			table.addCell(text(line.mainCode(), Element.ALIGN_LEFT));</span>
+<span class="fc" id="L159">			table.addCell(text(amount(line.quantity(), 2), Element.ALIGN_RIGHT));</span>
+<span class="fc" id="L160">			table.addCell(text(line.description(), Element.ALIGN_LEFT));</span>
+<span class="fc" id="L161">			table.addCell(text(amount(line.unitPrice(), 2), Element.ALIGN_RIGHT));</span>
+<span class="fc" id="L162">			table.addCell(text(amount(line.discount(), 2), Element.ALIGN_RIGHT));</span>
+<span class="fc" id="L163">			table.addCell(text(amount(line.subtotal(), 2), Element.ALIGN_RIGHT));</span>
+<span class="fc" id="L164">		}</span>
+<span class="fc" id="L165">		return table;</span>
+	}
+
+	private static PdfPTable footer(RideData data) {
+<span class="fc" id="L169">		InvoiceXmlData invoice = data.invoice();</span>
+<span class="fc" id="L170">		PdfPTable left = new PdfPTable(1);</span>
+<span class="fc" id="L171">		left.setWidthPercentage(100);</span>
+<span class="fc bfc" id="L172" title="All 4 branches covered.">		if (data.customerEmail() != null || invoice.providerRuc() != null) {</span>
+<span class="fc" id="L173">			PdfPTable additional = box();</span>
+<span class="fc" id="L174">			additional.addCell(line(&quot;Información Adicional&quot;, BOLD));</span>
+<span class="fc bfc" id="L175" title="All 2 branches covered.">			if (data.customerEmail() != null) {</span>
+<span class="fc" id="L176">				additional.addCell(labelled(&quot;Email: &quot;, data.customerEmail()));</span>
+			}
+<span class="fc bfc" id="L178" title="All 2 branches covered.">			if (invoice.providerRuc() != null) {</span>
+<span class="fc" id="L179">				additional.addCell(labelled(&quot;RUC Proveedor: &quot;, invoice.providerRuc()));</span>
+			}
+<span class="fc" id="L181">			left.addCell(framed(additional));</span>
+<span class="fc" id="L182">			PdfPCell gap = new PdfPCell(new Phrase(&quot; &quot;, SMALL));</span>
+<span class="fc" id="L183">			gap.setBorder(Rectangle.NO_BORDER);</span>
+<span class="fc" id="L184">			left.addCell(gap);</span>
+		}
+<span class="fc" id="L186">		PdfPTable payments = new PdfPTable(new float[] { 75, 25 });</span>
+<span class="fc" id="L187">		payments.setWidthPercentage(100);</span>
+<span class="fc" id="L188">		payments.addCell(heading(&quot;Forma de pago&quot;));</span>
+<span class="fc" id="L189">		payments.addCell(heading(&quot;Valor&quot;));</span>
+<span class="fc bfc" id="L190" title="All 2 branches covered.">		for (InvoiceXmlData.Payment payment : invoice.payments()) {</span>
+<span class="fc" id="L191">			String name = data.paymentMethodNames().get(payment.methodCode());</span>
+<span class="fc bfc" id="L192" title="All 2 branches covered.">			payments.addCell(text(name == null ? payment.methodCode() : payment.methodCode() + &quot; - &quot; + name,</span>
+					Element.ALIGN_LEFT));
+<span class="fc" id="L194">			payments.addCell(text(amount(payment.amount(), 2), Element.ALIGN_RIGHT));</span>
+<span class="fc" id="L195">		}</span>
+<span class="fc" id="L196">		PdfPCell paymentsCell = new PdfPCell(payments);</span>
+<span class="fc" id="L197">		paymentsCell.setBorder(Rectangle.NO_BORDER);</span>
+<span class="fc" id="L198">		left.addCell(paymentsCell);</span>
+
+<span class="fc" id="L200">		PdfPTable totals = new PdfPTable(new float[] { 65, 35 });</span>
+<span class="fc" id="L201">		totals.setWidthPercentage(100);</span>
+<span class="fc bfc" id="L202" title="All 2 branches covered.">		for (InvoiceXmlData.Tax tax : invoice.taxes()) {</span>
+<span class="fc" id="L203">			total(totals, &quot;SUBTOTAL &quot; + rateLabel(tax), tax.base());</span>
+<span class="fc" id="L204">		}</span>
+<span class="fc" id="L205">		total(totals, &quot;SUBTOTAL SIN IMPUESTOS&quot;, invoice.subtotal());</span>
+<span class="fc" id="L206">		total(totals, &quot;TOTAL Descuento&quot;, invoice.totalDiscount());</span>
+<span class="fc bfc" id="L207" title="All 2 branches covered.">		for (InvoiceXmlData.Tax tax : invoice.taxes()) {</span>
+<span class="fc bfc" id="L208" title="All 2 branches covered.">			if (tax.rate().signum() &gt; 0) {</span>
+<span class="fc" id="L209">				total(totals, &quot;IVA &quot; + percent(tax.rate()), tax.amount());</span>
+			}
+<span class="fc" id="L211">		}</span>
+<span class="fc" id="L212">		totals.addCell(new PdfPCell(new Phrase(&quot;VALOR TOTAL&quot;, BOLD)));</span>
+<span class="fc" id="L213">		PdfPCell grand = new PdfPCell(new Phrase(amount(invoice.total(), 2), BOLD));</span>
+<span class="fc" id="L214">		grand.setHorizontalAlignment(Element.ALIGN_RIGHT);</span>
+<span class="fc" id="L215">		totals.addCell(grand);</span>
+
+<span class="fc" id="L217">		PdfPTable footer = new PdfPTable(new float[] { 58, 4, 38 });</span>
+<span class="fc" id="L218">		footer.setWidthPercentage(100);</span>
+		// Si el pie no cabe entero al final de una página, pasa completo a la siguiente.
+<span class="fc" id="L220">		footer.setKeepTogether(true);</span>
+<span class="fc" id="L221">		PdfPCell leftCell = new PdfPCell(left);</span>
+<span class="fc" id="L222">		leftCell.setBorder(Rectangle.NO_BORDER);</span>
+<span class="fc" id="L223">		footer.addCell(leftCell);</span>
+<span class="fc" id="L224">		PdfPCell gap = new PdfPCell(new Phrase(&quot;&quot;));</span>
+<span class="fc" id="L225">		gap.setBorder(Rectangle.NO_BORDER);</span>
+<span class="fc" id="L226">		footer.addCell(gap);</span>
+<span class="fc" id="L227">		PdfPCell totalsCell = new PdfPCell(totals);</span>
+<span class="fc" id="L228">		totalsCell.setBorder(Rectangle.NO_BORDER);</span>
+<span class="fc" id="L229">		footer.addCell(totalsCell);</span>
+<span class="fc" id="L230">		return footer;</span>
+	}
+
+	private static void total(PdfPTable totals, String label, BigDecimal value) {
+<span class="fc" id="L234">		totals.addCell(text(label, Element.ALIGN_LEFT));</span>
+<span class="fc" id="L235">		totals.addCell(text(amount(value, 2), Element.ALIGN_RIGHT));</span>
+<span class="fc" id="L236">	}</span>
+
+	/** Los códigos 6 y 7 del catálogo de IVA no son tarifas: no objeto y exento (ficha, Tabla 17). */
+	private static String rateLabel(InvoiceXmlData.Tax tax) {
+<span class="fc bfc" id="L240" title="All 3 branches covered.">		return switch (tax.rateCode()) {</span>
+<span class="fc" id="L241">			case &quot;6&quot; -&gt; &quot;No objeto de IVA&quot;;</span>
+<span class="fc" id="L242">			case &quot;7&quot; -&gt; &quot;Exento de IVA&quot;;</span>
+<span class="fc" id="L243">			default -&gt; percent(tax.rate());</span>
+		};
+	}
+
+	private static String percent(BigDecimal rate) {
+<span class="fc" id="L248">		return rate.stripTrailingZeros().setScale(Math.max(0, rate.stripTrailingZeros().scale()), RoundingMode.UNNECESSARY)</span>
+<span class="fc" id="L249">			.toPlainString() + &quot;%&quot;;</span>
+	}
+
+	/** Importe con al menos los decimales indicados; conserva más si el valor los tiene (precios con seis). */
+	private static String amount(BigDecimal value, int minScale) {
+<span class="fc" id="L254">		BigDecimal stripped = value.stripTrailingZeros();</span>
+<span class="fc" id="L255">		return stripped.setScale(Math.max(minScale, stripped.scale()), RoundingMode.UNNECESSARY).toPlainString();</span>
+	}
+
+	private static String number(InvoiceXmlData invoice) {
+<span class="fc" id="L259">		return invoice.establishmentCode() + &quot;-&quot; + invoice.emissionPointCode() + &quot;-&quot;</span>
+<span class="fc" id="L260">				+ String.format(Locale.ROOT, &quot;%09d&quot;, invoice.sequence());</span>
+	}
+
+	private static String rimpeLegend(String regime) {
+<span class="pc bpc" id="L264" title="1 of 2 branches missed.">		if (regime == null) {</span>
+<span class="nc" id="L265">			return null;</span>
+		}
+<span class="pc bpc" id="L267" title="1 of 3 branches missed.">		return switch (regime) {</span>
+<span class="fc" id="L268">			case &quot;EMPRENDEDOR&quot; -&gt; &quot;CONTRIBUYENTE RÉGIMEN RIMPE&quot;;</span>
+<span class="nc" id="L269">			case &quot;NEGOCIO_POPULAR&quot; -&gt; &quot;CONTRIBUYENTE NEGOCIO POPULAR - RÉGIMEN RIMPE&quot;;</span>
+<span class="fc" id="L270">			default -&gt; null;</span>
+		};
+	}
+
+	private static PdfPCell barcode(String accessKey, PdfWriter writer) {
+<span class="fc" id="L275">		Barcode128 code = new Barcode128();</span>
+<span class="fc" id="L276">		code.setCode(accessKey);</span>
+<span class="fc" id="L277">		code.setFont(null);</span>
+<span class="fc" id="L278">		code.setBarHeight(28);</span>
+<span class="fc" id="L279">		Image image = code.createImageWithBarcode(writer.getDirectContent(), null, null);</span>
+<span class="fc" id="L280">		PdfPCell cell = new PdfPCell(image, true);</span>
+<span class="fc" id="L281">		cell.setBorder(Rectangle.NO_BORDER);</span>
+<span class="fc" id="L282">		cell.setPaddingTop(2);</span>
+<span class="fc" id="L283">		cell.setPaddingBottom(2);</span>
+<span class="fc" id="L284">		return cell;</span>
+	}
+
+	private static Paragraph spacer() {
+<span class="fc" id="L288">		Paragraph spacer = new Paragraph(&quot; &quot;, SMALL);</span>
+<span class="fc" id="L289">		spacer.setLeading(6);</span>
+<span class="fc" id="L290">		return spacer;</span>
+	}
+
+	/** Tabla de una columna sin bordes, para apilar líneas dentro de un recuadro. */
+	private static PdfPTable box() {
+<span class="fc" id="L295">		PdfPTable table = new PdfPTable(1);</span>
+<span class="fc" id="L296">		table.setWidthPercentage(100);</span>
+<span class="fc" id="L297">		return table;</span>
+	}
+
+	private static PdfPCell framed(PdfPTable content) {
+<span class="fc" id="L301">		PdfPCell cell = new PdfPCell(content);</span>
+<span class="fc" id="L302">		cell.setPadding(5);</span>
+<span class="fc" id="L303">		return cell;</span>
+	}
+
+	private static PdfPCell plain(PdfPCell cell) {
+<span class="fc" id="L307">		cell.setBorder(Rectangle.NO_BORDER);</span>
+<span class="fc" id="L308">		return cell;</span>
+	}
+
+	private static PdfPCell line(String value, Font font) {
+<span class="fc" id="L312">		PdfPCell cell = new PdfPCell(new Phrase(clean(value), font));</span>
+<span class="fc" id="L313">		cell.setBorder(Rectangle.NO_BORDER);</span>
+<span class="fc" id="L314">		cell.setPadding(1.5f);</span>
+<span class="fc" id="L315">		return cell;</span>
+	}
+
+	/** Una cifra larga (clave de acceso, autorización) entera en su línea: nunca se parte. */
+	private static PdfPCell digits(String value) {
+<span class="fc" id="L320">		PdfPCell cell = new PdfPCell(new Phrase(value, SMALL));</span>
+<span class="fc" id="L321">		cell.setBorder(Rectangle.NO_BORDER);</span>
+<span class="fc" id="L322">		cell.setPadding(1.5f);</span>
+<span class="fc" id="L323">		cell.setNoWrap(true);</span>
+<span class="fc" id="L324">		return cell;</span>
+	}
+
+	private static PdfPCell labelled(String label, String value) {
+<span class="fc" id="L328">		Phrase phrase = new Phrase();</span>
+<span class="fc" id="L329">		phrase.add(new Phrase(label, BOLD));</span>
+<span class="fc" id="L330">		phrase.add(new Phrase(clean(value), NORMAL));</span>
+<span class="fc" id="L331">		PdfPCell cell = new PdfPCell(phrase);</span>
+<span class="fc" id="L332">		cell.setBorder(Rectangle.NO_BORDER);</span>
+<span class="fc" id="L333">		cell.setPadding(1.5f);</span>
+<span class="fc" id="L334">		return cell;</span>
+	}
+
+	private static PdfPCell heading(String title) {
+<span class="fc" id="L338">		PdfPCell cell = new PdfPCell(new Phrase(title, BOLD));</span>
+<span class="fc" id="L339">		cell.setBackgroundColor(HEADER_FILL);</span>
+<span class="fc" id="L340">		cell.setPadding(3);</span>
+<span class="fc" id="L341">		return cell;</span>
+	}
+
+	private static PdfPCell text(String value, int alignment) {
+<span class="fc" id="L345">		PdfPCell cell = new PdfPCell(new Phrase(clean(value), NORMAL));</span>
+<span class="fc" id="L346">		cell.setHorizontalAlignment(alignment);</span>
+<span class="fc" id="L347">		cell.setPadding(3);</span>
+<span class="fc" id="L348">		return cell;</span>
+	}
+
+	/**
+	 * Deja el texto en lo que el PDF puede mostrar: los caracteres de control pasan a espacio y los
+	 * que la fuente no tiene se omiten. No se añade ni se quita nada más: una palabra que no cabe en
+	 * su celda la reparte la propia biblioteca entre varias líneas.
+	 */
+	static String clean(String value) {
+<span class="pc bpc" id="L357" title="1 of 2 branches missed.">		if (value == null) {</span>
+<span class="nc" id="L358">			return &quot;&quot;;</span>
+		}
+<span class="fc" id="L360">		CharsetEncoder encoder = CP1252.newEncoder();</span>
+<span class="fc" id="L361">		StringBuilder out = new StringBuilder(value.length());</span>
+<span class="fc bfc" id="L362" title="All 2 branches covered.">		for (int i = 0; i &lt; value.length();) {</span>
+<span class="fc" id="L363">			int codePoint = value.codePointAt(i);</span>
+<span class="fc" id="L364">			i += Character.charCount(codePoint);</span>
+<span class="fc bfc" id="L365" title="All 4 branches covered.">			if (Character.isISOControl(codePoint) || Character.isWhitespace(codePoint)) {</span>
+<span class="fc" id="L366">				out.append(' ');</span>
+			}
+<span class="fc bfc" id="L368" title="All 4 branches covered.">			else if (Character.isBmpCodePoint(codePoint) &amp;&amp; encoder.canEncode((char) codePoint)) {</span>
+<span class="fc" id="L369">				out.append((char) codePoint);</span>
+			}
+<span class="fc" id="L371">		}</span>
+<span class="fc" id="L372">		return out.toString().trim();</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

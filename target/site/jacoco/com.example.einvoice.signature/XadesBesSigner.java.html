@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>XadesBesSigner.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.signature</a> &gt; <span class="el_source">XadesBesSigner.java</span></div><h1>XadesBesSigner.java</h1><pre class="source lang-java linenums">package com.example.einvoice.signature;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.math.BigInteger;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
+import java.security.interfaces.RSAPublicKey;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.Base64;
+import java.util.List;
+
+import javax.xml.crypto.MarshalException;
+import javax.xml.crypto.dom.DOMStructure;
+import javax.xml.crypto.dsig.CanonicalizationMethod;
+import javax.xml.crypto.dsig.DigestMethod;
+import javax.xml.crypto.dsig.Reference;
+import javax.xml.crypto.dsig.SignedInfo;
+import javax.xml.crypto.dsig.Transform;
+import javax.xml.crypto.dsig.XMLObject;
+import javax.xml.crypto.dsig.XMLSignature;
+import javax.xml.crypto.dsig.XMLSignatureException;
+import javax.xml.crypto.dsig.XMLSignatureFactory;
+import javax.xml.crypto.dsig.dom.DOMSignContext;
+import javax.xml.crypto.dsig.keyinfo.KeyInfo;
+import javax.xml.crypto.dsig.spec.C14NMethodParameterSpec;
+import javax.xml.crypto.dsig.spec.TransformParameterSpec;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+
+import org.springframework.stereotype.Component;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
+
+import com.example.einvoice.certificate.SigningMaterial;
+import com.example.einvoice.sequence.FiscalClock;
+
+/**
+ * Firma XAdES-BES con la estructura del Anexo 14 de la ficha técnica del SRI: la firma cubre el
+ * comprobante, el elemento SignedProperties y el KeyInfo que lleva el certificado. Se construye con
+ * la API XMLDSig del JDK; los elementos de XAdES y el KeyInfo se escriben aquí para controlar su forma.
+ */
+@Component
+<span class="fc" id="L55">public class XadesBesSigner implements XmlSigner {</span>
+
+<span class="fc" id="L57">	private static final DateTimeFormatter SIGNING_TIME = DateTimeFormatter.ISO_OFFSET_DATE_TIME;</span>
+
+<span class="fc" id="L59">	private final SecureRandom random = new SecureRandom();</span>
+
+	@Override
+	public byte[] sign(byte[] unsignedXml, SigningMaterial material, Instant signingTime) {
+		Document document;
+		try {
+<span class="fc" id="L65">			document = XadesProfile.parse(unsignedXml);</span>
+		}
+<span class="fc" id="L67">		catch (SAXException | IOException ex) {</span>
+<span class="fc" id="L68">			throw new IllegalArgumentException(&quot;El comprobante no es un XML legible&quot;, ex);</span>
+<span class="fc" id="L69">		}</span>
+<span class="fc" id="L70">		Element root = document.getDocumentElement();</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">		if (!XadesProfile.DOCUMENT_ID.equals(root.getAttribute(&quot;id&quot;))) {</span>
+<span class="fc" id="L72">			throw new IllegalArgumentException(&quot;La raíz del comprobante debe tener id=\&quot;comprobante\&quot;&quot;);</span>
+		}
+<span class="fc bfc" id="L74" title="All 2 branches covered.">		if (document.getElementsByTagNameNS(XadesProfile.DS, &quot;Signature&quot;).getLength() &gt; 0) {</span>
+<span class="fc" id="L75">			throw new IllegalArgumentException(&quot;El comprobante ya está firmado&quot;);</span>
+		}
+		try {
+<span class="fc" id="L78">			signInto(document, root, material, signingTime);</span>
+<span class="fc" id="L79">			return serialize(document);</span>
+		}
+<span class="nc" id="L81">		catch (GeneralSecurityException | MarshalException | XMLSignatureException | TransformerException ex) {</span>
+<span class="nc" id="L82">			throw new IllegalStateException(&quot;No se pudo firmar el comprobante&quot;, ex);</span>
+		}
+	}
+
+	private void signInto(Document document, Element root, SigningMaterial material, Instant signingTime)
+			throws GeneralSecurityException, MarshalException, XMLSignatureException {
+<span class="fc" id="L88">		X509Certificate certificate = material.certificate();</span>
+<span class="fc" id="L89">		String signatureId = &quot;Signature&quot; + number();</span>
+<span class="fc" id="L90">		String signedPropertiesId = signatureId + &quot;-SignedProperties&quot; + number();</span>
+<span class="fc" id="L91">		String keyInfoId = &quot;Certificate&quot; + number();</span>
+<span class="fc" id="L92">		String documentReferenceId = &quot;Reference-ID-&quot; + number();</span>
+
+<span class="fc" id="L94">		Element qualifyingProperties = qualifyingProperties(document, certificate, signingTime, signatureId,</span>
+				signedPropertiesId, documentReferenceId);
+<span class="fc" id="L96">		Element signedProperties = (Element) qualifyingProperties.getFirstChild();</span>
+
+<span class="fc" id="L98">		XMLSignatureFactory factory = XMLSignatureFactory.getInstance(&quot;DOM&quot;);</span>
+<span class="fc" id="L99">		DigestMethod sha1 = factory.newDigestMethod(XadesProfile.SHA1, null);</span>
+<span class="fc" id="L100">		Reference toSignedProperties = factory.newReference(&quot;#&quot; + signedPropertiesId, sha1, null,</span>
+<span class="fc" id="L101">				XadesProfile.SIGNED_PROPERTIES_TYPE, &quot;SignedPropertiesID&quot; + number());</span>
+<span class="fc" id="L102">		Reference toKeyInfo = factory.newReference(&quot;#&quot; + keyInfoId, sha1);</span>
+<span class="fc" id="L103">		Reference toDocument = factory.newReference(&quot;#&quot; + XadesProfile.DOCUMENT_ID, sha1,</span>
+<span class="fc" id="L104">				List.of(factory.newTransform(Transform.ENVELOPED, (TransformParameterSpec) null)), null,</span>
+				documentReferenceId);
+<span class="fc" id="L106">		SignedInfo signedInfo = factory.newSignedInfo(</span>
+<span class="fc" id="L107">				factory.newCanonicalizationMethod(CanonicalizationMethod.INCLUSIVE, (C14NMethodParameterSpec) null),</span>
+<span class="fc" id="L108">				factory.newSignatureMethod(XadesProfile.RSA_SHA1, null),</span>
+<span class="fc" id="L109">				List.of(toSignedProperties, toKeyInfo, toDocument), &quot;Signature-SignedInfo&quot; + number());</span>
+<span class="fc" id="L110">		KeyInfo keyInfo = factory.getKeyInfoFactory()</span>
+<span class="fc" id="L111">			.newKeyInfo(List.of(new DOMStructure(x509Data(document, certificate)),</span>
+<span class="fc" id="L112">					new DOMStructure(keyValue(document, certificate))), keyInfoId);</span>
+<span class="fc" id="L113">		XMLObject object = factory.newXMLObject(List.of(new DOMStructure(qualifyingProperties)),</span>
+<span class="fc" id="L114">				signatureId + &quot;-Object&quot; + number(), null, null);</span>
+<span class="fc" id="L115">		XMLSignature signature = factory.newXMLSignature(signedInfo, keyInfo, List.of(object), signatureId,</span>
+<span class="fc" id="L116">				&quot;SignatureValue&quot; + number());</span>
+
+<span class="fc" id="L118">		DOMSignContext context = new DOMSignContext(material.privateKey(), root);</span>
+<span class="fc" id="L119">		context.setDefaultNamespacePrefix(&quot;ds&quot;);</span>
+<span class="fc" id="L120">		context.putNamespacePrefix(XadesProfile.DS, &quot;ds&quot;);</span>
+<span class="fc" id="L121">		context.putNamespacePrefix(XadesProfile.XADES, &quot;etsi&quot;);</span>
+<span class="fc" id="L122">		context.setIdAttributeNS(root, null, &quot;id&quot;);</span>
+<span class="fc" id="L123">		context.setIdAttributeNS(signedProperties, null, &quot;Id&quot;);</span>
+<span class="fc" id="L124">		signature.sign(context);</span>
+
+		// SignatureValue no está cubierto por la firma: se deja en una sola línea, sin saltos que al
+		// serializar se convertirían en referencias de carácter.
+<span class="fc" id="L128">		NodeList values = document.getElementsByTagNameNS(XadesProfile.DS, &quot;SignatureValue&quot;);</span>
+<span class="fc" id="L129">		Element value = (Element) values.item(0);</span>
+<span class="fc" id="L130">		value.setTextContent(value.getTextContent().replaceAll(&quot;\\s&quot;, &quot;&quot;));</span>
+<span class="fc" id="L131">	}</span>
+
+	/** etsi:QualifyingProperties con las propiedades firmadas que pide XAdES-BES. */
+	private static Element qualifyingProperties(Document document, X509Certificate certificate, Instant signingTime,
+			String signatureId, String signedPropertiesId, String documentReferenceId)
+			throws GeneralSecurityException {
+<span class="fc" id="L137">		Element qualifying = etsi(document, &quot;QualifyingProperties&quot;);</span>
+		// La declaración va en el propio elemento para que la canonicalización al firmar y al
+		// verificar vean los mismos espacios de nombres.
+<span class="fc" id="L140">		qualifying.setAttributeNS(&quot;http://www.w3.org/2000/xmlns/&quot;, &quot;xmlns:etsi&quot;, XadesProfile.XADES);</span>
+<span class="fc" id="L141">		qualifying.setAttribute(&quot;Target&quot;, &quot;#&quot; + signatureId);</span>
+
+<span class="fc" id="L143">		Element signedProperties = child(qualifying, etsi(document, &quot;SignedProperties&quot;));</span>
+<span class="fc" id="L144">		signedProperties.setAttribute(&quot;Id&quot;, signedPropertiesId);</span>
+<span class="fc" id="L145">		signedProperties.setIdAttribute(&quot;Id&quot;, true);</span>
+
+<span class="fc" id="L147">		Element signatureProperties = child(signedProperties, etsi(document, &quot;SignedSignatureProperties&quot;));</span>
+<span class="fc" id="L148">		child(signatureProperties, etsi(document, &quot;SigningTime&quot;)).setTextContent(</span>
+<span class="fc" id="L149">				OffsetDateTime.ofInstant(signingTime, FiscalClock.ZONE).truncatedTo(ChronoUnit.SECONDS).format(SIGNING_TIME));</span>
+<span class="fc" id="L150">		Element cert = child(child(signatureProperties, etsi(document, &quot;SigningCertificate&quot;)), etsi(document, &quot;Cert&quot;));</span>
+<span class="fc" id="L151">		Element certDigest = child(cert, etsi(document, &quot;CertDigest&quot;));</span>
+<span class="fc" id="L152">		child(certDigest, ds(document, &quot;DigestMethod&quot;)).setAttribute(&quot;Algorithm&quot;, XadesProfile.SHA1);</span>
+<span class="fc" id="L153">		child(certDigest, ds(document, &quot;DigestValue&quot;)).setTextContent(</span>
+<span class="fc" id="L154">				base64(MessageDigest.getInstance(&quot;SHA-1&quot;).digest(certificate.getEncoded())));</span>
+<span class="fc" id="L155">		Element issuerSerial = child(cert, etsi(document, &quot;IssuerSerial&quot;));</span>
+<span class="fc" id="L156">		child(issuerSerial, ds(document, &quot;X509IssuerName&quot;))</span>
+<span class="fc" id="L157">			.setTextContent(certificate.getIssuerX500Principal().getName());</span>
+<span class="fc" id="L158">		child(issuerSerial, ds(document, &quot;X509SerialNumber&quot;)).setTextContent(certificate.getSerialNumber().toString());</span>
+
+<span class="fc" id="L160">		Element dataObjectFormat = child(child(signedProperties, etsi(document, &quot;SignedDataObjectProperties&quot;)),</span>
+<span class="fc" id="L161">				etsi(document, &quot;DataObjectFormat&quot;));</span>
+<span class="fc" id="L162">		dataObjectFormat.setAttribute(&quot;ObjectReference&quot;, &quot;#&quot; + documentReferenceId);</span>
+<span class="fc" id="L163">		child(dataObjectFormat, etsi(document, &quot;Description&quot;)).setTextContent(&quot;contenido comprobante&quot;);</span>
+<span class="fc" id="L164">		child(dataObjectFormat, etsi(document, &quot;MimeType&quot;)).setTextContent(&quot;text/xml&quot;);</span>
+<span class="fc" id="L165">		return qualifying;</span>
+	}
+
+	private static Element x509Data(Document document, X509Certificate certificate) throws GeneralSecurityException {
+<span class="fc" id="L169">		Element data = ds(document, &quot;X509Data&quot;);</span>
+<span class="fc" id="L170">		child(data, ds(document, &quot;X509Certificate&quot;)).setTextContent(base64(certificate.getEncoded()));</span>
+<span class="fc" id="L171">		return data;</span>
+	}
+
+	private static Element keyValue(Document document, X509Certificate certificate) {
+<span class="fc" id="L175">		RSAPublicKey key = (RSAPublicKey) certificate.getPublicKey();</span>
+<span class="fc" id="L176">		Element keyValue = ds(document, &quot;KeyValue&quot;);</span>
+<span class="fc" id="L177">		Element rsa = child(keyValue, ds(document, &quot;RSAKeyValue&quot;));</span>
+<span class="fc" id="L178">		child(rsa, ds(document, &quot;Modulus&quot;)).setTextContent(base64(unsigned(key.getModulus())));</span>
+<span class="fc" id="L179">		child(rsa, ds(document, &quot;Exponent&quot;)).setTextContent(base64(unsigned(key.getPublicExponent())));</span>
+<span class="fc" id="L180">		return keyValue;</span>
+	}
+
+	private static byte[] serialize(Document document) throws TransformerException {
+<span class="fc" id="L184">		document.setXmlStandalone(true);</span>
+<span class="fc" id="L185">		TransformerFactory factory = TransformerFactory.newDefaultInstance();</span>
+<span class="fc" id="L186">		factory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);</span>
+<span class="fc" id="L187">		Transformer transformer = factory.newTransformer();</span>
+<span class="fc" id="L188">		transformer.setOutputProperty(OutputKeys.ENCODING, &quot;UTF-8&quot;);</span>
+<span class="fc" id="L189">		transformer.setOutputProperty(OutputKeys.INDENT, &quot;no&quot;);</span>
+<span class="fc" id="L190">		ByteArrayOutputStream out = new ByteArrayOutputStream();</span>
+<span class="fc" id="L191">		transformer.transform(new DOMSource(document), new StreamResult(out));</span>
+<span class="fc" id="L192">		return out.toByteArray();</span>
+	}
+
+	private static Element etsi(Document document, String name) {
+<span class="fc" id="L196">		return document.createElementNS(XadesProfile.XADES, &quot;etsi:&quot; + name);</span>
+	}
+
+	private static Element ds(Document document, String name) {
+<span class="fc" id="L200">		return document.createElementNS(XadesProfile.DS, &quot;ds:&quot; + name);</span>
+	}
+
+	private static Element child(Element parent, Element child) {
+<span class="fc" id="L204">		parent.appendChild(child);</span>
+<span class="fc" id="L205">		return child;</span>
+	}
+
+	private static String base64(byte[] bytes) {
+<span class="fc" id="L209">		return Base64.getEncoder().encodeToString(bytes);</span>
+	}
+
+	/** Magnitud sin el byte de signo que añade BigInteger, como pide el tipo CryptoBinary de XMLDSig. */
+	private static byte[] unsigned(BigInteger value) {
+<span class="fc" id="L214">		byte[] bytes = value.toByteArray();</span>
+<span class="pc bpc" id="L215" title="1 of 4 branches missed.">		if (bytes.length &gt; 1 &amp;&amp; bytes[0] == 0) {</span>
+<span class="fc" id="L216">			byte[] trimmed = new byte[bytes.length - 1];</span>
+<span class="fc" id="L217">			System.arraycopy(bytes, 1, trimmed, 0, trimmed.length);</span>
+<span class="fc" id="L218">			return trimmed;</span>
+		}
+<span class="fc" id="L220">		return bytes;</span>
+	}
+
+	private int number() {
+<span class="fc" id="L224">		return 100_000 + random.nextInt(900_000);</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

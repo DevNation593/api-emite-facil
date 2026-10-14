@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ApiExceptionHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.web</a> &gt; <span class="el_source">ApiExceptionHandler.java</span></div><h1>ApiExceptionHandler.java</h1><pre class="source lang-java linenums">package com.example.einvoice.web;
+
+import java.util.List;
+import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+/**
+ * Convierte toda excepción en application/problem+json con errorCode y correlationId. El detalle es
+ * siempre un texto fijo o de validación: nunca el mensaje interno de la excepción.
+ */
+@RestControllerAdvice
+<span class="fc" id="L26">public class ApiExceptionHandler extends ResponseEntityExceptionHandler {</span>
+
+<span class="fc" id="L28">	private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);</span>
+
+	@ExceptionHandler(ApiException.class)
+	ResponseEntity&lt;Object&gt; handleApi(ApiException ex, WebRequest request) {
+<span class="fc" id="L32">		ProblemDetail problem = ProblemDetail.forStatusAndDetail(ex.status(), ex.getMessage());</span>
+<span class="fc" id="L33">		problem.setProperty(&quot;errorCode&quot;, ex.errorCode());</span>
+<span class="fc bfc" id="L34" title="All 2 branches covered.">		if (!ex.errors().isEmpty()) {</span>
+<span class="fc" id="L35">			problem.setProperty(&quot;errors&quot;,</span>
+<span class="fc" id="L36">					ex.errors().stream().map(error -&gt; Map.of(&quot;field&quot;, error.field(), &quot;message&quot;, error.message())).toList());</span>
+		}
+<span class="fc" id="L38">		return handleExceptionInternal(ex, problem, new HttpHeaders(), ex.status(), request);</span>
+	}
+
+	@ExceptionHandler(Exception.class)
+	ResponseEntity&lt;Object&gt; handleUnexpected(Exception ex, WebRequest request) {
+<span class="fc" id="L43">		log.error(&quot;Error no controlado&quot;, ex);</span>
+<span class="fc" id="L44">		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR,</span>
+				&quot;Error interno; use el correlationId para reportarlo&quot;);
+<span class="fc" id="L46">		problem.setProperty(&quot;errorCode&quot;, &quot;INTERNAL_ERROR&quot;);</span>
+<span class="fc" id="L47">		return handleExceptionInternal(ex, problem, new HttpHeaders(), HttpStatus.INTERNAL_SERVER_ERROR, request);</span>
+	}
+
+	@Override
+	protected ResponseEntity&lt;Object&gt; handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
+			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+<span class="fc" id="L53">		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,</span>
+				&quot;La petición no cumple las reglas de validación&quot;);
+<span class="fc" id="L55">		problem.setProperty(&quot;errorCode&quot;, &quot;VALIDATION_FAILED&quot;);</span>
+<span class="fc" id="L56">		List&lt;Map&lt;String, String&gt;&gt; errors = ex.getBindingResult()</span>
+<span class="fc" id="L57">			.getFieldErrors()</span>
+<span class="fc" id="L58">			.stream()</span>
+<span class="fc" id="L59">			.map(error -&gt; Map.of(&quot;field&quot;, error.getField(), &quot;message&quot;, String.valueOf(error.getDefaultMessage())))</span>
+<span class="fc" id="L60">			.toList();</span>
+<span class="fc" id="L61">		problem.setProperty(&quot;errors&quot;, errors);</span>
+<span class="fc" id="L62">		return handleExceptionInternal(ex, problem, headers, HttpStatus.BAD_REQUEST, request);</span>
+	}
+
+	@Override
+	protected ResponseEntity&lt;Object&gt; handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
+			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+<span class="fc" id="L68">		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,</span>
+				&quot;El cuerpo de la petición no es JSON válido&quot;);
+<span class="fc" id="L70">		problem.setProperty(&quot;errorCode&quot;, &quot;MALFORMED_REQUEST&quot;);</span>
+<span class="fc" id="L71">		return handleExceptionInternal(ex, problem, headers, HttpStatus.BAD_REQUEST, request);</span>
+	}
+
+	@Override
+	protected ResponseEntity&lt;Object&gt; handleExceptionInternal(Exception ex, Object body, HttpHeaders headers,
+			HttpStatusCode statusCode, WebRequest request) {
+<span class="fc bfc" id="L77" title="All 2 branches covered.">		ProblemDetail problem = body instanceof ProblemDetail detail ? detail : ProblemDetail.forStatus(statusCode);</span>
+<span class="pc bpc" id="L78" title="1 of 4 branches missed.">		if (problem.getProperties() == null || !problem.getProperties().containsKey(&quot;errorCode&quot;)) {</span>
+<span class="fc" id="L79">			problem.setProperty(&quot;errorCode&quot;, defaultErrorCode(statusCode));</span>
+<span class="fc" id="L80">			problem.setDetail(defaultDetail(statusCode));</span>
+		}
+<span class="fc" id="L82">		problem.setProperty(&quot;correlationId&quot;,</span>
+<span class="fc" id="L83">				request.getAttribute(CorrelationIdFilter.ATTRIBUTE, RequestAttributes.SCOPE_REQUEST));</span>
+<span class="fc" id="L84">		return super.handleExceptionInternal(ex, problem, headers, statusCode, request);</span>
+	}
+
+	private static String defaultErrorCode(HttpStatusCode status) {
+<span class="pc bpc" id="L88" title="3 of 5 branches missed.">		return switch (status.value()) {</span>
+<span class="fc" id="L89">			case 400 -&gt; &quot;MALFORMED_REQUEST&quot;;</span>
+<span class="fc" id="L90">			case 404 -&gt; &quot;NOT_FOUND&quot;;</span>
+<span class="nc" id="L91">			case 405 -&gt; &quot;METHOD_NOT_ALLOWED&quot;;</span>
+<span class="nc" id="L92">			case 415 -&gt; &quot;UNSUPPORTED_MEDIA_TYPE&quot;;</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">			default -&gt; status.is4xxClientError() ? &quot;REQUEST_REJECTED&quot; : &quot;INTERNAL_ERROR&quot;;</span>
+		};
+	}
+
+	private static String defaultDetail(HttpStatusCode status) {
+<span class="pc bpc" id="L98" title="1 of 3 branches missed.">		return switch (status.value()) {</span>
+<span class="fc" id="L99">			case 400 -&gt; &quot;La petición está mal formada&quot;;</span>
+<span class="fc" id="L100">			case 404 -&gt; &quot;Recurso no encontrado&quot;;</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">			default -&gt; status.is4xxClientError() ? &quot;La petición no se pudo procesar&quot;</span>
+<span class="nc" id="L102">					: &quot;Error interno; use el correlationId para reportarlo&quot;;</span>
+		};
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

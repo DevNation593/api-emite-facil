@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InvoiceXmlData.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.xml</a> &gt; <span class="el_source">InvoiceXmlData.java</span></div><h1>InvoiceXmlData.java</h1><pre class="source lang-java linenums">package com.example.einvoice.xml;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+
+/**
+ * Todo lo que el XML de una factura necesita, tal como quedó congelado en el documento al emitirse.
+ * rimpeRegime es NONE, EMPRENDEDOR o NEGOCIO_POPULAR; los campos opcionales pueden ser nulos.
+ */
+<span class="fc" id="L11">public record InvoiceXmlData(String environment, String issuerLegalName, String issuerTradeName, String issuerRuc,</span>
+		String accessKey, String documentType, String establishmentCode, String emissionPointCode, int sequence,
+		String headOfficeAddress, String withholdingAgentCode, String rimpeRegime, LocalDate issueDate,
+		String establishmentAddress, String specialTaxpayerCode, boolean accountingRequired, String customerIdType,
+		String customerName, String customerIdNumber, String customerAddress, BigDecimal subtotal,
+		BigDecimal totalDiscount, List&lt;Tax&gt; taxes, BigDecimal total, List&lt;Line&gt; lines, List&lt;Payment&gt; payments,
+		String providerRuc) {
+
+<span class="fc" id="L19">	public record Tax(String taxCode, String rateCode, BigDecimal rate, BigDecimal base, BigDecimal amount) {</span>
+	}
+
+<span class="fc" id="L22">	public record Line(String mainCode, String description, BigDecimal quantity, BigDecimal unitPrice,</span>
+			BigDecimal discount, BigDecimal subtotal, String taxCode, String taxRateCode, BigDecimal taxRate,
+			BigDecimal taxAmount) {
+	}
+
+<span class="fc" id="L27">	public record Payment(String methodCode, BigDecimal amount) {</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

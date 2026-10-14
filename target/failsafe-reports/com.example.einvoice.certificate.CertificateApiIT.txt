@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.example.einvoice.certificate.CertificateApiIT
+-------------------------------------------------------------------------------
+Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.846 s -- in com.example.einvoice.certificate.CertificateApiIT

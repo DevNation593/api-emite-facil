@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CertificateService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.certificate</a> &gt; <span class="el_source">CertificateService.java</span></div><h1>CertificateService.java</h1><pre class="source lang-java linenums">package com.example.einvoice.certificate;
+
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateEncodingException;
+import java.security.cert.X509Certificate;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.Arrays;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.einvoice.compliance.AuditLog;
+import com.example.einvoice.tenancy.TenantAccess;
+import com.example.einvoice.web.ApiException;
+
+/**
+ * Certificados de firma de los emisores. El archivo PKCS#12 y su contraseña se guardan cifrados y
+ * solo se descifran en memoria en el momento de firmar; nunca salen por la API, ni van a la
+ * bitácora, ni a los logs.
+ */
+@Service
+public class CertificateService {
+
+<span class="fc" id="L37">	public record CertificateView(UUID id, UUID taxpayerId, String subject, String issuer, String serialNumber,</span>
+			String fingerprintSha256, OffsetDateTime validFrom, OffsetDateTime validTo, String status) {
+	}
+
+<span class="fc" id="L41">	private record Encrypted(UUID id, byte[] encryptedP12, byte[] encryptedPassword) {</span>
+	}
+
+	private static final String VIEW_COLUMNS = &quot;id, taxpayer_id, subject, issuer, serial_number, fingerprint_sha256,&quot;
+			+ &quot; valid_from, valid_to, status&quot;;
+
+	private final JdbcClient jdbc;
+
+	private final SecretCipher cipher;
+
+	private final AuditLog audit;
+
+<span class="fc" id="L53">	public CertificateService(JdbcClient jdbc, SecretCipher cipher, AuditLog audit) {</span>
+<span class="fc" id="L54">		this.jdbc = jdbc;</span>
+<span class="fc" id="L55">		this.cipher = cipher;</span>
+<span class="fc" id="L56">		this.audit = audit;</span>
+<span class="fc" id="L57">	}</span>
+
+	/** Valida el certificado, lo guarda cifrado y lo deja como el activo del emisor. */
+	@Transactional
+	public CertificateView upload(TenantAccess access, UUID taxpayerId, byte[] p12, char[] password) {
+<span class="fc" id="L62">		access.requireWrite();</span>
+		// El bloqueo del emisor ordena dos cargas simultáneas: solo puede quedar un certificado activo.
+<span class="fc" id="L64">		lockTaxpayer(access.tenantId(), taxpayerId);</span>
+		SigningMaterial material;
+		try {
+<span class="fc" id="L67">			material = Pkcs12Inspector.inspect(p12, password, Instant.now());</span>
+		}
+<span class="fc" id="L69">		catch (CertificateRejectedException ex) {</span>
+<span class="fc" id="L70">			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, ex.errorCode(), ex.getMessage());</span>
+<span class="fc" id="L71">		}</span>
+<span class="fc" id="L72">		X509Certificate certificate = material.certificate();</span>
+<span class="fc" id="L73">		UUID id = UUID.randomUUID();</span>
+<span class="fc" id="L74">		byte[] passwordBytes = toBytes(password);</span>
+<span class="fc" id="L75">		byte[] encryptedP12 = cipher.encrypt(p12, secretContext(access.tenantId(), taxpayerId, id, &quot;p12&quot;));</span>
+<span class="fc" id="L76">		byte[] encryptedPassword = cipher.encrypt(passwordBytes,</span>
+<span class="fc" id="L77">				secretContext(access.tenantId(), taxpayerId, id, &quot;password&quot;));</span>
+<span class="fc" id="L78">		Arrays.fill(passwordBytes, (byte) 0);</span>
+<span class="fc" id="L79">		String fingerprint = fingerprint(certificate);</span>
+<span class="fc" id="L80">		OffsetDateTime validTo = utc(certificate.getNotAfter().toInstant());</span>
+
+<span class="fc" id="L82">		jdbc.sql(&quot;UPDATE certificates SET status = 'REPLACED' WHERE taxpayer_id = :taxpayer AND status = 'ACTIVE'&quot;)</span>
+<span class="fc" id="L83">			.param(&quot;taxpayer&quot;, taxpayerId)</span>
+<span class="fc" id="L84">			.update();</span>
+<span class="fc" id="L85">		jdbc.sql(&quot;&quot;&quot;</span>
+				INSERT INTO certificates (id, tenant_id, taxpayer_id, subject, issuer, serial_number,
+				 fingerprint_sha256, valid_from, valid_to, status, encrypted_p12, encrypted_password, created_by)
+				VALUES (:id, :tenant, :taxpayer, :subject, :issuer, :serial, :fingerprint, :validFrom, :validTo,
+				 'ACTIVE', :encryptedP12, :encryptedPassword, :createdBy)
+				&quot;&quot;&quot;)
+<span class="fc" id="L91">			.param(&quot;id&quot;, id)</span>
+<span class="fc" id="L92">			.param(&quot;tenant&quot;, access.tenantId())</span>
+<span class="fc" id="L93">			.param(&quot;taxpayer&quot;, taxpayerId)</span>
+<span class="fc" id="L94">			.param(&quot;subject&quot;, certificate.getSubjectX500Principal().getName())</span>
+<span class="fc" id="L95">			.param(&quot;issuer&quot;, certificate.getIssuerX500Principal().getName())</span>
+<span class="fc" id="L96">			.param(&quot;serial&quot;, certificate.getSerialNumber().toString())</span>
+<span class="fc" id="L97">			.param(&quot;fingerprint&quot;, fingerprint)</span>
+<span class="fc" id="L98">			.param(&quot;validFrom&quot;, utc(certificate.getNotBefore().toInstant()))</span>
+<span class="fc" id="L99">			.param(&quot;validTo&quot;, validTo)</span>
+<span class="fc" id="L100">			.param(&quot;encryptedP12&quot;, encryptedP12)</span>
+<span class="fc" id="L101">			.param(&quot;encryptedPassword&quot;, encryptedPassword)</span>
+<span class="fc" id="L102">			.param(&quot;createdBy&quot;, access.userId())</span>
+<span class="fc" id="L103">			.update();</span>
+<span class="fc" id="L104">		audit.record(access.tenantId(), access.userId(), &quot;CERTIFICATE_UPLOADED&quot;, &quot;CERTIFICATE&quot;, id,</span>
+<span class="fc" id="L105">				Map.of(&quot;taxpayerId&quot;, taxpayerId.toString(), &quot;fingerprintSha256&quot;, fingerprint, &quot;validTo&quot;,</span>
+<span class="fc" id="L106">						validTo.toString()));</span>
+<span class="fc" id="L107">		return view(access.tenantId(), id);</span>
+	}
+
+	/** Metadatos de los certificados del emisor, el más reciente primero. Nunca el contenido. */
+	@Transactional(readOnly = true)
+	public List&lt;CertificateView&gt; list(TenantAccess access, UUID taxpayerId) {
+<span class="fc" id="L113">		boolean exists = jdbc.sql(&quot;SELECT count(*) FROM taxpayers WHERE id = :id AND tenant_id = :tenant&quot;)</span>
+<span class="fc" id="L114">			.param(&quot;id&quot;, taxpayerId)</span>
+<span class="fc" id="L115">			.param(&quot;tenant&quot;, access.tenantId())</span>
+<span class="fc" id="L116">			.query(Long.class)</span>
+<span class="fc bfc" id="L117" title="All 2 branches covered.">			.single() &gt; 0;</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">		if (!exists) {</span>
+<span class="fc" id="L119">			throw ApiException.notFound();</span>
+		}
+<span class="fc" id="L121">		return jdbc.sql(&quot;SELECT &quot; + VIEW_COLUMNS + &quot; FROM certificates&quot;</span>
+				+ &quot; WHERE tenant_id = :tenant AND taxpayer_id = :taxpayer ORDER BY created_at DESC, id&quot;)
+<span class="fc" id="L123">			.param(&quot;tenant&quot;, access.tenantId())</span>
+<span class="fc" id="L124">			.param(&quot;taxpayer&quot;, taxpayerId)</span>
+<span class="fc" id="L125">			.query(CertificateView.class)</span>
+<span class="fc" id="L126">			.list();</span>
+	}
+
+	/**
+	 * Clave y certificado activos del emisor, listos para firmar. La vigencia se vuelve a comprobar
+	 * contra el instante indicado: un certificado pudo caducar después de cargarse. No abre ni marca
+	 * transacción: el rechazo es un resultado que quien llama registra y confirma.
+	 */
+	public SigningMaterial signingMaterial(UUID tenantId, UUID taxpayerId, Instant now) {
+<span class="fc" id="L135">		Optional&lt;Encrypted&gt; active = jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT id, encrypted_p12, encrypted_password FROM certificates
+				WHERE tenant_id = :tenant AND taxpayer_id = :taxpayer AND status = 'ACTIVE'
+<span class="fc" id="L138">				&quot;&quot;&quot;).param(&quot;tenant&quot;, tenantId).param(&quot;taxpayer&quot;, taxpayerId).query(Encrypted.class).optional();</span>
+<span class="fc" id="L139">		Encrypted encrypted = active.orElseThrow(() -&gt; new CertificateRejectedException(&quot;CERTIFICATE_MISSING&quot;,</span>
+				&quot;El emisor no tiene un certificado de firma activo&quot;));
+<span class="fc" id="L141">		byte[] p12 = cipher.decrypt(encrypted.encryptedP12(),</span>
+<span class="fc" id="L142">				secretContext(tenantId, taxpayerId, encrypted.id(), &quot;p12&quot;));</span>
+<span class="fc" id="L143">		byte[] passwordBytes = cipher.decrypt(encrypted.encryptedPassword(),</span>
+<span class="fc" id="L144">				secretContext(tenantId, taxpayerId, encrypted.id(), &quot;password&quot;));</span>
+<span class="fc" id="L145">		char[] password = toChars(passwordBytes);</span>
+		try {
+<span class="fc" id="L147">			return Pkcs12Inspector.inspect(p12, password, now);</span>
+		}
+		finally {
+<span class="fc" id="L150">			Arrays.fill(p12, (byte) 0);</span>
+<span class="fc" id="L151">			Arrays.fill(passwordBytes, (byte) 0);</span>
+<span class="fc" id="L152">			Arrays.fill(password, '\0');</span>
+		}
+	}
+
+	private void lockTaxpayer(UUID tenantId, UUID taxpayerId) {
+<span class="fc" id="L157">		jdbc.sql(&quot;SELECT id FROM taxpayers WHERE id = :id AND tenant_id = :tenant FOR UPDATE&quot;)</span>
+<span class="fc" id="L158">			.param(&quot;id&quot;, taxpayerId)</span>
+<span class="fc" id="L159">			.param(&quot;tenant&quot;, tenantId)</span>
+<span class="fc" id="L160">			.query(UUID.class)</span>
+<span class="fc" id="L161">			.optional()</span>
+<span class="fc" id="L162">			.orElseThrow(ApiException::notFound);</span>
+<span class="fc" id="L163">	}</span>
+
+	private CertificateView view(UUID tenantId, UUID id) {
+<span class="fc" id="L166">		return jdbc.sql(&quot;SELECT &quot; + VIEW_COLUMNS + &quot; FROM certificates WHERE id = :id AND tenant_id = :tenant&quot;)</span>
+<span class="fc" id="L167">			.param(&quot;id&quot;, id)</span>
+<span class="fc" id="L168">			.param(&quot;tenant&quot;, tenantId)</span>
+<span class="fc" id="L169">			.query(CertificateView.class)</span>
+<span class="fc" id="L170">			.single();</span>
+	}
+
+	/**
+	 * Datos autenticados junto con cada secreto. Lo ligan a su empresa, su emisor, su certificado y
+	 * su campo: quien pueda escribir en la base no puede hacer que el certificado de un emisor firme
+	 * por otro, ni intercambiar el archivo con la contraseña.
+	 */
+	public static byte[] secretContext(UUID tenantId, UUID taxpayerId, UUID certificateId, String field) {
+<span class="fc" id="L179">		return (&quot;certificate|&quot; + tenantId + &quot;|&quot; + taxpayerId + &quot;|&quot; + certificateId + &quot;|&quot; + field)</span>
+<span class="fc" id="L180">			.getBytes(StandardCharsets.UTF_8);</span>
+	}
+
+	private static String fingerprint(X509Certificate certificate) {
+		try {
+<span class="fc" id="L185">			return HexFormat.of().formatHex(MessageDigest.getInstance(&quot;SHA-256&quot;).digest(certificate.getEncoded()));</span>
+		}
+<span class="nc" id="L187">		catch (NoSuchAlgorithmException | CertificateEncodingException ex) {</span>
+<span class="nc" id="L188">			throw new IllegalStateException(ex);</span>
+		}
+	}
+
+	private static OffsetDateTime utc(Instant instant) {
+<span class="fc" id="L193">		return OffsetDateTime.ofInstant(instant, ZoneOffset.UTC);</span>
+	}
+
+	private static byte[] toBytes(char[] chars) {
+<span class="fc" id="L197">		ByteBuffer buffer = StandardCharsets.UTF_8.encode(CharBuffer.wrap(chars));</span>
+<span class="fc" id="L198">		byte[] bytes = new byte[buffer.remaining()];</span>
+<span class="fc" id="L199">		buffer.get(bytes);</span>
+<span class="fc" id="L200">		return bytes;</span>
+	}
+
+	private static char[] toChars(byte[] bytes) {
+<span class="fc" id="L204">		CharBuffer buffer = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(bytes));</span>
+<span class="fc" id="L205">		char[] chars = new char[buffer.remaining()];</span>
+<span class="fc" id="L206">		buffer.get(chars);</span>
+<span class="fc" id="L207">		return chars;</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>XsdValidator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.xml</a> &gt; <span class="el_source">XsdValidator.java</span></div><h1>XsdValidator.java</h1><pre class="source lang-java linenums">package com.example.einvoice.xml;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+import javax.xml.XMLConstants;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.parsers.SAXParserFactory;
+import javax.xml.transform.sax.SAXSource;
+import javax.xml.validation.Validator;
+
+import org.springframework.stereotype.Component;
+import org.xml.sax.ErrorHandler;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXParseException;
+import org.xml.sax.XMLReader;
+
+/**
+ * Valida un XML contra el XSD de factura de una versión. Nunca lanza por contenido inválido y
+ * rechaza cualquier DOCTYPE antes de resolver entidades (docs/10-security.md).
+ */
+@Component
+public class XsdValidator {
+
+	private static final String DISALLOW_DOCTYPE = &quot;http://apache.org/xml/features/disallow-doctype-decl&quot;;
+
+	private final InvoiceSchemas schemas;
+
+<span class="fc" id="L32">	public XsdValidator(InvoiceSchemas schemas) {</span>
+<span class="fc" id="L33">		this.schemas = schemas;</span>
+<span class="fc" id="L34">	}</span>
+
+	public ValidationResult validate(byte[] xml, SchemaVersion version) {
+<span class="fc" id="L37">		List&lt;String&gt; errors = new ArrayList&lt;&gt;();</span>
+		try {
+<span class="fc" id="L39">			Validator validator = schemas.get(version).newValidator();</span>
+<span class="fc" id="L40">			validator.setErrorHandler(new CollectingErrorHandler(errors));</span>
+<span class="fc" id="L41">			validator.validate(new SAXSource(newSecureReader(), new InputSource(new ByteArrayInputStream(xml))));</span>
+		}
+<span class="fc" id="L43">		catch (SAXParseException ex) {</span>
+<span class="fc" id="L44">			errors.add(describe(ex));</span>
+		}
+<span class="nc" id="L46">		catch (SAXException | IOException ex) {</span>
+<span class="nc" id="L47">			errors.add(String.valueOf(ex.getMessage()));</span>
+<span class="fc" id="L48">		}</span>
+<span class="fc" id="L49">		return ValidationResult.of(errors);</span>
+	}
+
+	static XMLReader newSecureReader() {
+		try {
+<span class="fc" id="L54">			SAXParserFactory factory = SAXParserFactory.newInstance();</span>
+<span class="fc" id="L55">			factory.setNamespaceAware(true);</span>
+<span class="fc" id="L56">			factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);</span>
+<span class="fc" id="L57">			factory.setFeature(DISALLOW_DOCTYPE, true);</span>
+<span class="fc" id="L58">			return factory.newSAXParser().getXMLReader();</span>
+		}
+<span class="nc" id="L60">		catch (ParserConfigurationException | SAXException ex) {</span>
+<span class="nc" id="L61">			throw new IllegalStateException(&quot;El parser XML no admite la configuración segura requerida&quot;, ex);</span>
+		}
+	}
+
+	private static String describe(SAXParseException ex) {
+<span class="fc" id="L66">		String message = String.valueOf(ex.getMessage());</span>
+<span class="fc bfc" id="L67" title="All 2 branches covered.">		if (message.contains(&quot;DOCTYPE&quot;)) {</span>
+<span class="fc" id="L68">			return &quot;DOCTYPE no permitido (línea &quot; + ex.getLineNumber() + &quot;)&quot;;</span>
+		}
+<span class="fc" id="L70">		return message + &quot; (línea &quot; + ex.getLineNumber() + &quot;)&quot;;</span>
+	}
+
+<span class="fc" id="L73">	private record CollectingErrorHandler(List&lt;String&gt; errors) implements ErrorHandler {</span>
+
+		@Override
+		public void warning(SAXParseException exception) {
+<span class="nc" id="L77">		}</span>
+
+		@Override
+		public void error(SAXParseException exception) {
+<span class="fc" id="L81">			errors.add(describe(exception));</span>
+<span class="fc" id="L82">		}</span>
+
+		@Override
+		public void fatalError(SAXParseException exception) throws SAXParseException {
+<span class="fc" id="L86">			throw exception;</span>
+		}
+
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

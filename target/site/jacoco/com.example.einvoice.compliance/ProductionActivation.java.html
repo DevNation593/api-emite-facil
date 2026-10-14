@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ProductionActivation.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.compliance</a> &gt; <span class="el_source">ProductionActivation.java</span></div><h1>ProductionActivation.java</h1><pre class="source lang-java linenums">package com.example.einvoice.compliance;
+
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.einvoice.sri.SriEnvironment;
+import com.example.einvoice.sri.SriProperties;
+import com.example.einvoice.tenancy.TenantAccess;
+import com.example.einvoice.web.ApiException;
+
+/**
+ * Paso de un emisor a producción. Solo ocurre con evidencia que el sistema puede comprobar por sí
+ * mismo (certificado vigente y un comprobante que el SRI autorizó en pruebas) y con la declaración
+ * de su propietario de que el SRI habilitó ese RUC para producción.
+ */
+@Service
+public class ProductionActivation {
+
+	public static final String CERTIFICATE = &quot;CERTIFICATE&quot;;
+
+	public static final String TEST_AUTHORIZATION = &quot;TEST_AUTHORIZATION&quot;;
+
+	/**
+	 * Qué tiene y qué le falta al emisor. {@code transmissionOpen} dice si la plataforma transmite
+	 * hoy a producción: es decisión del proveedor, no un requisito del emisor.
+	 */
+<span class="fc" id="L37">	public record Readiness(Instant certificateValidUntil, int authorizedTestDocuments, boolean transmissionOpen,</span>
+			Instant activatedAt, List&lt;String&gt; missing) {
+	}
+
+	private final JdbcClient jdbc;
+
+	private final SriProperties sri;
+
+	private final AuditLog audit;
+
+<span class="fc" id="L47">	public ProductionActivation(JdbcClient jdbc, SriProperties sri, AuditLog audit) {</span>
+<span class="fc" id="L48">		this.jdbc = jdbc;</span>
+<span class="fc" id="L49">		this.sri = sri;</span>
+<span class="fc" id="L50">		this.audit = audit;</span>
+<span class="fc" id="L51">	}</span>
+
+	@Transactional(readOnly = true)
+	public Readiness readiness(TenantAccess access, UUID taxpayerId) {
+<span class="fc" id="L55">		return evaluate(access.tenantId(), taxpayerId, false);</span>
+	}
+
+	@Transactional
+	public Readiness activate(TenantAccess access, UUID taxpayerId, boolean sriProductionAuthorized) {
+<span class="fc" id="L60">		access.requireOwner();</span>
+		// Bloquea al emisor: dos activaciones a la vez dejan un solo evento.
+<span class="fc" id="L62">		Readiness current = evaluate(access.tenantId(), taxpayerId, true);</span>
+<span class="fc bfc" id="L63" title="All 2 branches covered.">		if (current.activatedAt() != null) {</span>
+<span class="fc" id="L64">			return current;</span>
+		}
+<span class="fc" id="L66">		List&lt;ApiException.FieldError&gt; unmet = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L67" title="All 2 branches covered.">		if (current.missing().contains(CERTIFICATE)) {</span>
+<span class="fc" id="L68">			unmet.add(new ApiException.FieldError(&quot;certificate&quot;, &quot;El emisor no tiene un certificado de firma vigente&quot;));</span>
+		}
+<span class="fc bfc" id="L70" title="All 2 branches covered.">		if (current.missing().contains(TEST_AUTHORIZATION)) {</span>
+<span class="fc" id="L71">			unmet.add(new ApiException.FieldError(&quot;testAuthorization&quot;,</span>
+					&quot;El SRI aún no ha autorizado ningún comprobante de este emisor en el ambiente de pruebas&quot;));
+		}
+<span class="fc bfc" id="L74" title="All 2 branches covered.">		if (!sriProductionAuthorized) {</span>
+<span class="fc" id="L75">			unmet.add(new ApiException.FieldError(&quot;sriProductionAuthorized&quot;,</span>
+					&quot;Debe declarar que el SRI habilitó este RUC para emitir en producción&quot;));
+		}
+<span class="fc bfc" id="L78" title="All 2 branches covered.">		if (!unmet.isEmpty()) {</span>
+<span class="fc" id="L79">			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, &quot;PRODUCTION_REQUIREMENTS_NOT_MET&quot;,</span>
+					&quot;El emisor todavía no cumple los requisitos para pasar a producción&quot;, unmet);
+		}
+<span class="fc" id="L82">		jdbc.sql(&quot;&quot;&quot;</span>
+				UPDATE taxpayers SET production_enabled_at = now(), production_enabled_by = :user,
+				       default_environment = '2'
+				 WHERE id = :id AND tenant_id = :tenant
+<span class="fc" id="L86">				&quot;&quot;&quot;).param(&quot;user&quot;, access.userId()).param(&quot;id&quot;, taxpayerId).param(&quot;tenant&quot;, access.tenantId()).update();</span>
+<span class="fc" id="L87">		audit.record(access.tenantId(), access.userId(), &quot;TAXPAYER_PRODUCTION_ENABLED&quot;, &quot;TAXPAYER&quot;, taxpayerId,</span>
+<span class="fc" id="L88">				Map.of(&quot;certificateValidUntil&quot;, current.certificateValidUntil().toString(), &quot;authorizedTestDocuments&quot;,</span>
+<span class="fc" id="L89">						current.authorizedTestDocuments()));</span>
+<span class="fc" id="L90">		return evaluate(access.tenantId(), taxpayerId, false);</span>
+	}
+
+<span class="fc" id="L93">	private record TaxpayerRow(OffsetDateTime productionEnabledAt) {</span>
+	}
+
+	private Readiness evaluate(UUID tenantId, UUID taxpayerId, boolean lock) {
+		// Un emisor de otra empresa se trata igual que uno inexistente.
+<span class="fc" id="L98">		TaxpayerRow taxpayer = jdbc</span>
+<span class="fc" id="L99">			.sql(&quot;SELECT production_enabled_at FROM taxpayers WHERE id = :id AND tenant_id = :tenant&quot;</span>
+<span class="fc bfc" id="L100" title="All 2 branches covered.">					+ (lock ? &quot; FOR UPDATE&quot; : &quot;&quot;))</span>
+<span class="fc" id="L101">			.param(&quot;id&quot;, taxpayerId)</span>
+<span class="fc" id="L102">			.param(&quot;tenant&quot;, tenantId)</span>
+<span class="fc" id="L103">			.query(TaxpayerRow.class)</span>
+<span class="fc" id="L104">			.optional()</span>
+<span class="fc" id="L105">			.orElseThrow(ApiException::notFound);</span>
+<span class="fc" id="L106">		Optional&lt;OffsetDateTime&gt; certificate = jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT valid_to FROM certificates
+				 WHERE tenant_id = :tenant AND taxpayer_id = :taxpayer AND status = 'ACTIVE'
+				   AND valid_from &lt;= now() AND valid_to &gt; now()
+<span class="fc" id="L110">				&quot;&quot;&quot;).param(&quot;tenant&quot;, tenantId).param(&quot;taxpayer&quot;, taxpayerId).query(OffsetDateTime.class).optional();</span>
+<span class="fc" id="L111">		int authorized = jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT count(*) FROM fiscal_documents
+				 WHERE tenant_id = :tenant AND taxpayer_id = :taxpayer AND environment = '1' AND state = 'AUTHORIZED'
+<span class="fc" id="L114">				&quot;&quot;&quot;).param(&quot;tenant&quot;, tenantId).param(&quot;taxpayer&quot;, taxpayerId).query(Integer.class).single();</span>
+<span class="fc" id="L115">		List&lt;String&gt; missing = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L116" title="All 2 branches covered.">		if (certificate.isEmpty()) {</span>
+<span class="fc" id="L117">			missing.add(CERTIFICATE);</span>
+		}
+<span class="fc bfc" id="L119" title="All 2 branches covered.">		if (authorized == 0) {</span>
+<span class="fc" id="L120">			missing.add(TEST_AUTHORIZATION);</span>
+		}
+<span class="fc" id="L122">		return new Readiness(certificate.map(OffsetDateTime::toInstant).orElse(null), authorized,</span>
+<span class="fc" id="L123">				sri.enabled(SriEnvironment.PRODUCTION),</span>
+<span class="fc bfc" id="L124" title="All 2 branches covered.">				taxpayer.productionEnabledAt() == null ? null : taxpayer.productionEnabledAt().toInstant(),</span>
+<span class="fc" id="L125">				List.copyOf(missing));</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

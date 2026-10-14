@@ -1,0 +1,184 @@
+spring:
+  application:
+    name: einvoice
+  data:
+    redis:
+      # Redis solo cuenta peticiones (límite por usuario). Si no contesta enseguida se sigue sin él:
+      # sin estos plazos, cada petición esperaría un minuto a un Redis colgado.
+      timeout: ${REDIS_TIMEOUT:500ms}
+      connect-timeout: ${REDIS_TIMEOUT:500ms}
+  task:
+    scheduling:
+      pool:
+        # Varias tareas periódicas (latido del worker, métricas, verificación del archivo): con un
+        # solo hilo, una pasada larga de una detendría a las demás.
+        size: 4
+  rabbitmq:
+    # El outbox solo se marca como despachado cuando el broker confirma cada mensaje.
+    publisher-confirm-type: simple
+    listener:
+      simple:
+        # Un mensaje que falla se reintenta unas pocas veces y, si sigue fallando, va a la cola de
+        # mensajes muertos (document.issue.dlq) en vez de volver a la cola una y otra vez.
+        default-requeue-rejected: false
+        prefetch: 1
+        concurrency: 2
+        max-concurrency: 8
+        retry:
+          enabled: true
+          max-retries: 3
+          initial-interval: 2s
+          multiplier: 2
+          max-interval: 10s
+  mail:
+    # Servidor SMTP para la entrega de comprobantes: SPRING_MAIL_HOST, SPRING_MAIL_PORT,
+    # SPRING_MAIL_USERNAME y SPRING_MAIL_PASSWORD. Solo se usa con DELIVERY_EMAIL_ENABLED=true.
+    properties:
+      # La conexión debe cifrarse (STARTTLS) o el envío falla: las credenciales y los comprobantes
+      # no viajan en claro. SMTP_STARTTLS=false solo para un servidor de desarrollo local.
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:true}
+      mail.smtp.starttls.required: ${SMTP_STARTTLS:true}
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 30000
+      mail.smtp.writetimeout: 30000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Emisor OIDC que firma los tokens de acceso y audiencia que identifica a esta API en ellos.
+          # Ambos son obligatorios: la aplicación no arranca sin ellos.
+          issuer-uri: ${OIDC_ISSUER}
+          audiences: ${OIDC_AUDIENCE}
+einvoice:
+  crypto:
+    # Clave maestra (32 bytes en Base64) que envuelve las claves con las que se cifran los
+    # certificados de firma. Obligatoria. Es un sustituto local de un KMS: en producción debe
+    # provenir de un gestor de claves, nunca de un archivo versionado.
+    master-key: ${EINVOICE_MASTER_KEY}
+  invoice:
+    # Monto máximo de una factura a consumidor final sin identificar al adquirente
+    # (ficha técnica v2.34, numeral 9.10). Es configurable porque el SRI lo ha cambiado.
+    final-consumer-limit: 50.00
+  provider:
+    # RUC del proveedor del sistema de facturación. Si se define, cada comprobante lo lleva como
+    # campo adicional "RUC Proveedor" (ficha técnica v2.34, Anexo 26).
+    ruc: ${EINVOICE_PROVIDER_RUC:}
+  delivery:
+    email:
+      # Entrega de comprobantes por correo. Desactivada mientras no se habilite expresamente: con
+      # false no se crea ninguna entrega ni se contacta ningún servidor SMTP.
+      enabled: ${DELIVERY_EMAIL_ENABLED:false}
+      # Dirección remitente (solo la dirección; el nombre visible es el del emisor del comprobante).
+      from: ${DELIVERY_EMAIL_FROM:}
+    # Reintentos del correo: la espera se duplica (1, 2, 4… minutos) hasta el máximo. Con estos
+    # valores se insiste entre 16 y 25 horas; después la entrega queda fallida y se puede pedir de nuevo.
+    retry-backoff: 1m
+    retry-max-backoff: 6h
+    retry-max-attempts: 12
+    # Plazo tras el cual un envío que no dejó resultado se da por abandonado y se repite. Debe ser
+    # holgado frente a lo que tarda un envío lento: si vence antes, el correo se envía dos veces.
+    send-lease: 10m
+    # Tope de entregas por comprobante, contando los reenvíos manuales.
+    max-per-document: 10
+  metrics:
+    # Ficha con la que el recolector de métricas lee /actuator/prometheus (cabecera Authorization:
+    # Bearer). Vacía: las métricas no existen. Al menos 24 caracteres aleatorios.
+    token: ${EINVOICE_METRICS_TOKEN:}
+    # Cada cuánto se recalcula el estado de la operación (comprobantes, colas, outbox, certificados).
+    refresh-interval-ms: 30000
+  invitations:
+    # Invitaciones a una empresa: cuánto valen y cuántas puede haber pendientes a la vez.
+    ttl: 7d
+    max-pending: 50
+    # Una invitación solo la acepta quien inicia sesión con el correo invitado, y para eso el token
+    # de acceso debe traer el correo. Con true, si el proveedor de identidad no lo incluye, basta el
+    # enlace: vale entonces para cualquiera que lo tenga hasta que se use o caduque.
+    allow-without-email: ${EINVOICE_INVITATIONS_ALLOW_WITHOUT_EMAIL:false}
+  webhooks:
+    # Avisos a los sistemas de cada empresa. Apagado por defecto: encenderlo es aceptar que la
+    # aplicación llame a direcciones que eligen los clientes (solo https y solo direcciones públicas).
+    enabled: ${EINVOICE_WEBHOOKS_ENABLED:false}
+    # Solo para desarrollo y pruebas: http sin cifrar y direcciones privadas o locales.
+    allow-insecure-http: ${EINVOICE_WEBHOOKS_ALLOW_INSECURE_HTTP:false}
+    allow-private-addresses: ${EINVOICE_WEBHOOKS_ALLOW_PRIVATE_ADDRESSES:false}
+    max-subscriptions: 10
+    # Reintentos: espera que se duplica desde 30 s hasta un tope de 6 h. Con 14 intentos, el último
+    # sale unas 26 horas después del primero.
+    retry-backoff: 30s
+    retry-max-backoff: 6h
+    retry-max-attempts: 14
+    # Plazo tras el cual un envío sin resultado se considera abandonado y se retoma.
+    send-lease: 2m
+    connect-timeout: 5s
+    total-timeout: 10s
+    # Una suscripción se apaga sola cuando acumula estos intentos fallidos seguidos y además lleva
+    # fallando este tiempo: una caída corta con muchos comprobantes no la apaga.
+    disable-after-failures: 100
+    disable-after-failing-for: 3d
+    # Cuánto sigue firmando el secreto anterior después de rotarlo.
+    secret-overlap: 24h
+  rate-limit:
+    # Tope de peticiones por usuario y minuto: todas, y dentro de ellas las que cambian datos. Se
+    # cuentan en Redis; si Redis no responde, las peticiones pasan sin contarse.
+    requests-per-minute: ${EINVOICE_RATE_LIMIT_REQUESTS:1200}
+    writes-per-minute: ${EINVOICE_RATE_LIMIT_WRITES:300}
+  integrity:
+    # Verificación periódica del archivo, en el worker: cuántos artefactos por pasada y cada cuánto.
+    # Con estos valores se verifican hasta 192 000 artefactos al día; si llegan más, la métrica
+    # einvoice_artifacts_unverified crece y hay que subir el lote.
+    batch-size: 2000
+    interval-ms: 900000
+  worker:
+    # Procesamiento en segundo plano de los comprobantes (generar, firmar, enviar, consultar). Con
+    # false la instancia solo atiende la API; otra instancia debe hacer de worker.
+    enabled: ${EINVOICE_WORKER_ENABLED:true}
+    # Cada cuánto se publican los eventos pendientes y se encolan los reintentos vencidos.
+    poll-interval-ms: 1000
+    # Plazo tras el cual un comprobante encolado que nadie procesó vuelve a encolarse.
+    redelivery-lease: 5m
+  sri:
+    # Ambientes en los que se transmite al SRI: vacío (nada), "1" (pruebas) o "1,2" (pruebas y
+    # producción). Mientras un ambiente no esté aquí, sus comprobantes se quedan firmados sin enviarse.
+    enabled-environments: ${SRI_ENABLED_ENVIRONMENTS:}
+    # Solo para pruebas con un SRI simulado: admite direcciones que no son las oficiales.
+    allow-custom-endpoints: false
+    # Servicios off-line oficiales (ficha técnica v2.34, numeral 7.2).
+    test:
+      reception: https://celcer.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline
+      authorization: https://celcer.sri.gob.ec/comprobantes-electronicos-ws/AutorizacionComprobantesOffline
+    production:
+      reception: https://cel.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline
+      authorization: https://cel.sri.gob.ec/comprobantes-electronicos-ws/AutorizacionComprobantesOffline
+    connect-timeout: ${SRI_CONNECT_TIMEOUT:10s}
+    read-timeout: ${SRI_READ_TIMEOUT:60s}
+    # Espera entre la respuesta RECIBIDA y la primera consulta de autorización (ficha, numeral 7.4).
+    authorization-delay: ${SRI_AUTHORIZATION_DELAY:3s}
+    # Reintentos ante el SRI: la espera se duplica en cada intento hasta el máximo, con una
+    # variación de ±20 %. El SRI puede tardar hasta 24 horas en autorizar: con estos valores se
+    # insiste entre 26 y 38 horas antes de dejar el comprobante a la espera de un reintento manual.
+    retry-backoff: ${SRI_RETRY_BACKOFF:15s}
+    retry-max-backoff: 1h
+    retry-max-attempts: ${SRI_RETRY_MAX:40}
+logging:
+  pattern:
+    # Cada línea de log lleva el X-Correlation-ID de la petición que la produjo.
+    correlation: "[%X{correlationId:-}] "
+management:
+  health:
+    mail:
+      # El correo no es imprescindible para operar: su caída no debe marcar la aplicación como caída.
+      enabled: false
+  endpoint:
+    health:
+      probes:
+        # /actuator/health/liveness y /actuator/health/readiness, para el orquestador.
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        # prometheus solo responde con la ficha de einvoice.metrics.token.
+        include: health,prometheus

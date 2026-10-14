@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ArtifactKind.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.storage</a> &gt; <span class="el_source">ArtifactKind.java</span></div><h1>ArtifactKind.java</h1><pre class="source lang-java linenums">package com.example.einvoice.storage;
+
+import java.util.Arrays;
+import java.util.Optional;
+
+import org.springframework.http.MediaType;
+
+/** Tipos de artefacto que se conservan de un comprobante. */
+<span class="fc" id="L9">public enum ArtifactKind {</span>
+
+<span class="fc" id="L11">	XML_UNSIGNED(&quot;xml-unsigned&quot;), XML_SIGNED(&quot;xml-signed&quot;),</span>
+
+	/** Respuesta del SRI que autorizó el comprobante, tal como llegó. */
+<span class="fc" id="L14">	SRI_AUTHORIZATION(&quot;sri-authorization&quot;),</span>
+
+	/** XML autorizado que se entrega al receptor: datos de la autorización y el comprobante firmado. */
+<span class="fc" id="L17">	XML_AUTHORIZED(&quot;xml-authorized&quot;),</span>
+
+	/** Representación impresa del comprobante (RIDE), en PDF. */
+<span class="fc" id="L20">	RIDE_PDF(&quot;ride&quot;, MediaType.APPLICATION_PDF);</span>
+
+	private final String pathName;
+
+	private final MediaType mediaType;
+
+	ArtifactKind(String pathName) {
+<span class="fc" id="L27">		this(pathName, MediaType.APPLICATION_XML);</span>
+<span class="fc" id="L28">	}</span>
+
+<span class="fc" id="L30">	ArtifactKind(String pathName, MediaType mediaType) {</span>
+<span class="fc" id="L31">		this.pathName = pathName;</span>
+<span class="fc" id="L32">		this.mediaType = mediaType;</span>
+<span class="fc" id="L33">	}</span>
+
+	/** Tipo de contenido con el que se descarga. */
+	public MediaType mediaType() {
+<span class="fc" id="L37">		return mediaType;</span>
+	}
+
+	/** Nombre con el que aparece en la ruta de descarga. */
+	public String pathName() {
+<span class="fc" id="L42">		return pathName;</span>
+	}
+
+	public static Optional&lt;ArtifactKind&gt; fromPathName(String pathName) {
+<span class="fc" id="L46">		return Arrays.stream(values()).filter(kind -&gt; kind.pathName.equals(pathName)).findFirst();</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

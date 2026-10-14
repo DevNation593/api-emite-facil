@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Tenant.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.tenancy</a> &gt; <span class="el_source">Tenant.java</span></div><h1>Tenant.java</h1><pre class="source lang-java linenums">package com.example.einvoice.tenancy;
+
+import java.util.UUID;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = &quot;tenants&quot;)
+public class Tenant {
+
+	@Id
+	@GeneratedValue(strategy = GenerationType.UUID)
+	private UUID id;
+
+	private String name;
+
+	@Enumerated(EnumType.STRING)
+	private TenantStatus status;
+
+<span class="fc" id="L26">	protected Tenant() {</span>
+<span class="fc" id="L27">	}</span>
+
+<span class="fc" id="L29">	public Tenant(String name) {</span>
+<span class="fc" id="L30">		this.name = name;</span>
+<span class="fc" id="L31">		this.status = TenantStatus.ACTIVE;</span>
+<span class="fc" id="L32">	}</span>
+
+	public UUID getId() {
+<span class="fc" id="L35">		return id;</span>
+	}
+
+	public String getName() {
+<span class="fc" id="L39">		return name;</span>
+	}
+
+	public TenantStatus getStatus() {
+<span class="fc" id="L43">		return status;</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

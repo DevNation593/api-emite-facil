@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>EstablishmentService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.taxpayer</a> &gt; <span class="el_source">EstablishmentService.java</span></div><h1>EstablishmentService.java</h1><pre class="source lang-java linenums">package com.example.einvoice.taxpayer;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.einvoice.compliance.AuditLog;
+import com.example.einvoice.tenancy.TenantAccess;
+import com.example.einvoice.web.ApiException;
+
+/** Establecimientos y puntos de emisión. El emisor o establecimiento padre se busca siempre dentro del tenant. */
+@Service
+public class EstablishmentService {
+
+	private final TaxpayerService taxpayers;
+
+	private final EstablishmentRepository establishments;
+
+	private final EmissionPointRepository emissionPoints;
+
+	private final AuditLog audit;
+
+	public EstablishmentService(TaxpayerService taxpayers, EstablishmentRepository establishments,
+<span class="fc" id="L29">			EmissionPointRepository emissionPoints, AuditLog audit) {</span>
+<span class="fc" id="L30">		this.taxpayers = taxpayers;</span>
+<span class="fc" id="L31">		this.establishments = establishments;</span>
+<span class="fc" id="L32">		this.emissionPoints = emissionPoints;</span>
+<span class="fc" id="L33">		this.audit = audit;</span>
+<span class="fc" id="L34">	}</span>
+
+	@Transactional
+	public Establishment createEstablishment(TenantAccess access, UUID taxpayerId, String code, String address) {
+<span class="fc" id="L38">		access.requireWrite();</span>
+<span class="fc" id="L39">		Taxpayer taxpayer = taxpayers.get(access, taxpayerId);</span>
+		Establishment establishment;
+		try {
+<span class="fc" id="L42">			establishment = establishments</span>
+<span class="fc" id="L43">				.saveAndFlush(new Establishment(access.tenantId(), taxpayer.getId(), code, address.strip()));</span>
+		}
+<span class="fc" id="L45">		catch (DataIntegrityViolationException ex) {</span>
+<span class="pc bpc" id="L46" title="1 of 2 branches missed.">			if (TaxpayerService.violates(ex, &quot;establishments_taxpayer_id_code_key&quot;)) {</span>
+<span class="fc" id="L47">				throw new ApiException(HttpStatus.CONFLICT, &quot;ESTABLISHMENT_CODE_TAKEN&quot;,</span>
+						&quot;El emisor ya tiene un establecimiento con ese código&quot;);
+			}
+<span class="nc" id="L50">			throw ex;</span>
+<span class="fc" id="L51">		}</span>
+<span class="fc" id="L52">		audit.record(access.tenantId(), access.userId(), &quot;ESTABLISHMENT_CREATED&quot;, &quot;ESTABLISHMENT&quot;,</span>
+<span class="fc" id="L53">				establishment.getId(), Map.of(&quot;taxpayerId&quot;, taxpayer.getId().toString(), &quot;code&quot;, code));</span>
+<span class="fc" id="L54">		return establishment;</span>
+	}
+
+	@Transactional(readOnly = true)
+	public List&lt;Establishment&gt; listEstablishments(TenantAccess access, UUID taxpayerId) {
+<span class="fc" id="L59">		Taxpayer taxpayer = taxpayers.get(access, taxpayerId);</span>
+<span class="fc" id="L60">		return establishments.findAllByTaxpayerIdAndTenantIdOrderByCode(taxpayer.getId(), access.tenantId());</span>
+	}
+
+	@Transactional
+	public EmissionPoint createEmissionPoint(TenantAccess access, UUID establishmentId, String code) {
+<span class="fc" id="L65">		access.requireWrite();</span>
+<span class="fc" id="L66">		Establishment establishment = establishment(access, establishmentId);</span>
+		EmissionPoint point;
+		try {
+<span class="fc" id="L69">			point = emissionPoints.saveAndFlush(new EmissionPoint(access.tenantId(), establishment.getId(), code));</span>
+		}
+<span class="fc" id="L71">		catch (DataIntegrityViolationException ex) {</span>
+<span class="pc bpc" id="L72" title="1 of 2 branches missed.">			if (TaxpayerService.violates(ex, &quot;emission_points_establishment_id_code_key&quot;)) {</span>
+<span class="fc" id="L73">				throw new ApiException(HttpStatus.CONFLICT, &quot;EMISSION_POINT_CODE_TAKEN&quot;,</span>
+						&quot;El establecimiento ya tiene un punto de emisión con ese código&quot;);
+			}
+<span class="nc" id="L76">			throw ex;</span>
+<span class="fc" id="L77">		}</span>
+<span class="fc" id="L78">		audit.record(access.tenantId(), access.userId(), &quot;EMISSION_POINT_CREATED&quot;, &quot;EMISSION_POINT&quot;, point.getId(),</span>
+<span class="fc" id="L79">				Map.of(&quot;establishmentId&quot;, establishment.getId().toString(), &quot;code&quot;, code));</span>
+<span class="fc" id="L80">		return point;</span>
+	}
+
+	@Transactional(readOnly = true)
+	public List&lt;EmissionPoint&gt; listEmissionPoints(TenantAccess access, UUID establishmentId) {
+<span class="fc" id="L85">		Establishment establishment = establishment(access, establishmentId);</span>
+<span class="fc" id="L86">		return emissionPoints.findAllByEstablishmentIdAndTenantIdOrderByCode(establishment.getId(),</span>
+<span class="fc" id="L87">				access.tenantId());</span>
+	}
+
+	private Establishment establishment(TenantAccess access, UUID establishmentId) {
+<span class="fc" id="L91">		return establishments.findByIdAndTenantId(establishmentId, access.tenantId())</span>
+<span class="fc" id="L92">			.orElseThrow(ApiException::notFound);</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

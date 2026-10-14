@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DeliveryRepository.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.delivery</a> &gt; <span class="el_source">DeliveryRepository.java</span></div><h1>DeliveryRepository.java</h1><pre class="source lang-java linenums">package com.example.einvoice.delivery;
+
+import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+/**
+ * Entregas de los comprobantes. Cada cambio de estado es una sola sentencia: reservar una entrega
+ * para enviarla es atómico, así que dos procesos nunca envían la misma a la vez.
+ */
+@Repository
+public class DeliveryRepository {
+
+	public static final String EMAIL = &quot;EMAIL&quot;;
+
+<span class="fc" id="L21">	public record DeliveryRow(UUID id, String channel, String recipient, String status, int attemptCount,</span>
+			String lastError, OffsetDateTime createdAt, OffsetDateTime sentAt, UUID requestedBy) {
+	}
+
+	/** Entrega reservada para enviar ahora. */
+<span class="fc" id="L26">	public record Claim(String recipient, int attemptCount) {</span>
+	}
+
+	private final JdbcClient jdbc;
+
+<span class="fc" id="L31">	public DeliveryRepository(JdbcClient jdbc) {</span>
+<span class="fc" id="L32">		this.jdbc = jdbc;</span>
+<span class="fc" id="L33">	}</span>
+
+	/** Crea la entrega automática del comprobante si aún no existe. Devuelve si la creó. */
+	public boolean ensureAutomatic(UUID tenantId, UUID documentId, String recipient) {
+<span class="fc" id="L37">		return jdbc.sql(&quot;&quot;&quot;</span>
+				INSERT INTO deliveries (tenant_id, document_id, channel, recipient, status, next_attempt_at)
+				VALUES (:tenantId, :documentId, 'EMAIL', :recipient, 'PENDING', now())
+				ON CONFLICT (document_id, channel) WHERE requested_by IS NULL DO NOTHING
+				&quot;&quot;&quot;)
+<span class="fc" id="L42">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L43">			.param(&quot;documentId&quot;, documentId)</span>
+<span class="fc" id="L44">			.param(&quot;recipient&quot;, recipient)</span>
+<span class="fc bfc" id="L45" title="All 2 branches covered.">			.update() == 1;</span>
+	}
+
+	/** Crea una entrega pedida por un usuario. */
+	public UUID create(UUID tenantId, UUID documentId, String recipient, UUID requestedBy) {
+<span class="fc" id="L50">		return jdbc.sql(&quot;&quot;&quot;</span>
+				INSERT INTO deliveries (tenant_id, document_id, channel, recipient, status, next_attempt_at,
+				 requested_by)
+				VALUES (:tenantId, :documentId, 'EMAIL', :recipient, 'PENDING', now(), :requestedBy) RETURNING id
+				&quot;&quot;&quot;)
+<span class="fc" id="L55">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L56">			.param(&quot;documentId&quot;, documentId)</span>
+<span class="fc" id="L57">			.param(&quot;recipient&quot;, recipient)</span>
+<span class="fc" id="L58">			.param(&quot;requestedBy&quot;, requestedBy)</span>
+<span class="fc" id="L59">			.query(UUID.class)</span>
+<span class="fc" id="L60">			.single();</span>
+	}
+
+	/**
+	 * Entregas del comprobante que se pueden intentar ahora: pendientes cuya espera ya pasó, o con un
+	 * envío que se quedó a medias.
+	 */
+	public List&lt;UUID&gt; pending(UUID tenantId, UUID documentId, Duration lease) {
+<span class="fc" id="L68">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT id FROM deliveries
+				WHERE tenant_id = :tenantId AND document_id = :documentId
+				 AND ((status = 'PENDING' AND (retry_after IS NULL OR retry_after &lt;= now()))
+				  OR (status = 'SENDING'
+				   AND sending_since &lt; now() - make_interval(secs =&gt; CAST(:lease AS double precision))))
+				ORDER BY created_at, id
+				&quot;&quot;&quot;)
+<span class="fc" id="L76">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L77">			.param(&quot;documentId&quot;, documentId)</span>
+<span class="fc" id="L78">			.param(&quot;lease&quot;, seconds(lease))</span>
+<span class="fc" id="L79">			.query(UUID.class)</span>
+<span class="fc" id="L80">			.list();</span>
+	}
+
+	/**
+	 * Reserva la entrega para enviarla. Vacío si otro proceso se adelantó o si aún no ha pasado la
+	 * espera de su reintento. Queda programada al vencer el plazo de envío: si este proceso muere
+	 * antes de anotar el resultado, se retoma entonces. El número de intento que devuelve identifica
+	 * esta reserva al anotar un fallo.
+	 */
+	public Optional&lt;Claim&gt; claim(UUID deliveryId, Duration lease) {
+<span class="fc" id="L90">		return jdbc.sql(&quot;&quot;&quot;</span>
+				UPDATE deliveries
+				SET status = 'SENDING', sending_since = now(), attempt_count = attempt_count + 1,
+				 next_attempt_at = now() + make_interval(secs =&gt; CAST(:lease AS double precision))
+				WHERE id = :id AND ((status = 'PENDING' AND (retry_after IS NULL OR retry_after &lt;= now()))
+				 OR (status = 'SENDING'
+				  AND sending_since &lt; now() - make_interval(secs =&gt; CAST(:lease AS double precision))))
+				RETURNING recipient, attempt_count
+<span class="fc" id="L98">				&quot;&quot;&quot;).param(&quot;id&quot;, deliveryId).param(&quot;lease&quot;, seconds(lease)).query(Claim.class).optional();</span>
+	}
+
+	/**
+	 * Anota que el servidor aceptó el mensaje. Vale aunque otro intento haya tomado después la
+	 * entrega: el correo ya salió, y anotarlo evita que se repita. Devuelve si es la primera vez que
+	 * se anota.
+	 */
+	public boolean markSent(UUID deliveryId, String providerMessageId) {
+<span class="fc" id="L107">		return jdbc.sql(&quot;&quot;&quot;</span>
+				UPDATE deliveries
+				SET status = 'SENT', sent_at = now(), provider_message_id = :messageId, next_attempt_at = NULL,
+				 retry_after = NULL, sending_since = NULL, last_error = NULL
+				WHERE id = :id AND status &lt;&gt; 'SENT'
+<span class="pc bpc" id="L112" title="1 of 2 branches missed.">				&quot;&quot;&quot;).param(&quot;messageId&quot;, providerMessageId).param(&quot;id&quot;, deliveryId).update() == 1;</span>
+	}
+
+	/**
+	 * Anota un fallo temporal del intento indicado y la espera antes del siguiente. No hace nada si
+	 * ese intento ya no es el vigente: otro proceso tomó la entrega y su resultado manda.
+	 */
+	public void markRetry(UUID deliveryId, int attempt, Duration delay, String error) {
+<span class="fc" id="L120">		jdbc.sql(&quot;&quot;&quot;</span>
+				UPDATE deliveries
+				SET status = 'PENDING', sending_since = NULL, last_error = :error,
+				 retry_after = now() + make_interval(secs =&gt; CAST(:delay AS double precision)),
+				 next_attempt_at = now() + make_interval(secs =&gt; CAST(:delay AS double precision))
+				WHERE id = :id AND status = 'SENDING' AND attempt_count = :attempt
+				&quot;&quot;&quot;)
+<span class="fc" id="L127">			.param(&quot;error&quot;, error)</span>
+<span class="fc" id="L128">			.param(&quot;delay&quot;, seconds(delay))</span>
+<span class="fc" id="L129">			.param(&quot;id&quot;, deliveryId)</span>
+<span class="fc" id="L130">			.param(&quot;attempt&quot;, attempt)</span>
+<span class="fc" id="L131">			.update();</span>
+<span class="fc" id="L132">	}</span>
+
+	/** Anota un fallo definitivo del intento indicado, con la misma salvedad que {@link #markRetry}. */
+	public void markFailed(UUID deliveryId, int attempt, String error) {
+<span class="fc" id="L136">		jdbc.sql(&quot;&quot;&quot;</span>
+				UPDATE deliveries
+				SET status = 'FAILED', sending_since = NULL, next_attempt_at = NULL, retry_after = NULL,
+				 last_error = :error
+				WHERE id = :id AND status = 'SENDING' AND attempt_count = :attempt
+<span class="fc" id="L141">				&quot;&quot;&quot;).param(&quot;error&quot;, error).param(&quot;id&quot;, deliveryId).param(&quot;attempt&quot;, attempt).update();</span>
+<span class="fc" id="L142">	}</span>
+
+	/** Entregas del comprobante, la más reciente primero. */
+	public List&lt;DeliveryRow&gt; list(UUID tenantId, UUID documentId) {
+<span class="fc" id="L146">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT id, channel, recipient, status, attempt_count, last_error, created_at, sent_at, requested_by
+				FROM deliveries WHERE tenant_id = :tenantId AND document_id = :documentId
+				ORDER BY created_at DESC, id
+<span class="fc" id="L150">				&quot;&quot;&quot;).param(&quot;tenantId&quot;, tenantId).param(&quot;documentId&quot;, documentId).query(DeliveryRow.class).list();</span>
+	}
+
+	public Optional&lt;DeliveryRow&gt; find(UUID tenantId, UUID deliveryId) {
+<span class="fc" id="L154">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT id, channel, recipient, status, attempt_count, last_error, created_at, sent_at, requested_by
+				FROM deliveries WHERE tenant_id = :tenantId AND id = :id
+<span class="fc" id="L157">				&quot;&quot;&quot;).param(&quot;tenantId&quot;, tenantId).param(&quot;id&quot;, deliveryId).query(DeliveryRow.class).optional();</span>
+	}
+
+	public int count(UUID documentId) {
+<span class="fc" id="L161">		return jdbc.sql(&quot;SELECT count(*) FROM deliveries WHERE document_id = :documentId&quot;)</span>
+<span class="fc" id="L162">			.param(&quot;documentId&quot;, documentId)</span>
+<span class="fc" id="L163">			.query(Integer.class)</span>
+<span class="fc" id="L164">			.single();</span>
+	}
+
+	private static double seconds(Duration duration) {
+<span class="fc" id="L168">		return duration.toMillis() / 1000.0;</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

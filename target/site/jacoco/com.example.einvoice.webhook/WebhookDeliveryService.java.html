@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WebhookDeliveryService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.webhook</a> &gt; <span class="el_source">WebhookDeliveryService.java</span></div><h1>WebhookDeliveryService.java</h1><pre class="source lang-java linenums">package com.example.einvoice.webhook;
+
+import java.net.InetAddress;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import com.example.einvoice.certificate.SecretCipher;
+import com.example.einvoice.certificate.SecretCipherException;
+import com.example.einvoice.orchestration.RetryPolicy;
+import com.example.einvoice.webhook.WebhookRepository.Claim;
+import com.example.einvoice.webhook.WebhookRepository.DocumentFacts;
+import com.example.einvoice.webhook.WebhookRepository.Target;
+
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * Envía los avisos pendientes de un comprobante. Cada aviso se reserva antes de enviarse, de modo
+ * que dos procesos no envían el mismo, y el envío se hace fuera de toda transacción. Si el proceso
+ * muere después de que el receptor lo aceptó y antes de anotarlo, el aviso se repite al vencer el
+ * plazo de envío, con el mismo identificador: entrega al menos una vez.
+ *
+ * &lt;p&gt;Ni la dirección ni el secreto de una suscripción se escriben en el registro ni en el error que
+ * se guarda con el aviso.
+ */
+@Service
+public class WebhookDeliveryService {
+
+<span class="fc" id="L41">	private static final Logger log = LoggerFactory.getLogger(WebhookDeliveryService.class);</span>
+
+	private final WebhookRepository repository;
+
+	private final WebhookSender sender;
+
+	private final WebhookUrlPolicy urls;
+
+	private final SecretCipher cipher;
+
+	private final WebhookProperties properties;
+
+	private final JsonMapper json;
+
+	public WebhookDeliveryService(WebhookRepository repository, WebhookSender sender, WebhookUrlPolicy urls,
+<span class="fc" id="L56">			SecretCipher cipher, WebhookProperties properties, JsonMapper json) {</span>
+<span class="fc" id="L57">		this.repository = repository;</span>
+<span class="fc" id="L58">		this.sender = sender;</span>
+<span class="fc" id="L59">		this.urls = urls;</span>
+<span class="fc" id="L60">		this.cipher = cipher;</span>
+<span class="fc" id="L61">		this.properties = properties;</span>
+<span class="fc" id="L62">		this.json = json;</span>
+<span class="fc" id="L63">	}</span>
+
+	/** Intenta los avisos pendientes del comprobante y devuelve cuántos se entregaron. */
+	public int process(UUID tenantId, UUID documentId) {
+<span class="fc bfc" id="L67" title="All 2 branches covered.">		if (!properties.enabled()) {</span>
+<span class="fc" id="L68">			return 0;</span>
+		}
+<span class="fc" id="L70">		int sent = 0;</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">		for (UUID deliveryId : repository.pending(tenantId, documentId, properties.sendLease())) {</span>
+<span class="fc" id="L72">			Optional&lt;Claim&gt; claim = repository.claim(deliveryId, properties.sendLease());</span>
+<span class="pc bpc" id="L73" title="1 of 4 branches missed.">			if (claim.isPresent() &amp;&amp; attempt(tenantId, documentId, deliveryId, claim.get())) {</span>
+<span class="fc" id="L74">				sent++;</span>
+			}
+<span class="fc" id="L76">		}</span>
+<span class="fc" id="L77">		return sent;</span>
+	}
+
+	private boolean attempt(UUID tenantId, UUID documentId, UUID deliveryId, Claim claim) {
+<span class="fc" id="L81">		int attempt = claim.attemptCount();</span>
+<span class="fc bfc" id="L82" title="All 2 branches covered.">		if (attempt &gt; properties.retryMaxAttempts()) {</span>
+<span class="fc" id="L83">			repository.markFailed(deliveryId, attempt, null, &quot;Se agotaron los intentos de envío&quot;);</span>
+<span class="fc" id="L84">			return false;</span>
+		}
+<span class="fc" id="L86">		Optional&lt;Target&gt; found = repository.target(tenantId, claim.subscriptionId());</span>
+<span class="fc" id="L87">		Optional&lt;DocumentFacts&gt; document = repository.document(tenantId, documentId);</span>
+<span class="pc bpc" id="L88" title="2 of 4 branches missed.">		if (found.isEmpty() || document.isEmpty()) {</span>
+			// La suscripción se borró mientras tanto, y el aviso con ella.
+<span class="nc" id="L90">			return false;</span>
+		}
+<span class="fc" id="L92">		Target target = found.get();</span>
+<span class="fc bfc" id="L93" title="All 2 branches covered.">		if (!&quot;ACTIVE&quot;.equals(target.status())) {</span>
+<span class="fc" id="L94">			repository.markFailed(deliveryId, attempt, null, &quot;La suscripción está desactivada&quot;);</span>
+<span class="fc" id="L95">			return false;</span>
+		}
+		URI url;
+		InetAddress address;
+		try {
+<span class="fc" id="L100">			url = urls.parse(target.url());</span>
+<span class="fc" id="L101">			address = urls.vet(url);</span>
+		}
+<span class="fc" id="L103">		catch (WebhookUrlException ex) {</span>
+			// La dirección se comprueba en cada envío: pudo dejar de ser pública después de registrarla.
+			// No se conecta, pero se reintenta: una resolución de nombres averiada un rato no cuesta avisos.
+<span class="fc" id="L106">			return failed(deliveryId, claim, null, ex.getMessage());</span>
+<span class="fc" id="L107">		}</span>
+<span class="fc" id="L108">		byte[] body = body(tenantId, documentId, claim, document.get());</span>
+		Map&lt;String, String&gt; headers;
+		try {
+<span class="fc" id="L111">			headers = headers(tenantId, claim, target, body);</span>
+		}
+<span class="fc" id="L113">		catch (SecretCipherException | IllegalArgumentException ex) {</span>
+<span class="fc" id="L114">			log.error(&quot;No se pudo firmar el aviso {} de la suscripción {}: {}&quot;, deliveryId, claim.subscriptionId(),</span>
+<span class="fc" id="L115">					ex.getClass().getSimpleName());</span>
+<span class="fc" id="L116">			return ourFault(deliveryId, claim, &quot;No se pudo firmar el aviso&quot;);</span>
+<span class="fc" id="L117">		}</span>
+		WebhookSender.Result result;
+		try {
+<span class="fc" id="L120">			result = sender.send(url, address, headers, body);</span>
+		}
+<span class="nc" id="L122">		catch (RuntimeException ex) {</span>
+			// Un fallo imprevisto no puede dejar el aviso &quot;enviando&quot;. Solo el tipo va al aviso y al
+			// registro: el mensaje de la excepción podría llevar la dirección.
+<span class="nc" id="L125">			log.error(&quot;Fallo inesperado al enviar el aviso {} de la suscripción {}: {}&quot;, deliveryId,</span>
+<span class="nc" id="L126">					claim.subscriptionId(), ex.getClass().getName());</span>
+<span class="nc" id="L127">			return ourFault(deliveryId, claim, &quot;Fallo inesperado: &quot; + ex.getClass().getSimpleName());</span>
+<span class="fc" id="L128">		}</span>
+<span class="fc bfc" id="L129" title="All 2 branches covered.">		if (result.delivered()) {</span>
+<span class="fc" id="L130">			repository.markSent(deliveryId, result.status());</span>
+<span class="fc" id="L131">			repository.recordSuccess(claim.subscriptionId());</span>
+<span class="fc" id="L132">			return true;</span>
+		}
+<span class="pc bpc" id="L134" title="1 of 2 branches missed.">		Integer status = result.status() == 0 ? null : result.status();</span>
+<span class="pc bpc" id="L135" title="1 of 2 branches missed.">		String error = result.error() != null ? result.error() : &quot;El receptor respondió &quot; + result.status();</span>
+<span class="fc" id="L136">		return failed(deliveryId, claim, status, error);</span>
+	}
+
+	/** Un fallo del receptor (o de su dirección): cuenta en la suscripción. Devuelve siempre false. */
+	private boolean failed(UUID deliveryId, Claim claim, Integer status, String error) {
+<span class="fc" id="L141">		boolean disabled = repository.recordFailure(claim.subscriptionId(), properties.disableAfterFailures(),</span>
+<span class="fc" id="L142">				properties.disableAfterFailingFor());</span>
+<span class="fc bfc" id="L143" title="All 2 branches covered.">		if (disabled) {</span>
+<span class="fc" id="L144">			log.warn(&quot;La suscripción {} se desactivó: {} intentos fallidos seguidos durante más de {}&quot;,</span>
+<span class="fc" id="L145">					claim.subscriptionId(), properties.disableAfterFailures(), properties.disableAfterFailingFor());</span>
+		}
+<span class="fc" id="L147">		retryOrGiveUp(deliveryId, claim, status, error, disabled);</span>
+<span class="fc" id="L148">		return false;</span>
+	}
+
+	/** Un fallo nuestro (no se pudo firmar, algo imprevisto): se reintenta sin cargárselo al receptor. */
+	private boolean ourFault(UUID deliveryId, Claim claim, String error) {
+<span class="fc" id="L153">		retryOrGiveUp(deliveryId, claim, null, error, false);</span>
+<span class="fc" id="L154">		return false;</span>
+	}
+
+	private void retryOrGiveUp(UUID deliveryId, Claim claim, Integer status, String error, boolean giveUp) {
+<span class="fc bfc" id="L158" title="All 4 branches covered.">		if (giveUp || claim.attemptCount() &gt;= properties.retryMaxAttempts()) {</span>
+<span class="fc" id="L159">			repository.markFailed(deliveryId, claim.attemptCount(), status, error);</span>
+		}
+		else {
+<span class="fc" id="L162">			Duration delay = RetryPolicy.delay(claim.attemptCount(), properties.retryBackoff(),</span>
+<span class="fc" id="L163">					properties.retryMaxBackoff(), ThreadLocalRandom.current().nextDouble());</span>
+<span class="fc" id="L164">			repository.markRetry(deliveryId, claim.attemptCount(), delay, status, error);</span>
+		}
+<span class="fc" id="L166">	}</span>
+
+	/** El cuerpo del aviso: identificadores y estado. Es el mismo en cada reintento. */
+	private byte[] body(UUID tenantId, UUID documentId, Claim claim, DocumentFacts facts) {
+<span class="fc" id="L170">		boolean authorized = &quot;AUTHORIZED&quot;.equals(claim.documentState());</span>
+<span class="fc" id="L171">		Map&lt;String, Object&gt; document = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L172">		document.put(&quot;id&quot;, documentId.toString());</span>
+<span class="fc" id="L173">		document.put(&quot;documentType&quot;, facts.documentType());</span>
+<span class="fc" id="L174">		document.put(&quot;number&quot;, &quot;%s-%s-%09d&quot;.formatted(facts.establishmentCode(), facts.emissionPointCode(), facts.sequence()));</span>
+<span class="fc" id="L175">		document.put(&quot;accessKey&quot;, facts.accessKey());</span>
+		// El estado que se anuncia, no el de ahora: el comprobante pudo avanzar antes de que el aviso saliera.
+<span class="fc" id="L177">		document.put(&quot;state&quot;, claim.documentState());</span>
+<span class="fc bfc" id="L178" title="All 2 branches covered.">		document.put(&quot;authorizationNumber&quot;, authorized ? facts.authorizationNumber() : null);</span>
+<span class="pc bpc" id="L179" title="1 of 4 branches missed.">		document.put(&quot;authorizedAt&quot;, authorized &amp;&amp; facts.authorizedAt() != null ? timestamp(facts.authorizedAt().toInstant()) : null);</span>
+<span class="fc" id="L180">		Map&lt;String, Object&gt; event = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L181">		event.put(&quot;eventId&quot;, claim.eventId().toString());</span>
+<span class="fc" id="L182">		event.put(&quot;eventType&quot;, claim.eventType());</span>
+<span class="fc" id="L183">		event.put(&quot;occurredAt&quot;, timestamp(claim.occurredAt().toInstant()));</span>
+<span class="fc" id="L184">		event.put(&quot;tenantId&quot;, tenantId.toString());</span>
+<span class="fc" id="L185">		event.put(&quot;document&quot;, document);</span>
+<span class="fc" id="L186">		return json.writeValueAsBytes(event);</span>
+	}
+
+	private Map&lt;String, String&gt; headers(UUID tenantId, Claim claim, Target target, byte[] body) {
+<span class="fc" id="L190">		String id = claim.eventId().toString();</span>
+<span class="fc" id="L191">		long now = Instant.now().getEpochSecond();</span>
+<span class="fc" id="L192">		byte[] context = WebhookSubscriptionService.secretContext(tenantId, claim.subscriptionId());</span>
+<span class="fc" id="L193">		String signature = WebhookSigner.sign(key(target.secret(), context), id, now, body);</span>
+<span class="fc bfc" id="L194" title="All 2 branches covered.">		if (target.previousSecret() != null) {</span>
+			// Recién rotado: firma también el anterior, para que el receptor cambie sin perder avisos.
+<span class="fc" id="L196">			signature += &quot; &quot; + WebhookSigner.sign(key(target.previousSecret(), context), id, now, body);</span>
+		}
+<span class="fc" id="L198">		Map&lt;String, String&gt; headers = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L199">		headers.put(&quot;Content-Type&quot;, &quot;application/json&quot;);</span>
+<span class="fc" id="L200">		headers.put(&quot;webhook-id&quot;, id);</span>
+<span class="fc" id="L201">		headers.put(&quot;webhook-timestamp&quot;, Long.toString(now));</span>
+<span class="fc" id="L202">		headers.put(&quot;webhook-signature&quot;, signature);</span>
+<span class="fc" id="L203">		return headers;</span>
+	}
+
+	private byte[] key(byte[] encrypted, byte[] context) {
+<span class="fc" id="L207">		return WebhookSigner.key(new String(cipher.decrypt(encrypted, context), StandardCharsets.UTF_8));</span>
+	}
+
+	private static String timestamp(Instant instant) {
+<span class="fc" id="L211">		return DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(instant.atOffset(ZoneOffset.UTC).withNano(0));</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

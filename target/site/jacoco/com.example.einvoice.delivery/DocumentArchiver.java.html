@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DocumentArchiver.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.delivery</a> &gt; <span class="el_source">DocumentArchiver.java</span></div><h1>DocumentArchiver.java</h1><pre class="source lang-java linenums">package com.example.einvoice.delivery;
+
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.einvoice.billing.FiscalDocumentRepository;
+import com.example.einvoice.billing.FiscalDocumentRepository.ProcessingState;
+import com.example.einvoice.sri.SriEnvironment;
+import com.example.einvoice.storage.ArtifactKind;
+import com.example.einvoice.storage.ArtifactStore;
+import com.example.einvoice.web.ApiException;
+
+/**
+ * Archiva un comprobante autorizado: guarda como artefactos el XML autorizado que se entrega al
+ * receptor y el RIDE en PDF. Se puede llamar las veces que haga falta; cada artefacto se crea una
+ * sola vez y después no cambia.
+ */
+@Service
+public class DocumentArchiver {
+
+	private static final String AUTHORIZED = &quot;AUTHORIZED&quot;;
+
+	private final FiscalDocumentRepository documents;
+
+	private final ArtifactStore artifacts;
+
+<span class="fc" id="L29">	public DocumentArchiver(FiscalDocumentRepository documents, ArtifactStore artifacts) {</span>
+<span class="fc" id="L30">		this.documents = documents;</span>
+<span class="fc" id="L31">		this.artifacts = artifacts;</span>
+<span class="fc" id="L32">	}</span>
+
+	/** Devuelve false, sin hacer nada, si el comprobante no está autorizado. */
+	@Transactional
+	public boolean archive(UUID tenantId, UUID documentId) {
+		// El bloqueo ordena dos archivados simultáneos: el segundo encuentra los artefactos ya creados.
+<span class="fc" id="L38">		ProcessingState locked = documents.lockForProcessing(tenantId, documentId).orElseThrow(ApiException::notFound);</span>
+<span class="fc bfc" id="L39" title="All 2 branches covered.">		if (!AUTHORIZED.equals(locked.state())) {</span>
+<span class="fc" id="L40">			return false;</span>
+		}
+<span class="fc" id="L42">		RideData data = documents.rideData(tenantId, documentId)</span>
+<span class="pc" id="L43">			.orElseThrow(() -&gt; new IllegalStateException(&quot;Comprobante autorizado sin datos de autorización: &quot; + documentId));</span>
+<span class="fc bfc" id="L44" title="All 2 branches covered.">		if (!artifacts.exists(tenantId, documentId, ArtifactKind.XML_AUTHORIZED)) {</span>
+<span class="fc" id="L45">			byte[] signed = artifacts.find(tenantId, documentId, ArtifactKind.XML_SIGNED)</span>
+<span class="pc" id="L46">				.orElseThrow(() -&gt; new IllegalStateException(&quot;Comprobante autorizado sin su XML firmado: &quot; + documentId))</span>
+<span class="fc" id="L47">				.content();</span>
+<span class="fc" id="L48">			artifacts.save(tenantId, documentId, ArtifactKind.XML_AUTHORIZED,</span>
+<span class="fc" id="L49">					AuthorizedXmlBuilder.build(data.authorizationNumber(), data.authorizedAt(),</span>
+<span class="fc" id="L50">							SriEnvironment.fromCode(locked.environment()), signed));</span>
+		}
+<span class="fc bfc" id="L52" title="All 2 branches covered.">		if (!artifacts.exists(tenantId, documentId, ArtifactKind.RIDE_PDF)) {</span>
+<span class="fc" id="L53">			artifacts.save(tenantId, documentId, ArtifactKind.RIDE_PDF, RidePdfBuilder.build(data));</span>
+		}
+		// Archivado: ya no hace falta la red de seguridad que lo mantenía programado.
+<span class="fc" id="L56">		documents.schedule(tenantId, documentId, null, 0);</span>
+<span class="fc" id="L57">		return true;</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

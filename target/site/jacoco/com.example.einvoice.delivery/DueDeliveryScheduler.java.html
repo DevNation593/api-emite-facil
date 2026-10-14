@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>DueDeliveryScheduler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.delivery</a> &gt; <span class="el_source">DueDeliveryScheduler.java</span></div><h1>DueDeliveryScheduler.java</h1><pre class="source lang-java linenums">package com.example.einvoice.delivery;
+
+import java.time.Duration;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.einvoice.billing.OutboxWriter;
+
+/**
+ * Devuelve a la cola de entrega los comprobantes con una entrega cuyo siguiente intento ya venció:
+ * reintentos de correo y envíos que se quedaron sin resultado.
+ */
+@Component
+public class DueDeliveryScheduler {
+
+	public static final String DELIVERY_DUE = &quot;DELIVERY_DUE&quot;;
+
+	private static final int BATCH = 100;
+
+<span class="fc" id="L28">	private record Due(UUID tenantId, UUID documentId) {</span>
+	}
+
+	private final JdbcClient jdbc;
+
+	private final OutboxWriter outbox;
+
+	private final Duration redeliveryLease;
+
+	public DueDeliveryScheduler(JdbcClient jdbc, OutboxWriter outbox,
+<span class="fc" id="L38">			@Value(&quot;${einvoice.worker.redelivery-lease:5m}&quot;) Duration redeliveryLease) {</span>
+<span class="fc" id="L39">		this.jdbc = jdbc;</span>
+<span class="fc" id="L40">		this.outbox = outbox;</span>
+<span class="fc" id="L41">		this.redeliveryLease = redeliveryLease;</span>
+<span class="fc" id="L42">	}</span>
+
+	/** Deja un evento por cada comprobante con entregas vencidas y devuelve cuántos fueron. */
+	@Transactional
+	public int enqueueDue() {
+		// El plazo nuevo es una red de seguridad: si el mensaje se pierde, la entrega vuelve a salir.
+<span class="fc" id="L48">		List&lt;Due&gt; due = jdbc.sql(&quot;&quot;&quot;</span>
+				UPDATE deliveries SET next_attempt_at = now() + make_interval(secs =&gt; CAST(:lease AS double precision))
+				WHERE id IN (SELECT id FROM deliveries WHERE next_attempt_at &lt;= now()
+				 ORDER BY next_attempt_at LIMIT :batch FOR UPDATE SKIP LOCKED)
+				RETURNING tenant_id, document_id
+<span class="fc" id="L53">				&quot;&quot;&quot;).param(&quot;lease&quot;, redeliveryLease.toMillis() / 1000.0).param(&quot;batch&quot;, BATCH).query(Due.class).list();</span>
+<span class="fc" id="L54">		Set&lt;Due&gt; documents = new LinkedHashSet&lt;&gt;(due);</span>
+<span class="fc bfc" id="L55" title="All 2 branches covered.">		for (Due document : documents) {</span>
+<span class="fc" id="L56">			outbox.write(document.tenantId(), document.documentId(), DELIVERY_DUE,</span>
+<span class="fc" id="L57">					Map.of(&quot;documentId&quot;, document.documentId().toString()));</span>
+<span class="fc" id="L58">		}</span>
+<span class="fc" id="L59">		return documents.size();</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

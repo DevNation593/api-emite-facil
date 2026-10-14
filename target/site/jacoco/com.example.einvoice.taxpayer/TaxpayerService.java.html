@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TaxpayerService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.taxpayer</a> &gt; <span class="el_source">TaxpayerService.java</span></div><h1>TaxpayerService.java</h1><pre class="source lang-java linenums">package com.example.einvoice.taxpayer;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.einvoice.compliance.AuditLog;
+import com.example.einvoice.tenancy.TenantAccess;
+import com.example.einvoice.web.ApiException;
+
+@Service
+public class TaxpayerService {
+
+	private final TaxpayerRepository taxpayers;
+
+	private final AuditLog audit;
+
+<span class="fc" id="L23">	public TaxpayerService(TaxpayerRepository taxpayers, AuditLog audit) {</span>
+<span class="fc" id="L24">		this.taxpayers = taxpayers;</span>
+<span class="fc" id="L25">		this.audit = audit;</span>
+<span class="fc" id="L26">	}</span>
+
+	@Transactional
+	public Taxpayer create(TenantAccess access, String ruc, String legalName, String tradeName,
+			String headOfficeAddress, String defaultEnvironment, Taxpayer.FiscalData fiscalData) {
+<span class="fc" id="L31">		access.requireWrite();</span>
+<span class="fc bfc" id="L32" title="All 2 branches covered.">		if (fiscalData.rimpeRegime() == RimpeRegime.NEGOCIO_POPULAR) {</span>
+			// El XSD de factura 1.1.0 incorporado solo admite la leyenda de RIMPE emprendedor: las
+			// facturas de este emisor saldrían inválidas tras consumir su secuencial (docs/14).
+<span class="fc" id="L35">			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, &quot;RIMPE_REGIME_UNSUPPORTED&quot;,</span>
+					&quot;Todavía no se pueden emitir comprobantes de contribuyentes RIMPE negocio popular&quot;);
+		}
+<span class="fc bfc" id="L38" title="All 2 branches covered.">		if (!&quot;1&quot;.equals(defaultEnvironment)) {</span>
+			// Un emisor nace en pruebas; a producción se pasa con la activación (ProductionActivation).
+<span class="fc" id="L40">			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, &quot;PRODUCTION_NOT_ENABLED&quot;,</span>
+					&quot;Un emisor se da de alta en el ambiente de pruebas; el paso a producción se activa después&quot;);
+		}
+		Taxpayer taxpayer;
+		try {
+<span class="fc" id="L45">			taxpayer = taxpayers.saveAndFlush(new Taxpayer(access.tenantId(), ruc, legalName.strip(),</span>
+<span class="fc" id="L46">					blankToNull(tradeName), headOfficeAddress.strip(), defaultEnvironment, fiscalData));</span>
+		}
+<span class="fc" id="L48">		catch (DataIntegrityViolationException ex) {</span>
+			// La restricción UNIQUE de la base decide, también cuando dos tenants registran a la vez.
+<span class="pc bpc" id="L50" title="1 of 2 branches missed.">			if (violates(ex, &quot;taxpayers_ruc_key&quot;)) {</span>
+<span class="fc" id="L51">				throw new ApiException(HttpStatus.CONFLICT, &quot;RUC_ALREADY_REGISTERED&quot;,</span>
+						&quot;El RUC ya está registrado en la plataforma&quot;);
+			}
+<span class="nc" id="L54">			throw ex;</span>
+<span class="fc" id="L55">		}</span>
+<span class="fc" id="L56">		audit.record(access.tenantId(), access.userId(), &quot;TAXPAYER_CREATED&quot;, &quot;TAXPAYER&quot;, taxpayer.getId(),</span>
+<span class="fc" id="L57">				Map.of(&quot;ruc&quot;, ruc));</span>
+<span class="fc" id="L58">		return taxpayer;</span>
+	}
+
+	@Transactional(readOnly = true)
+	public List&lt;Taxpayer&gt; list(TenantAccess access) {
+<span class="fc" id="L63">		return taxpayers.findAllByTenantIdOrderByLegalName(access.tenantId());</span>
+	}
+
+	/** Un emisor de otro tenant se trata igual que uno inexistente. */
+	@Transactional(readOnly = true)
+	public Taxpayer get(TenantAccess access, UUID id) {
+<span class="fc" id="L69">		return taxpayers.findByIdAndTenantId(id, access.tenantId()).orElseThrow(ApiException::notFound);</span>
+	}
+
+	static boolean violates(DataIntegrityViolationException ex, String constraint) {
+<span class="fc" id="L73">		String message = ex.getMostSpecificCause().getMessage();</span>
+<span class="pc bpc" id="L74" title="2 of 4 branches missed.">		return message != null &amp;&amp; message.contains(constraint);</span>
+	}
+
+	private static String blankToNull(String value) {
+<span class="pc bpc" id="L78" title="2 of 4 branches missed.">		return value == null || value.isBlank() ? null : value.strip();</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

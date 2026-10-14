@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InvoiceEnvelopeRules.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.xml</a> &gt; <span class="el_source">InvoiceEnvelopeRules.java</span></div><h1>InvoiceEnvelopeRules.java</h1><pre class="source lang-java linenums">package com.example.einvoice.xml;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
+import javax.xml.XMLConstants;
+
+import org.xml.sax.Attributes;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.XMLReader;
+import org.xml.sax.helpers.DefaultHandler;
+
+import com.example.einvoice.sequence.AccessKey;
+
+/**
+ * Comprueba en una factura lo que su XSD no restringe: código de documento, versión, id, ausencia
+ * de schemaLocation y que la clave de acceso sea válida y corresponda a los datos del comprobante.
+ * Se aplica a un XML que ya pasó {@link XsdValidator}.
+ */
+public final class InvoiceEnvelopeRules {
+
+	private static final String INVOICE_DOCUMENT_CODE = &quot;01&quot;;
+
+	private static final String ROOT_ID = &quot;comprobante&quot;;
+
+	private InvoiceEnvelopeRules() {
+	}
+
+	public static Set&lt;EnvelopeViolation&gt; check(byte[] xml, SchemaVersion version) {
+<span class="fc" id="L37">		EnvelopeHandler handler = new EnvelopeHandler();</span>
+<span class="fc" id="L38">		XMLReader reader = XsdValidator.newSecureReader();</span>
+<span class="fc" id="L39">		reader.setContentHandler(handler);</span>
+<span class="fc" id="L40">		reader.setErrorHandler(handler);</span>
+		try {
+<span class="fc" id="L42">			reader.parse(new InputSource(new ByteArrayInputStream(xml)));</span>
+		}
+<span class="fc" id="L44">		catch (SAXException | IOException ex) {</span>
+<span class="fc" id="L45">			throw new IllegalArgumentException(&quot;XML de factura ilegible: &quot; + ex.getMessage(), ex);</span>
+<span class="fc" id="L46">		}</span>
+<span class="fc" id="L47">		Set&lt;EnvelopeViolation&gt; violations = EnumSet.noneOf(EnvelopeViolation.class);</span>
+<span class="fc bfc" id="L48" title="All 2 branches covered.">		if (!INVOICE_DOCUMENT_CODE.equals(handler.header(&quot;infoTributaria/codDoc&quot;))) {</span>
+<span class="fc" id="L49">			violations.add(EnvelopeViolation.COD_DOC_MISMATCH);</span>
+		}
+<span class="fc bfc" id="L51" title="All 2 branches covered.">		if (!version.value().equals(handler.version)) {</span>
+<span class="fc" id="L52">			violations.add(EnvelopeViolation.VERSION_MISMATCH);</span>
+		}
+<span class="fc bfc" id="L54" title="All 2 branches covered.">		if (!ROOT_ID.equals(handler.id)) {</span>
+<span class="fc" id="L55">			violations.add(EnvelopeViolation.ID_MISSING);</span>
+		}
+<span class="fc bfc" id="L57" title="All 2 branches covered.">		if (handler.schemaLocationPresent) {</span>
+<span class="fc" id="L58">			violations.add(EnvelopeViolation.SCHEMA_LOCATION_PRESENT);</span>
+		}
+<span class="fc" id="L60">		String accessKey = handler.header(&quot;infoTributaria/claveAcceso&quot;);</span>
+<span class="fc bfc" id="L61" title="All 2 branches covered.">		if (!AccessKey.valid(accessKey)) {</span>
+<span class="fc" id="L62">			violations.add(EnvelopeViolation.ACCESS_KEY_INVALID);</span>
+		}
+<span class="fc bfc" id="L64" title="All 2 branches covered.">		else if (!accessKey.equals(expectedAccessKey(handler, accessKey))) {</span>
+<span class="fc" id="L65">			violations.add(EnvelopeViolation.ACCESS_KEY_MISMATCH);</span>
+		}
+<span class="fc" id="L67">		return violations;</span>
+	}
+
+	/**
+	 * Reconstruye la clave con los datos del comprobante y el código numérico de la clave declarada
+	 * (doc 06). Devuelve nulo si falta algún dato o la fecha no tiene el formato dd/mm/aaaa.
+	 */
+	private static String expectedAccessKey(EnvelopeHandler handler, String declared) {
+<span class="fc" id="L75">		String date = handler.header(&quot;infoFactura/fechaEmision&quot;);</span>
+<span class="fc" id="L76">		String[] parts = { handler.header(&quot;infoTributaria/codDoc&quot;), handler.header(&quot;infoTributaria/ruc&quot;),</span>
+<span class="fc" id="L77">				handler.header(&quot;infoTributaria/ambiente&quot;), handler.header(&quot;infoTributaria/estab&quot;),</span>
+<span class="fc" id="L78">				handler.header(&quot;infoTributaria/ptoEmi&quot;), handler.header(&quot;infoTributaria/secuencial&quot;) };</span>
+<span class="fc" id="L79">		String emissionType = handler.header(&quot;infoTributaria/tipoEmision&quot;);</span>
+<span class="pc bpc" id="L80" title="1 of 6 branches missed.">		if (date == null || !date.matches(&quot;[0-9]{2}/[0-9]{2}/[0-9]{4}&quot;) || emissionType == null) {</span>
+<span class="fc" id="L81">			return null;</span>
+		}
+<span class="fc" id="L83">		StringBuilder base = new StringBuilder(date.replace(&quot;/&quot;, &quot;&quot;));</span>
+<span class="fc bfc" id="L84" title="All 2 branches covered.">		for (String part : parts) {</span>
+<span class="pc bpc" id="L85" title="1 of 2 branches missed.">			if (part == null) {</span>
+<span class="nc" id="L86">				return null;</span>
+			}
+<span class="fc" id="L88">			base.append(part);</span>
+		}
+<span class="fc" id="L90">		base.append(declared, 39, 47).append(emissionType);</span>
+<span class="pc bpc" id="L91" title="1 of 2 branches missed.">		return base.toString().matches(&quot;[0-9]{48}&quot;) ? AccessKey.build(base.toString()) : null;</span>
+	}
+
+	/** Recoge los atributos de la raíz y el texto de los elementos de cabecera, solo en su lugar exacto. */
+<span class="fc" id="L95">	private static final class EnvelopeHandler extends DefaultHandler {</span>
+
+<span class="fc" id="L97">		private static final Set&lt;String&gt; HEADER_PATHS = Set.of(&quot;infoTributaria/codDoc&quot;, &quot;infoTributaria/claveAcceso&quot;,</span>
+				&quot;infoTributaria/ruc&quot;, &quot;infoTributaria/ambiente&quot;, &quot;infoTributaria/estab&quot;, &quot;infoTributaria/ptoEmi&quot;,
+				&quot;infoTributaria/secuencial&quot;, &quot;infoTributaria/tipoEmision&quot;, &quot;infoFactura/fechaEmision&quot;);
+
+<span class="fc" id="L101">		private final Deque&lt;String&gt; path = new ArrayDeque&lt;&gt;();</span>
+
+<span class="fc" id="L103">		private final Map&lt;String, String&gt; headers = new HashMap&lt;&gt;();</span>
+
+		private String capturing;
+
+		private StringBuilder text;
+
+		String version;
+
+		String id;
+
+		boolean schemaLocationPresent;
+
+		String header(String headerPath) {
+<span class="fc" id="L116">			return headers.get(headerPath);</span>
+		}
+
+		@Override
+		public void startElement(String uri, String localName, String qName, Attributes attributes) {
+			// El XSD admite atributos xsi:* en cualquier elemento, no solo en la raíz.
+<span class="pc bpc" id="L122" title="1 of 2 branches missed.">			if (attributes.getValue(XMLConstants.W3C_XML_SCHEMA_INSTANCE_NS_URI, &quot;schemaLocation&quot;) != null</span>
+<span class="fc bfc" id="L123" title="All 2 branches covered.">					|| attributes.getValue(XMLConstants.W3C_XML_SCHEMA_INSTANCE_NS_URI,</span>
+							&quot;noNamespaceSchemaLocation&quot;) != null) {
+<span class="fc" id="L125">				schemaLocationPresent = true;</span>
+			}
+<span class="fc bfc" id="L127" title="All 2 branches covered.">			if (path.isEmpty()) {</span>
+<span class="fc" id="L128">				version = attributes.getValue(&quot;&quot;, &quot;version&quot;);</span>
+<span class="fc" id="L129">				id = attributes.getValue(&quot;&quot;, &quot;id&quot;);</span>
+			}
+<span class="fc bfc" id="L131" title="All 4 branches covered.">			else if (path.size() == 2 &amp;&amp; uri.isEmpty()) {</span>
+<span class="fc" id="L132">				String candidate = path.peek() + &quot;/&quot; + localName;</span>
+<span class="pc bpc" id="L133" title="1 of 4 branches missed.">				if (HEADER_PATHS.contains(candidate) &amp;&amp; !headers.containsKey(candidate)) {</span>
+<span class="fc" id="L134">					capturing = candidate;</span>
+<span class="fc" id="L135">					text = new StringBuilder();</span>
+				}
+			}
+<span class="fc" id="L138">			path.push(localName);</span>
+<span class="fc" id="L139">		}</span>
+
+		@Override
+		public void characters(char[] ch, int start, int length) {
+<span class="pc bpc" id="L143" title="1 of 4 branches missed.">			if (capturing != null &amp;&amp; path.size() == 3) {</span>
+<span class="fc" id="L144">				text.append(ch, start, length);</span>
+			}
+<span class="fc" id="L146">		}</span>
+
+		@Override
+		public void endElement(String uri, String localName, String qName) {
+<span class="fc" id="L150">			path.pop();</span>
+<span class="pc bpc" id="L151" title="1 of 4 branches missed.">			if (capturing != null &amp;&amp; path.size() == 2) {</span>
+<span class="fc" id="L152">				headers.put(capturing, text.toString());</span>
+<span class="fc" id="L153">				capturing = null;</span>
+<span class="fc" id="L154">				text = null;</span>
+			}
+<span class="fc" id="L156">		}</span>
+
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SequenceService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.sequence</a> &gt; <span class="el_source">SequenceService.java</span></div><h1>SequenceService.java</h1><pre class="source lang-java linenums">package com.example.einvoice.sequence;
+
+import java.time.LocalDate;
+import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.einvoice.compliance.AuditLog;
+import com.example.einvoice.tenancy.TenantAccess;
+import com.example.einvoice.web.ApiException;
+
+/**
+ * Secuenciales de comprobantes: un contador por punto de emisión, ambiente y tipo de documento. La
+ * reserva bloquea la fila del contador hasta que termina la transacción que emite el comprobante,
+ * así que dos emisiones simultáneas nunca reciben el mismo número y una emisión que falla lo devuelve.
+ */
+@Service
+public class SequenceService {
+
+	/** Valor de next_value cuando ya se entregó el 999999999. */
+	private static final long EXHAUSTED = 1_000_000_000L;
+
+	private static final String KEY = &quot;emission_point_id = :point AND environment = :environment&quot;
+			+ &quot; AND document_type = :documentType&quot;;
+
+<span class="fc" id="L31">	public record SequenceView(UUID emissionPointId, String environment, String documentType, long nextValue) {</span>
+	}
+
+<span class="fc" id="L34">	private record Counter(long nextValue, LocalDate lastIssueDate) {</span>
+	}
+
+	private final JdbcClient jdbc;
+
+	private final AuditLog audit;
+
+<span class="fc" id="L41">	public SequenceService(JdbcClient jdbc, AuditLog audit) {</span>
+<span class="fc" id="L42">		this.jdbc = jdbc;</span>
+<span class="fc" id="L43">		this.audit = audit;</span>
+<span class="fc" id="L44">	}</span>
+
+	/**
+	 * Entrega el siguiente secuencial dentro de la transacción en curso. La fecha de emisión no puede
+	 * ser anterior a la del último comprobante del contador (orden cronológico, ficha 9.18).
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public int reserve(UUID tenantId, UUID emissionPointId, String environment, String documentType,
+			LocalDate issueDate) {
+<span class="fc" id="L53">		jdbc.sql(&quot;&quot;&quot;</span>
+				INSERT INTO document_sequences (tenant_id, emission_point_id, environment, document_type)
+				VALUES (:tenant, :point, :environment, :documentType)
+				ON CONFLICT (emission_point_id, environment, document_type) DO NOTHING
+				&quot;&quot;&quot;)
+<span class="fc" id="L58">			.param(&quot;tenant&quot;, tenantId)</span>
+<span class="fc" id="L59">			.param(&quot;point&quot;, emissionPointId)</span>
+<span class="fc" id="L60">			.param(&quot;environment&quot;, environment)</span>
+<span class="fc" id="L61">			.param(&quot;documentType&quot;, documentType)</span>
+<span class="fc" id="L62">			.update();</span>
+<span class="fc" id="L63">		Counter counter = jdbc</span>
+<span class="fc" id="L64">			.sql(&quot;SELECT next_value, last_issue_date FROM document_sequences WHERE &quot; + KEY + &quot; FOR UPDATE&quot;)</span>
+<span class="fc" id="L65">			.param(&quot;point&quot;, emissionPointId)</span>
+<span class="fc" id="L66">			.param(&quot;environment&quot;, environment)</span>
+<span class="fc" id="L67">			.param(&quot;documentType&quot;, documentType)</span>
+<span class="fc" id="L68">			.query(Counter.class)</span>
+<span class="fc" id="L69">			.single();</span>
+<span class="fc bfc" id="L70" title="All 2 branches covered.">		if (counter.nextValue() &gt;= EXHAUSTED) {</span>
+<span class="fc" id="L71">			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, &quot;SEQUENCE_EXHAUSTED&quot;,</span>
+					&quot;El punto de emisión agotó sus secuenciales para este tipo de comprobante&quot;);
+		}
+<span class="fc bfc" id="L74" title="All 4 branches covered.">		if (counter.lastIssueDate() != null &amp;&amp; issueDate.isBefore(counter.lastIssueDate())) {</span>
+<span class="fc" id="L75">			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, &quot;INVALID_ISSUE_DATE&quot;,</span>
+					&quot;La fecha de emisión no puede ser anterior a la del último comprobante del punto de emisión&quot;);
+		}
+<span class="fc" id="L78">		jdbc.sql(&quot;UPDATE document_sequences SET next_value = next_value + 1, last_issue_date = :issueDate WHERE &quot; + KEY)</span>
+<span class="fc" id="L79">			.param(&quot;issueDate&quot;, issueDate)</span>
+<span class="fc" id="L80">			.param(&quot;point&quot;, emissionPointId)</span>
+<span class="fc" id="L81">			.param(&quot;environment&quot;, environment)</span>
+<span class="fc" id="L82">			.param(&quot;documentType&quot;, documentType)</span>
+<span class="fc" id="L83">			.update();</span>
+<span class="fc" id="L84">		return (int) counter.nextValue();</span>
+	}
+
+	/** Fija el próximo secuencial de un contador que todavía no ha emitido ningún comprobante. */
+	@Transactional
+	public SequenceView set(TenantAccess access, UUID emissionPointId, String environment, String documentType,
+			int nextValue) {
+<span class="fc" id="L91">		access.requireWrite();</span>
+<span class="fc" id="L92">		boolean exists = jdbc.sql(&quot;SELECT count(*) FROM emission_points WHERE id = :point AND tenant_id = :tenant&quot;)</span>
+<span class="fc" id="L93">			.param(&quot;point&quot;, emissionPointId)</span>
+<span class="fc" id="L94">			.param(&quot;tenant&quot;, access.tenantId())</span>
+<span class="fc" id="L95">			.query(Long.class)</span>
+<span class="fc bfc" id="L96" title="All 2 branches covered.">			.single() &gt; 0;</span>
+<span class="fc bfc" id="L97" title="All 2 branches covered.">		if (!exists) {</span>
+<span class="fc" id="L98">			throw ApiException.notFound();</span>
+		}
+		// El upsert toma el bloqueo del contador antes de mirar si ya se usó: una emisión en curso
+		// termina primero y su comprobante ya es visible para la comprobación siguiente.
+<span class="fc" id="L102">		jdbc.sql(&quot;&quot;&quot;</span>
+				INSERT INTO document_sequences (tenant_id, emission_point_id, environment, document_type, next_value)
+				VALUES (:tenant, :point, :environment, :documentType, :nextValue)
+				ON CONFLICT (emission_point_id, environment, document_type)
+				DO UPDATE SET next_value = EXCLUDED.next_value
+				&quot;&quot;&quot;)
+<span class="fc" id="L108">			.param(&quot;tenant&quot;, access.tenantId())</span>
+<span class="fc" id="L109">			.param(&quot;point&quot;, emissionPointId)</span>
+<span class="fc" id="L110">			.param(&quot;environment&quot;, environment)</span>
+<span class="fc" id="L111">			.param(&quot;documentType&quot;, documentType)</span>
+<span class="fc" id="L112">			.param(&quot;nextValue&quot;, nextValue)</span>
+<span class="fc" id="L113">			.update();</span>
+<span class="fc" id="L114">		boolean used = jdbc.sql(&quot;SELECT count(*) FROM fiscal_documents WHERE &quot; + KEY)</span>
+<span class="fc" id="L115">			.param(&quot;point&quot;, emissionPointId)</span>
+<span class="fc" id="L116">			.param(&quot;environment&quot;, environment)</span>
+<span class="fc" id="L117">			.param(&quot;documentType&quot;, documentType)</span>
+<span class="fc" id="L118">			.query(Long.class)</span>
+<span class="fc bfc" id="L119" title="All 2 branches covered.">			.single() &gt; 0;</span>
+<span class="fc bfc" id="L120" title="All 2 branches covered.">		if (used) {</span>
+<span class="fc" id="L121">			throw new ApiException(HttpStatus.CONFLICT, &quot;SEQUENCE_ALREADY_USED&quot;,</span>
+					&quot;El punto de emisión ya emitió comprobantes de este tipo; su secuencial no se puede cambiar&quot;);
+		}
+<span class="fc" id="L124">		audit.record(access.tenantId(), access.userId(), &quot;SEQUENCE_SET&quot;, &quot;EMISSION_POINT&quot;, emissionPointId,</span>
+<span class="fc" id="L125">				Map.of(&quot;environment&quot;, environment, &quot;documentType&quot;, documentType, &quot;nextValue&quot;, nextValue));</span>
+<span class="fc" id="L126">		return new SequenceView(emissionPointId, environment, documentType, nextValue);</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

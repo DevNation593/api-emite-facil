@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SriSoapRequests.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.sri</a> &gt; <span class="el_source">SriSoapRequests.java</span></div><h1>SriSoapRequests.java</h1><pre class="source lang-java linenums">package com.example.einvoice.sri;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.regex.Pattern;
+
+/**
+ * Peticiones SOAP 1.1 a los servicios off-line del SRI, según sus WSDL (cotejados el 2026-10-11):
+ * document/literal, elementos hijos sin espacio de nombres y soapAction vacío.
+ */
+final class SriSoapRequests {
+
+	static final String RECEPTION_NS = &quot;http://ec.gob.sri.ws.recepcion&quot;;
+
+	static final String AUTHORIZATION_NS = &quot;http://ec.gob.sri.ws.autorizacion&quot;;
+
+<span class="fc" id="L17">	private static final Pattern ACCESS_KEY = Pattern.compile(&quot;[0-9]{49}&quot;);</span>
+
+	private static final String OPEN = &quot;&lt;?xml version=\&quot;1.0\&quot; encoding=\&quot;UTF-8\&quot;?&gt;&quot;
+			+ &quot;&lt;soapenv:Envelope xmlns:soapenv=\&quot;http://schemas.xmlsoap.org/soap/envelope/\&quot; xmlns:ec=\&quot;&quot;;
+
+	private SriSoapRequests() {
+	}
+
+	/** validarComprobante: el XML firmado viaja en Base64 (xs:base64Binary). */
+	static byte[] reception(byte[] signedXml) {
+		String body = OPEN + RECEPTION_NS + &quot;\&quot;&gt;&lt;soapenv:Body&gt;&lt;ec:validarComprobante&gt;&lt;xml&gt;&quot;
+<span class="fc" id="L28">				+ Base64.getEncoder().encodeToString(signedXml)</span>
+				+ &quot;&lt;/xml&gt;&lt;/ec:validarComprobante&gt;&lt;/soapenv:Body&gt;&lt;/soapenv:Envelope&gt;&quot;;
+<span class="fc" id="L30">		return body.getBytes(StandardCharsets.UTF_8);</span>
+	}
+
+	/** autorizacionComprobante por clave de acceso. */
+	static byte[] authorization(String accessKey) {
+<span class="pc bpc" id="L35" title="1 of 4 branches missed.">		if (accessKey == null || !ACCESS_KEY.matcher(accessKey).matches()) {</span>
+<span class="fc" id="L36">			throw new IllegalArgumentException(&quot;La clave de acceso debe tener 49 dígitos&quot;);</span>
+		}
+<span class="fc" id="L38">		String body = OPEN + AUTHORIZATION_NS + &quot;\&quot;&gt;&lt;soapenv:Body&gt;&lt;ec:autorizacionComprobante&gt;&lt;claveAccesoComprobante&gt;&quot;</span>
+				+ accessKey + &quot;&lt;/claveAccesoComprobante&gt;&lt;/ec:autorizacionComprobante&gt;&lt;/soapenv:Body&gt;&lt;/soapenv:Envelope&gt;&quot;;
+<span class="fc" id="L40">		return body.getBytes(StandardCharsets.UTF_8);</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

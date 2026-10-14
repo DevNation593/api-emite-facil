@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MessagingConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.orchestration</a> &gt; <span class="el_source">MessagingConfig.java</span></div><h1>MessagingConfig.java</h1><pre class="source lang-java linenums">package com.example.einvoice.orchestration;
+
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.DirectExchange;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+/**
+ * Topología de RabbitMQ. Los eventos del outbox llegan a la cola de procesamiento de comprobantes;
+ * un mensaje que el worker rechaza definitivamente pasa a la cola de mensajes muertos, donde espera
+ * a un operador.
+ */
+@Configuration(proxyBeanMethods = false)
+@EnableScheduling
+<span class="fc" id="L20">public class MessagingConfig {</span>
+
+	public static final String EVENTS_EXCHANGE = &quot;fiscal.events&quot;;
+
+	public static final String ISSUE_QUEUE = &quot;document.issue&quot;;
+
+	public static final String ISSUE_ROUTING_KEY = &quot;document.issue&quot;;
+
+	/** Cola de archivo y entrega de comprobantes autorizados. */
+	public static final String DELIVER_QUEUE = &quot;document.deliver&quot;;
+
+	public static final String DELIVER_ROUTING_KEY = &quot;document.deliver&quot;;
+
+	public static final String DELIVER_DEAD_LETTER_QUEUE = &quot;document.deliver.dlq&quot;;
+
+	/** Cola de avisos a los sistemas de las empresas: aparte, para que un receptor lento no frene lo demás. */
+	public static final String WEBHOOK_QUEUE = &quot;webhook.deliver&quot;;
+
+	public static final String WEBHOOK_ROUTING_KEY = &quot;webhook.deliver&quot;;
+
+	public static final String WEBHOOK_DEAD_LETTER_QUEUE = &quot;webhook.deliver.dlq&quot;;
+
+	public static final String DEAD_LETTER_EXCHANGE = &quot;fiscal.dlx&quot;;
+
+	public static final String DEAD_LETTER_QUEUE = &quot;document.issue.dlq&quot;;
+
+	@Bean
+	TopicExchange fiscalEvents() {
+<span class="fc" id="L48">		return new TopicExchange(EVENTS_EXCHANGE, true, false);</span>
+	}
+
+	@Bean
+	DirectExchange fiscalDeadLetters() {
+<span class="fc" id="L53">		return new DirectExchange(DEAD_LETTER_EXCHANGE, true, false);</span>
+	}
+
+	@Bean
+	Queue documentIssueQueue() {
+<span class="fc" id="L58">		return QueueBuilder.durable(ISSUE_QUEUE)</span>
+<span class="fc" id="L59">			.deadLetterExchange(DEAD_LETTER_EXCHANGE)</span>
+<span class="fc" id="L60">			.deadLetterRoutingKey(DEAD_LETTER_QUEUE)</span>
+<span class="fc" id="L61">			.build();</span>
+	}
+
+	@Bean
+	Queue documentIssueDeadLetterQueue() {
+<span class="fc" id="L66">		return QueueBuilder.durable(DEAD_LETTER_QUEUE).build();</span>
+	}
+
+	@Bean
+	Queue documentDeliverQueue() {
+<span class="fc" id="L71">		return QueueBuilder.durable(DELIVER_QUEUE)</span>
+<span class="fc" id="L72">			.deadLetterExchange(DEAD_LETTER_EXCHANGE)</span>
+<span class="fc" id="L73">			.deadLetterRoutingKey(DELIVER_DEAD_LETTER_QUEUE)</span>
+<span class="fc" id="L74">			.build();</span>
+	}
+
+	@Bean
+	Queue documentDeliverDeadLetterQueue() {
+<span class="fc" id="L79">		return QueueBuilder.durable(DELIVER_DEAD_LETTER_QUEUE).build();</span>
+	}
+
+	@Bean
+	Binding documentDeliverBinding(Queue documentDeliverQueue, TopicExchange fiscalEvents) {
+<span class="fc" id="L84">		return BindingBuilder.bind(documentDeliverQueue).to(fiscalEvents).with(DELIVER_ROUTING_KEY);</span>
+	}
+
+	@Bean
+	Binding documentDeliverDeadLetterBinding(Queue documentDeliverDeadLetterQueue,
+			DirectExchange fiscalDeadLetters) {
+<span class="fc" id="L90">		return BindingBuilder.bind(documentDeliverDeadLetterQueue)</span>
+<span class="fc" id="L91">			.to(fiscalDeadLetters)</span>
+<span class="fc" id="L92">			.with(DELIVER_DEAD_LETTER_QUEUE);</span>
+	}
+
+	@Bean
+	Queue webhookDeliverQueue() {
+<span class="fc" id="L97">		return QueueBuilder.durable(WEBHOOK_QUEUE)</span>
+<span class="fc" id="L98">			.deadLetterExchange(DEAD_LETTER_EXCHANGE)</span>
+<span class="fc" id="L99">			.deadLetterRoutingKey(WEBHOOK_DEAD_LETTER_QUEUE)</span>
+<span class="fc" id="L100">			.build();</span>
+	}
+
+	@Bean
+	Queue webhookDeliverDeadLetterQueue() {
+<span class="fc" id="L105">		return QueueBuilder.durable(WEBHOOK_DEAD_LETTER_QUEUE).build();</span>
+	}
+
+	@Bean
+	Binding webhookDeliverBinding(Queue webhookDeliverQueue, TopicExchange fiscalEvents) {
+<span class="fc" id="L110">		return BindingBuilder.bind(webhookDeliverQueue).to(fiscalEvents).with(WEBHOOK_ROUTING_KEY);</span>
+	}
+
+	@Bean
+	Binding webhookDeliverDeadLetterBinding(Queue webhookDeliverDeadLetterQueue, DirectExchange fiscalDeadLetters) {
+<span class="fc" id="L115">		return BindingBuilder.bind(webhookDeliverDeadLetterQueue).to(fiscalDeadLetters).with(WEBHOOK_DEAD_LETTER_QUEUE);</span>
+	}
+
+	/**
+	 * Cola a la que va cada tipo de evento del outbox: la autorización y todo lo relativo a la
+	 * entrega, a la de entrega; los avisos, a la suya; el resto hace avanzar el comprobante ante el SRI.
+	 */
+	public static String routingKey(String eventType) {
+<span class="fc bfc" id="L123" title="All 2 branches covered.">		if (eventType.startsWith(&quot;WEBHOOK_&quot;)) {</span>
+<span class="fc" id="L124">			return WEBHOOK_ROUTING_KEY;</span>
+		}
+<span class="fc bfc" id="L126" title="All 4 branches covered.">		return &quot;DOCUMENT_AUTHORIZED&quot;.equals(eventType) || eventType.startsWith(&quot;DELIVERY_&quot;) ? DELIVER_ROUTING_KEY</span>
+<span class="fc" id="L127">				: ISSUE_ROUTING_KEY;</span>
+	}
+
+	@Bean
+	Binding documentIssueBinding(Queue documentIssueQueue, TopicExchange fiscalEvents) {
+<span class="fc" id="L132">		return BindingBuilder.bind(documentIssueQueue).to(fiscalEvents).with(ISSUE_ROUTING_KEY);</span>
+	}
+
+	@Bean
+	Binding documentIssueDeadLetterBinding(Queue documentIssueDeadLetterQueue, DirectExchange fiscalDeadLetters) {
+<span class="fc" id="L137">		return BindingBuilder.bind(documentIssueDeadLetterQueue).to(fiscalDeadLetters).with(DEAD_LETTER_QUEUE);</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

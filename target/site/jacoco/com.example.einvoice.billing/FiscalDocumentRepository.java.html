@@ -1,0 +1,454 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FiscalDocumentRepository.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.billing</a> &gt; <span class="el_source">FiscalDocumentRepository.java</span></div><h1>FiscalDocumentRepository.java</h1><pre class="source lang-java linenums">package com.example.einvoice.billing;
+
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+import com.example.einvoice.delivery.RideData;
+import com.example.einvoice.xml.InvoiceXmlData;
+
+/** Lectura y escritura de documentos fiscales. Toda lectura filtra por tenant. */
+@Repository
+public class FiscalDocumentRepository {
+
+<span class="fc" id="L23">	public record NewDocument(UUID tenantId, UUID taxpayerId, UUID emissionPointId, UUID customerId,</span>
+			String documentType, String environment, String issuerRuc, String establishmentCode,
+			String emissionPointCode, int sequence, String accessKey, String state, LocalDate issueDate,
+			String currency, String customerIdType, String customerIdNumber, String customerName,
+			String customerAddress, String customerEmail, InvoiceTotals totals, UUID createdBy,
+			String issuerLegalName, String issuerTradeName, String issuerHeadOfficeAddress,
+			String establishmentAddress, boolean issuerAccountingRequired, String issuerSpecialTaxpayerCode,
+			String issuerWithholdingAgentCode, String issuerRimpeRegime, String providerRuc) {
+	}
+
+<span class="fc" id="L33">	public record NewLine(UUID productId, String mainCode, String description, BigDecimal quantity,</span>
+			BigDecimal unitPrice, BigDecimal discount, BigDecimal subtotal, String taxCode, String taxRateCode,
+			BigDecimal taxRate, BigDecimal taxAmount) {
+	}
+
+<span class="fc" id="L38">	public record NewPayment(String methodCode, BigDecimal amount) {</span>
+	}
+
+<span class="fc" id="L41">	public record DocumentRow(UUID id, UUID taxpayerId, String documentType, String state, String environment,</span>
+			String establishmentCode, String emissionPointCode, int sequence, String accessKey, LocalDate issueDate,
+			String currency, String customerIdType, String customerIdNumber, String customerName, BigDecimal subtotal,
+			BigDecimal totalDiscount, BigDecimal totalTax, BigDecimal total, String authorizationNumber,
+			OffsetDateTime authorizedAt) {
+	}
+
+<span class="fc" id="L48">	public record LineRow(int lineNo, String mainCode, String description, BigDecimal quantity, BigDecimal unitPrice,</span>
+			BigDecimal discount, BigDecimal subtotal, String taxCode, String taxRateCode, BigDecimal taxRate,
+			BigDecimal taxAmount, UUID productId) {
+	}
+
+	/** A quién se emitió y con qué otros comprobantes está enlazado por una reemisión. */
+<span class="fc" id="L54">	public record Links(UUID customerId, UUID replacesDocumentId, UUID replacedByDocumentId) {</span>
+	}
+
+<span class="fc" id="L57">	public record PaymentRow(int lineNo, String methodCode, BigDecimal amount) {</span>
+	}
+
+	private static final String DOCUMENT_COLUMNS = &quot;&quot;&quot;
+			id, taxpayer_id, document_type, state, environment, establishment_code, emission_point_code, sequence,
+			access_key, issue_date, currency, customer_id_type, customer_id_number, customer_name, subtotal,
+			total_discount, total_tax, total, authorization_number, authorized_at
+			&quot;&quot;&quot;;
+
+	private final JdbcClient jdbc;
+
+<span class="fc" id="L68">	public FiscalDocumentRepository(JdbcClient jdbc) {</span>
+<span class="fc" id="L69">		this.jdbc = jdbc;</span>
+<span class="fc" id="L70">	}</span>
+
+	public UUID insert(NewDocument document, List&lt;NewLine&gt; lines, List&lt;NewPayment&gt; payments) {
+<span class="fc" id="L73">		UUID id = jdbc.sql(&quot;&quot;&quot;</span>
+				INSERT INTO fiscal_documents (tenant_id, taxpayer_id, emission_point_id, customer_id, document_type,
+				 environment, issuer_ruc, establishment_code, emission_point_code, sequence, access_key, state,
+				 issue_date, currency, customer_id_type, customer_id_number, customer_name, customer_address,
+				 customer_email, subtotal, total_discount, total_tax, total, created_by, issuer_legal_name,
+				 issuer_trade_name, issuer_head_office_address, establishment_address, issuer_accounting_required,
+				 issuer_special_taxpayer_code, issuer_withholding_agent_code, issuer_rimpe_regime, provider_ruc)
+				VALUES (:tenantId, :taxpayerId, :emissionPointId, :customerId, :documentType, :environment,
+				 :issuerRuc, :establishmentCode, :emissionPointCode, :sequence, :accessKey, :state, :issueDate,
+				 :currency, :customerIdType, :customerIdNumber, :customerName, :customerAddress, :customerEmail,
+				 :subtotal, :totalDiscount, :totalTax, :total, :createdBy, :issuerLegalName, :issuerTradeName,
+				 :issuerHeadOfficeAddress, :establishmentAddress, :issuerAccountingRequired,
+				 :issuerSpecialTaxpayerCode, :issuerWithholdingAgentCode, :issuerRimpeRegime, :providerRuc)
+				RETURNING id
+				&quot;&quot;&quot;)
+<span class="fc" id="L88">			.param(&quot;tenantId&quot;, document.tenantId())</span>
+<span class="fc" id="L89">			.param(&quot;taxpayerId&quot;, document.taxpayerId())</span>
+<span class="fc" id="L90">			.param(&quot;emissionPointId&quot;, document.emissionPointId())</span>
+<span class="fc" id="L91">			.param(&quot;customerId&quot;, document.customerId())</span>
+<span class="fc" id="L92">			.param(&quot;documentType&quot;, document.documentType())</span>
+<span class="fc" id="L93">			.param(&quot;environment&quot;, document.environment())</span>
+<span class="fc" id="L94">			.param(&quot;issuerRuc&quot;, document.issuerRuc())</span>
+<span class="fc" id="L95">			.param(&quot;establishmentCode&quot;, document.establishmentCode())</span>
+<span class="fc" id="L96">			.param(&quot;emissionPointCode&quot;, document.emissionPointCode())</span>
+<span class="fc" id="L97">			.param(&quot;sequence&quot;, document.sequence())</span>
+<span class="fc" id="L98">			.param(&quot;accessKey&quot;, document.accessKey())</span>
+<span class="fc" id="L99">			.param(&quot;state&quot;, document.state())</span>
+<span class="fc" id="L100">			.param(&quot;issueDate&quot;, document.issueDate())</span>
+<span class="fc" id="L101">			.param(&quot;currency&quot;, document.currency())</span>
+<span class="fc" id="L102">			.param(&quot;customerIdType&quot;, document.customerIdType())</span>
+<span class="fc" id="L103">			.param(&quot;customerIdNumber&quot;, document.customerIdNumber())</span>
+<span class="fc" id="L104">			.param(&quot;customerName&quot;, document.customerName())</span>
+<span class="fc" id="L105">			.param(&quot;customerAddress&quot;, document.customerAddress())</span>
+<span class="fc" id="L106">			.param(&quot;customerEmail&quot;, document.customerEmail())</span>
+<span class="fc" id="L107">			.param(&quot;subtotal&quot;, document.totals().subtotal())</span>
+<span class="fc" id="L108">			.param(&quot;totalDiscount&quot;, document.totals().totalDiscount())</span>
+<span class="fc" id="L109">			.param(&quot;totalTax&quot;, document.totals().totalTax())</span>
+<span class="fc" id="L110">			.param(&quot;total&quot;, document.totals().total())</span>
+<span class="fc" id="L111">			.param(&quot;createdBy&quot;, document.createdBy())</span>
+<span class="fc" id="L112">			.param(&quot;issuerLegalName&quot;, document.issuerLegalName())</span>
+<span class="fc" id="L113">			.param(&quot;issuerTradeName&quot;, document.issuerTradeName())</span>
+<span class="fc" id="L114">			.param(&quot;issuerHeadOfficeAddress&quot;, document.issuerHeadOfficeAddress())</span>
+<span class="fc" id="L115">			.param(&quot;establishmentAddress&quot;, document.establishmentAddress())</span>
+<span class="fc" id="L116">			.param(&quot;issuerAccountingRequired&quot;, document.issuerAccountingRequired())</span>
+<span class="fc" id="L117">			.param(&quot;issuerSpecialTaxpayerCode&quot;, document.issuerSpecialTaxpayerCode())</span>
+<span class="fc" id="L118">			.param(&quot;issuerWithholdingAgentCode&quot;, document.issuerWithholdingAgentCode())</span>
+<span class="fc" id="L119">			.param(&quot;issuerRimpeRegime&quot;, document.issuerRimpeRegime())</span>
+<span class="fc" id="L120">			.param(&quot;providerRuc&quot;, document.providerRuc())</span>
+<span class="fc" id="L121">			.query(UUID.class)</span>
+<span class="fc" id="L122">			.single();</span>
+<span class="fc" id="L123">		UUID tenantId = document.tenantId();</span>
+<span class="fc bfc" id="L124" title="All 2 branches covered.">		for (int i = 0; i &lt; lines.size(); i++) {</span>
+<span class="fc" id="L125">			NewLine line = lines.get(i);</span>
+<span class="fc" id="L126">			jdbc.sql(&quot;&quot;&quot;</span>
+					INSERT INTO fiscal_document_lines (tenant_id, document_id, line_no, product_id, main_code,
+					 description, quantity, unit_price, discount, subtotal, tax_code, tax_rate_code, tax_rate, tax_amount)
+					VALUES (:tenantId, :documentId, :lineNo, :productId, :mainCode, :description, :quantity,
+					 :unitPrice, :discount, :subtotal, :taxCode, :taxRateCode, :taxRate, :taxAmount)
+					&quot;&quot;&quot;)
+<span class="fc" id="L132">				.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L133">				.param(&quot;documentId&quot;, id)</span>
+<span class="fc" id="L134">				.param(&quot;lineNo&quot;, i + 1)</span>
+<span class="fc" id="L135">				.param(&quot;productId&quot;, line.productId())</span>
+<span class="fc" id="L136">				.param(&quot;mainCode&quot;, line.mainCode())</span>
+<span class="fc" id="L137">				.param(&quot;description&quot;, line.description())</span>
+<span class="fc" id="L138">				.param(&quot;quantity&quot;, line.quantity())</span>
+<span class="fc" id="L139">				.param(&quot;unitPrice&quot;, line.unitPrice())</span>
+<span class="fc" id="L140">				.param(&quot;discount&quot;, line.discount())</span>
+<span class="fc" id="L141">				.param(&quot;subtotal&quot;, line.subtotal())</span>
+<span class="fc" id="L142">				.param(&quot;taxCode&quot;, line.taxCode())</span>
+<span class="fc" id="L143">				.param(&quot;taxRateCode&quot;, line.taxRateCode())</span>
+<span class="fc" id="L144">				.param(&quot;taxRate&quot;, line.taxRate())</span>
+<span class="fc" id="L145">				.param(&quot;taxAmount&quot;, line.taxAmount())</span>
+<span class="fc" id="L146">				.update();</span>
+		}
+<span class="fc bfc" id="L148" title="All 2 branches covered.">		for (TaxTotal tax : document.totals().taxes()) {</span>
+<span class="fc" id="L149">			jdbc.sql(&quot;&quot;&quot;</span>
+					INSERT INTO fiscal_document_taxes (tenant_id, document_id, tax_code, rate_code, rate, base, amount)
+					VALUES (:tenantId, :documentId, :taxCode, :rateCode, :rate, :base, :amount)
+					&quot;&quot;&quot;)
+<span class="fc" id="L153">				.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L154">				.param(&quot;documentId&quot;, id)</span>
+<span class="fc" id="L155">				.param(&quot;taxCode&quot;, tax.taxCode())</span>
+<span class="fc" id="L156">				.param(&quot;rateCode&quot;, tax.rateCode())</span>
+<span class="fc" id="L157">				.param(&quot;rate&quot;, tax.rate())</span>
+<span class="fc" id="L158">				.param(&quot;base&quot;, tax.base())</span>
+<span class="fc" id="L159">				.param(&quot;amount&quot;, tax.amount())</span>
+<span class="fc" id="L160">				.update();</span>
+<span class="fc" id="L161">		}</span>
+<span class="fc bfc" id="L162" title="All 2 branches covered.">		for (int i = 0; i &lt; payments.size(); i++) {</span>
+<span class="fc" id="L163">			jdbc.sql(&quot;&quot;&quot;</span>
+					INSERT INTO fiscal_document_payments (tenant_id, document_id, line_no, method_code, amount)
+					VALUES (:tenantId, :documentId, :lineNo, :methodCode, :amount)
+					&quot;&quot;&quot;)
+<span class="fc" id="L167">				.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L168">				.param(&quot;documentId&quot;, id)</span>
+<span class="fc" id="L169">				.param(&quot;lineNo&quot;, i + 1)</span>
+<span class="fc" id="L170">				.param(&quot;methodCode&quot;, payments.get(i).methodCode())</span>
+<span class="fc" id="L171">				.param(&quot;amount&quot;, payments.get(i).amount())</span>
+<span class="fc" id="L172">				.update();</span>
+		}
+<span class="fc" id="L174">		return id;</span>
+	}
+
+	public void recordStateChange(UUID tenantId, UUID documentId, String previousState, String newState,
+			String reason) {
+<span class="fc" id="L179">		jdbc.sql(&quot;&quot;&quot;</span>
+				INSERT INTO state_events (tenant_id, document_id, previous_state, new_state, reason, event_time)
+				VALUES (:tenantId, :documentId, :previousState, :newState, :reason, clock_timestamp())
+				&quot;&quot;&quot;)
+<span class="fc" id="L183">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L184">			.param(&quot;documentId&quot;, documentId)</span>
+<span class="fc" id="L185">			.param(&quot;previousState&quot;, previousState)</span>
+<span class="fc" id="L186">			.param(&quot;newState&quot;, newState)</span>
+<span class="fc" id="L187">			.param(&quot;reason&quot;, reason)</span>
+<span class="fc" id="L188">			.update();</span>
+<span class="fc" id="L189">	}</span>
+
+	/** Lo que el procesamiento necesita saber del documento. version cambia con cada transición. */
+<span class="fc" id="L192">	public record ProcessingState(String state, UUID taxpayerId, String environment, String accessKey,</span>
+			int attemptCount, long version) {
+	}
+
+	private static final String PROCESSING_COLUMNS = &quot;state, taxpayer_id, environment, access_key, attempt_count, version&quot;;
+
+	/**
+	 * Bloquea el documento hasta el final de la transacción en curso y devuelve su estado: dos
+	 * procesos que lo tomen a la vez avanzan de uno en uno.
+	 */
+	public Optional&lt;ProcessingState&gt; lockForProcessing(UUID tenantId, UUID documentId) {
+<span class="fc" id="L203">		return jdbc</span>
+<span class="fc" id="L204">			.sql(&quot;SELECT &quot; + PROCESSING_COLUMNS</span>
+					+ &quot; FROM fiscal_documents WHERE id = :id AND tenant_id = :tenantId FOR UPDATE&quot;)
+<span class="fc" id="L206">			.param(&quot;id&quot;, documentId)</span>
+<span class="fc" id="L207">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L208">			.query(ProcessingState.class)</span>
+<span class="fc" id="L209">			.optional();</span>
+	}
+
+	/** Si el emisor del documento tiene activada la emisión en producción. */
+	public boolean issuerInProduction(UUID tenantId, UUID documentId) {
+<span class="fc" id="L214">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT t.production_enabled_at IS NOT NULL
+				  FROM fiscal_documents d JOIN taxpayers t ON t.tenant_id = d.tenant_id AND t.id = d.taxpayer_id
+				 WHERE d.id = :id AND d.tenant_id = :tenantId
+<span class="fc" id="L218">				&quot;&quot;&quot;).param(&quot;id&quot;, documentId).param(&quot;tenantId&quot;, tenantId).query(Boolean.class).single();</span>
+	}
+
+	/** Estado del documento sin bloquearlo. */
+	public Optional&lt;ProcessingState&gt; processingState(UUID tenantId, UUID documentId) {
+<span class="fc" id="L223">		return jdbc</span>
+<span class="fc" id="L224">			.sql(&quot;SELECT &quot; + PROCESSING_COLUMNS + &quot; FROM fiscal_documents WHERE id = :id AND tenant_id = :tenantId&quot;)</span>
+<span class="fc" id="L225">			.param(&quot;id&quot;, documentId)</span>
+<span class="fc" id="L226">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L227">			.query(ProcessingState.class)</span>
+<span class="fc" id="L228">			.optional();</span>
+	}
+
+	/**
+	 * Programa el siguiente intento dentro del plazo indicado (nulo: nada programado) y deja la
+	 * cuenta de intentos no concluyentes. No es una transición: no cambia version.
+	 */
+	public void schedule(UUID tenantId, UUID documentId, Duration delay, int attemptCount) {
+<span class="fc" id="L236">		jdbc.sql(&quot;&quot;&quot;</span>
+				UPDATE fiscal_documents
+				SET next_attempt_at = now() + make_interval(secs =&gt; CAST(:seconds AS double precision)),
+				 attempt_count = :attemptCount
+				WHERE id = :id AND tenant_id = :tenantId
+				&quot;&quot;&quot;)
+<span class="fc bfc" id="L242" title="All 2 branches covered.">			.param(&quot;seconds&quot;, delay == null ? null : delay.toMillis() / 1000.0)</span>
+<span class="fc" id="L243">			.param(&quot;attemptCount&quot;, attemptCount)</span>
+<span class="fc" id="L244">			.param(&quot;id&quot;, documentId)</span>
+<span class="fc" id="L245">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L246">			.update();</span>
+<span class="fc" id="L247">	}</span>
+
+	/**
+	 * Cambia el estado solo si el documento sigue en el estado de partida, y deja el evento. Devuelve
+	 * false si otro proceso ya lo movió.
+	 */
+	public boolean transition(UUID tenantId, UUID documentId, String from, String to, String reason) {
+<span class="fc" id="L254">		int updated = jdbc.sql(&quot;&quot;&quot;</span>
+				UPDATE fiscal_documents SET state = :to, version = version + 1, state_changed_at = clock_timestamp()
+				WHERE id = :id AND tenant_id = :tenantId AND state = :from
+<span class="fc" id="L257">				&quot;&quot;&quot;).param(&quot;to&quot;, to).param(&quot;id&quot;, documentId).param(&quot;tenantId&quot;, tenantId).param(&quot;from&quot;, from).update();</span>
+<span class="pc bpc" id="L258" title="1 of 2 branches missed.">		if (updated == 1) {</span>
+<span class="fc" id="L259">			recordStateChange(tenantId, documentId, from, to, reason);</span>
+		}
+<span class="pc bpc" id="L261" title="1 of 2 branches missed.">		return updated == 1;</span>
+	}
+
+	/** Anota el número y la fecha de autorización que devolvió el SRI. */
+	public void markAuthorized(UUID tenantId, UUID documentId, String authorizationNumber,
+			OffsetDateTime authorizedAt) {
+<span class="fc" id="L267">		jdbc.sql(&quot;&quot;&quot;</span>
+				UPDATE fiscal_documents SET authorization_number = :number, authorized_at = :authorizedAt
+				WHERE id = :id AND tenant_id = :tenantId
+				&quot;&quot;&quot;)
+<span class="fc" id="L271">			.param(&quot;number&quot;, authorizationNumber)</span>
+<span class="fc" id="L272">			.param(&quot;authorizedAt&quot;, authorizedAt)</span>
+<span class="fc" id="L273">			.param(&quot;id&quot;, documentId)</span>
+<span class="fc" id="L274">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L275">			.update();</span>
+<span class="fc" id="L276">	}</span>
+
+	/** Motivo del evento más reciente que dejó el documento en ese estado. */
+	public Optional&lt;String&gt; lastReason(UUID tenantId, UUID documentId, String state) {
+<span class="fc" id="L280">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT reason FROM state_events
+				WHERE tenant_id = :tenantId AND document_id = :documentId AND new_state = :state
+				ORDER BY event_time DESC LIMIT 1
+				&quot;&quot;&quot;)
+<span class="fc" id="L285">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L286">			.param(&quot;documentId&quot;, documentId)</span>
+<span class="fc" id="L287">			.param(&quot;state&quot;, state)</span>
+<span class="fc" id="L288">			.query(String.class)</span>
+<span class="fc" id="L289">			.optional();</span>
+	}
+
+	public void setSchemaVersion(UUID tenantId, UUID documentId, String schemaVersion) {
+<span class="fc" id="L293">		jdbc.sql(&quot;UPDATE fiscal_documents SET schema_version = :version WHERE id = :id AND tenant_id = :tenantId&quot;)</span>
+<span class="fc" id="L294">			.param(&quot;version&quot;, schemaVersion)</span>
+<span class="fc" id="L295">			.param(&quot;id&quot;, documentId)</span>
+<span class="fc" id="L296">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L297">			.update();</span>
+<span class="fc" id="L298">	}</span>
+
+	public Optional&lt;DocumentRow&gt; find(UUID tenantId, UUID id) {
+<span class="fc" id="L301">		return jdbc.sql(&quot;SELECT &quot; + DOCUMENT_COLUMNS + &quot; FROM fiscal_documents WHERE id = :id AND tenant_id = :tenantId&quot;)</span>
+<span class="fc" id="L302">			.param(&quot;id&quot;, id)</span>
+<span class="fc" id="L303">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L304">			.query(DocumentRow.class)</span>
+<span class="fc" id="L305">			.optional();</span>
+	}
+
+<span class="fc" id="L308">	private record XmlHeader(String environment, String issuerLegalName, String issuerTradeName, String issuerRuc,</span>
+			String accessKey, String documentType, String establishmentCode, String emissionPointCode, int sequence,
+			String issuerHeadOfficeAddress, String issuerWithholdingAgentCode, String issuerRimpeRegime,
+			LocalDate issueDate, String establishmentAddress, String issuerSpecialTaxpayerCode,
+			boolean issuerAccountingRequired, String customerIdType, String customerName, String customerIdNumber,
+			String customerAddress, BigDecimal subtotal, BigDecimal totalDiscount, BigDecimal total,
+			String providerRuc) {
+	}
+
+	/** Datos congelados del documento, en la forma que consume el generador del XML. */
+	public Optional&lt;InvoiceXmlData&gt; xmlData(UUID tenantId, UUID documentId) {
+<span class="fc" id="L319">		Optional&lt;XmlHeader&gt; found = jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT environment, issuer_legal_name, issuer_trade_name, issuer_ruc, access_key, document_type,
+				 establishment_code, emission_point_code, sequence, issuer_head_office_address,
+				 issuer_withholding_agent_code, issuer_rimpe_regime, issue_date, establishment_address,
+				 issuer_special_taxpayer_code, issuer_accounting_required, customer_id_type, customer_name,
+				 customer_id_number, customer_address, subtotal, total_discount, total, provider_ruc
+				FROM fiscal_documents WHERE id = :id AND tenant_id = :tenantId
+<span class="fc" id="L326">				&quot;&quot;&quot;).param(&quot;id&quot;, documentId).param(&quot;tenantId&quot;, tenantId).query(XmlHeader.class).optional();</span>
+<span class="fc bfc" id="L327" title="All 2 branches covered.">		if (found.isEmpty()) {</span>
+<span class="fc" id="L328">			return Optional.empty();</span>
+		}
+<span class="fc" id="L330">		XmlHeader h = found.get();</span>
+<span class="fc" id="L331">		List&lt;InvoiceXmlData.Tax&gt; taxes = taxes(tenantId, documentId).stream()</span>
+<span class="fc" id="L332">			.map(tax -&gt; new InvoiceXmlData.Tax(tax.taxCode(), tax.rateCode(), tax.rate(), tax.base(), tax.amount()))</span>
+<span class="fc" id="L333">			.toList();</span>
+<span class="fc" id="L334">		List&lt;InvoiceXmlData.Line&gt; lines = lines(tenantId, documentId).stream()</span>
+<span class="fc" id="L335">			.map(line -&gt; new InvoiceXmlData.Line(line.mainCode(), line.description(), line.quantity(),</span>
+<span class="fc" id="L336">					line.unitPrice(), line.discount(), line.subtotal(), line.taxCode(), line.taxRateCode(),</span>
+<span class="fc" id="L337">					line.taxRate(), line.taxAmount()))</span>
+<span class="fc" id="L338">			.toList();</span>
+<span class="fc" id="L339">		List&lt;InvoiceXmlData.Payment&gt; payments = payments(tenantId, documentId).stream()</span>
+<span class="fc" id="L340">			.map(payment -&gt; new InvoiceXmlData.Payment(payment.methodCode(), payment.amount()))</span>
+<span class="fc" id="L341">			.toList();</span>
+<span class="fc" id="L342">		return Optional.of(new InvoiceXmlData(h.environment(), h.issuerLegalName(), h.issuerTradeName(),</span>
+<span class="fc" id="L343">				h.issuerRuc(), h.accessKey(), h.documentType(), h.establishmentCode(), h.emissionPointCode(),</span>
+<span class="fc" id="L344">				h.sequence(), h.issuerHeadOfficeAddress(), h.issuerWithholdingAgentCode(), h.issuerRimpeRegime(),</span>
+<span class="fc" id="L345">				h.issueDate(), h.establishmentAddress(), h.issuerSpecialTaxpayerCode(), h.issuerAccountingRequired(),</span>
+<span class="fc" id="L346">				h.customerIdType(), h.customerName(), h.customerIdNumber(), h.customerAddress(), h.subtotal(),</span>
+<span class="fc" id="L347">				h.totalDiscount(), taxes, h.total(), lines, payments, h.providerRuc()));</span>
+	}
+
+	/** Correo del cliente congelado en el comprobante; vacío si no lo tiene o el documento no existe. */
+	public Optional&lt;String&gt; customerEmail(UUID tenantId, UUID documentId) {
+<span class="fc" id="L352">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT customer_email FROM fiscal_documents
+				WHERE id = :id AND tenant_id = :tenantId AND customer_email IS NOT NULL
+<span class="fc" id="L355">				&quot;&quot;&quot;).param(&quot;id&quot;, documentId).param(&quot;tenantId&quot;, tenantId).query(String.class).optional();</span>
+	}
+
+<span class="fc" id="L358">	private record RideExtras(String authorizationNumber, OffsetDateTime authorizedAt, String customerEmail) {</span>
+	}
+
+<span class="fc" id="L361">	private record PaymentMethodName(String code, String name) {</span>
+	}
+
+	/** Datos para el RIDE; vacío si el documento no existe en esa empresa o todavía no está autorizado. */
+	public Optional&lt;RideData&gt; rideData(UUID tenantId, UUID documentId) {
+<span class="fc" id="L366">		Optional&lt;RideExtras&gt; extras = jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT authorization_number, authorized_at, customer_email FROM fiscal_documents
+				WHERE id = :id AND tenant_id = :tenantId AND state = 'AUTHORIZED'
+				 AND authorization_number IS NOT NULL AND authorized_at IS NOT NULL
+<span class="fc" id="L370">				&quot;&quot;&quot;).param(&quot;id&quot;, documentId).param(&quot;tenantId&quot;, tenantId).query(RideExtras.class).optional();</span>
+<span class="fc bfc" id="L371" title="All 2 branches covered.">		if (extras.isEmpty()) {</span>
+<span class="fc" id="L372">			return Optional.empty();</span>
+		}
+<span class="fc" id="L374">		InvoiceXmlData invoice = xmlData(tenantId, documentId).orElseThrow();</span>
+<span class="fc" id="L375">		Map&lt;String, String&gt; names = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L376">		jdbc.sql(&quot;SELECT code, name FROM payment_methods&quot;).query(PaymentMethodName.class).list()</span>
+<span class="fc" id="L377">			.forEach(method -&gt; names.put(method.code(), method.name()));</span>
+<span class="fc" id="L378">		RideExtras e = extras.get();</span>
+<span class="fc" id="L379">		return Optional.of(new RideData(invoice, e.authorizationNumber(), e.authorizedAt(), e.customerEmail(),</span>
+<span class="fc" id="L380">				Map.copyOf(names)));</span>
+	}
+
+	public List&lt;DocumentRow&gt; page(UUID tenantId, int page, int size) {
+<span class="fc" id="L384">		return jdbc.sql(&quot;SELECT &quot; + DOCUMENT_COLUMNS + &quot;&quot;&quot;</span>
+				FROM fiscal_documents WHERE tenant_id = :tenantId
+				ORDER BY created_at DESC, sequence DESC, id
+				LIMIT :size OFFSET :offset
+				&quot;&quot;&quot;)
+<span class="fc" id="L389">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L390">			.param(&quot;size&quot;, size)</span>
+<span class="fc" id="L391">			.param(&quot;offset&quot;, (long) page * size)</span>
+<span class="fc" id="L392">			.query(DocumentRow.class)</span>
+<span class="fc" id="L393">			.list();</span>
+	}
+
+	public long count(UUID tenantId) {
+<span class="fc" id="L397">		return jdbc.sql(&quot;SELECT count(*) FROM fiscal_documents WHERE tenant_id = :tenantId&quot;)</span>
+<span class="fc" id="L398">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L399">			.query(Long.class)</span>
+<span class="fc" id="L400">			.single();</span>
+	}
+
+	public Links links(UUID tenantId, UUID documentId) {
+<span class="fc" id="L404">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT d.customer_id, d.replaces_document_id,
+				       (SELECT r.id FROM fiscal_documents r
+				         WHERE r.tenant_id = d.tenant_id AND r.replaces_document_id = d.id) AS replaced_by_document_id
+				  FROM fiscal_documents d WHERE d.id = :id AND d.tenant_id = :tenantId
+<span class="fc" id="L409">				&quot;&quot;&quot;).param(&quot;id&quot;, documentId).param(&quot;tenantId&quot;, tenantId).query(Links.class).single();</span>
+	}
+
+	/** El comprobante que reemplazó a este, si lo hay. */
+	public Optional&lt;UUID&gt; replacementOf(UUID tenantId, UUID documentId) {
+<span class="fc" id="L414">		return jdbc.sql(&quot;SELECT id FROM fiscal_documents WHERE tenant_id = :tenantId AND replaces_document_id = :id&quot;)</span>
+<span class="fc" id="L415">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L416">			.param(&quot;id&quot;, documentId)</span>
+<span class="fc" id="L417">			.query(UUID.class)</span>
+<span class="fc" id="L418">			.optional();</span>
+	}
+
+	/** Anota en el comprobante nuevo a cuál reemplaza. */
+	public void linkReplacement(UUID tenantId, UUID documentId, UUID replacedId) {
+<span class="fc" id="L423">		jdbc.sql(&quot;UPDATE fiscal_documents SET replaces_document_id = :replaced WHERE id = :id AND tenant_id = :tenantId&quot;)</span>
+<span class="fc" id="L424">			.param(&quot;replaced&quot;, replacedId)</span>
+<span class="fc" id="L425">			.param(&quot;id&quot;, documentId)</span>
+<span class="fc" id="L426">			.param(&quot;tenantId&quot;, tenantId)</span>
+<span class="fc" id="L427">			.update();</span>
+<span class="fc" id="L428">	}</span>
+
+	public List&lt;LineRow&gt; lines(UUID tenantId, UUID documentId) {
+<span class="fc" id="L431">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT line_no, main_code, description, quantity, unit_price, discount, subtotal, tax_code,
+				 tax_rate_code, tax_rate, tax_amount, product_id
+				FROM fiscal_document_lines WHERE document_id = :documentId AND tenant_id = :tenantId ORDER BY line_no
+<span class="fc" id="L435">				&quot;&quot;&quot;).param(&quot;documentId&quot;, documentId).param(&quot;tenantId&quot;, tenantId).query(LineRow.class).list();</span>
+	}
+
+	public List&lt;TaxTotal&gt; taxes(UUID tenantId, UUID documentId) {
+<span class="fc" id="L439">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT tax_code, rate_code, rate, base, amount FROM fiscal_document_taxes
+				WHERE document_id = :documentId AND tenant_id = :tenantId
+				ORDER BY tax_code, CAST(rate_code AS integer)
+<span class="fc" id="L443">				&quot;&quot;&quot;).param(&quot;documentId&quot;, documentId).param(&quot;tenantId&quot;, tenantId).query(TaxTotal.class).list();</span>
+	}
+
+	public List&lt;PaymentRow&gt; payments(UUID tenantId, UUID documentId) {
+<span class="fc" id="L447">		return jdbc.sql(&quot;&quot;&quot;</span>
+				SELECT line_no, method_code, amount FROM fiscal_document_payments
+				WHERE document_id = :documentId AND tenant_id = :tenantId ORDER BY line_no
+<span class="fc" id="L450">				&quot;&quot;&quot;).param(&quot;documentId&quot;, documentId).param(&quot;tenantId&quot;, tenantId).query(PaymentRow.class).list();</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

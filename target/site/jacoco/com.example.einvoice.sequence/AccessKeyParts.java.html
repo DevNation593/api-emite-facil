@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AccessKeyParts.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.sequence</a> &gt; <span class="el_source">AccessKeyParts.java</span></div><h1>AccessKeyParts.java</h1><pre class="source lang-java linenums">package com.example.einvoice.sequence;
+
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+
+/**
+ * Componentes de la clave de acceso en el orden de la ficha técnica. Todo salvo el secuencial se
+ * conserva como texto para no perder ceros iniciales.
+ */
+public record AccessKeyParts(LocalDate issueDate, String documentType, String ruc, String environment,
+		String establishment, String emissionPoint, int sequence, String numericCode, String emissionType) {
+
+<span class="fc" id="L14">	private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern(&quot;ddMMyyyy&quot;);</span>
+
+<span class="fc" id="L16">	public AccessKeyParts {</span>
+<span class="fc bfc" id="L17" title="All 2 branches covered.">		if (issueDate == null) {</span>
+<span class="fc" id="L18">			throw new IllegalArgumentException(&quot;La fecha de emisión es obligatoria&quot;);</span>
+		}
+<span class="fc" id="L20">		require(documentType, &quot;[0-9]{2}&quot;, &quot;tipo de comprobante&quot;);</span>
+<span class="fc" id="L21">		require(ruc, &quot;[0-9]{13}&quot;, &quot;RUC&quot;);</span>
+<span class="fc" id="L22">		require(environment, &quot;[12]&quot;, &quot;ambiente&quot;);</span>
+<span class="fc" id="L23">		require(establishment, &quot;[0-9]{3}&quot;, &quot;establecimiento&quot;);</span>
+<span class="fc" id="L24">		require(emissionPoint, &quot;[0-9]{3}&quot;, &quot;punto de emisión&quot;);</span>
+<span class="fc bfc" id="L25" title="All 4 branches covered.">		if (sequence &lt; 1 || sequence &gt; 999_999_999) {</span>
+<span class="fc" id="L26">			throw new IllegalArgumentException(&quot;Secuencial fuera de rango: &quot; + sequence);</span>
+		}
+<span class="fc" id="L28">		require(numericCode, &quot;[0-9]{8}&quot;, &quot;código numérico&quot;);</span>
+<span class="fc" id="L29">		require(emissionType, &quot;[0-9]&quot;, &quot;tipo de emisión&quot;);</span>
+<span class="fc" id="L30">	}</span>
+
+	public String toBase48() {
+<span class="fc" id="L33">		return issueDate.format(DATE) + documentType + ruc + environment + establishment + emissionPoint</span>
+<span class="fc" id="L34">				+ String.format(Locale.ROOT, &quot;%09d&quot;, sequence) + numericCode + emissionType;</span>
+	}
+
+	public String toAccessKey() {
+<span class="fc" id="L38">		return AccessKey.build(toBase48());</span>
+	}
+
+	private static void require(String value, String pattern, String name) {
+<span class="pc bpc" id="L42" title="1 of 4 branches missed.">		if (value == null || !value.matches(pattern)) {</span>
+<span class="fc" id="L43">			throw new IllegalArgumentException(&quot;Valor inválido para &quot; + name + &quot;: &quot; + value);</span>
+		}
+<span class="fc" id="L45">	}</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>

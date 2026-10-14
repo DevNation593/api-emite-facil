@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SriResponseParser.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">einvoice</a> &gt; <a href="index.source.html" class="el_package">com.example.einvoice.sri</a> &gt; <span class="el_source">SriResponseParser.java</span></div><h1>SriResponseParser.java</h1><pre class="source lang-java linenums">package com.example.einvoice.sri;
+
+import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
+
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
+
+import com.example.einvoice.xml.SecureXml;
+
+/**
+ * Lee las respuestas SOAP de recepción y autorización del SRI (ficha técnica v2.34, numeral 7.2.3).
+ * Nunca lanza: lo que no se entiende es un resultado FAILED con su explicación, no un estado inventado.
+ * Los elementos se buscan por nombre local: el WSDL los declara por referencia, pero el SRI los
+ * devuelve sin espacio de nombres.
+ */
+public final class SriResponseParser {
+
+	private static final int MAX_MESSAGES = 100;
+
+	private static final int MAX_TEXT = 2000;
+
+	private static final int MAX_STATUS = 60;
+
+<span class="fc" id="L35">	private static final Pattern AUTHORIZATION_NUMBER = Pattern.compile(&quot;[0-9]{10,49}&quot;);</span>
+
+	/** Hora de Ecuador continental, para las fechas que llegan sin desplazamiento. */
+<span class="fc" id="L38">	private static final ZoneOffset ECUADOR = ZoneOffset.ofHours(-5);</span>
+
+	private SriResponseParser() {
+	}
+
+	public static ReceptionResult reception(byte[] body) {
+		Element response;
+		try {
+<span class="fc" id="L46">			response = responseElement(body, &quot;RespuestaRecepcionComprobante&quot;);</span>
+		}
+<span class="fc" id="L48">		catch (UnreadableResponse ex) {</span>
+<span class="fc" id="L49">			return ReceptionResult.failed(null, ex.getMessage(), null);</span>
+<span class="fc" id="L50">		}</span>
+<span class="fc" id="L51">		String status = text(response, &quot;estado&quot;);</span>
+<span class="fc" id="L52">		List&lt;SriMessage&gt; messages = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L53">		Element vouchers = child(response, &quot;comprobantes&quot;);</span>
+<span class="pc bpc" id="L54" title="1 of 2 branches missed.">		if (vouchers != null) {</span>
+<span class="fc bfc" id="L55" title="All 2 branches covered.">			for (Element voucher : children(vouchers, &quot;comprobante&quot;)) {</span>
+<span class="fc" id="L56">				addMessages(voucher, messages);</span>
+<span class="fc" id="L57">			}</span>
+		}
+		ReceptionResult.Outcome outcome;
+<span class="fc" id="L60">		String error = null;</span>
+<span class="fc bfc" id="L61" title="All 2 branches covered.">		if (&quot;RECIBIDA&quot;.equalsIgnoreCase(status)) {</span>
+<span class="fc" id="L62">			outcome = ReceptionResult.Outcome.RECEIVED;</span>
+		}
+<span class="fc bfc" id="L64" title="All 2 branches covered.">		else if (&quot;DEVUELTA&quot;.equalsIgnoreCase(status)) {</span>
+<span class="fc" id="L65">			outcome = ReceptionResult.Outcome.RETURNED;</span>
+		}
+		else {
+<span class="fc" id="L68">			outcome = ReceptionResult.Outcome.FAILED;</span>
+<span class="pc bpc" id="L69" title="1 of 2 branches missed.">			error = status == null ? &quot;La respuesta de recepción no trae estado&quot; : &quot;Estado de recepción desconocido&quot;;</span>
+		}
+<span class="fc" id="L71">		return new ReceptionResult(outcome, bounded(status, MAX_STATUS), List.copyOf(messages), null, error, null);</span>
+	}
+
+	public static AuthorizationResult authorization(byte[] body) {
+		Element response;
+		try {
+<span class="fc" id="L77">			response = responseElement(body, &quot;RespuestaAutorizacionComprobante&quot;);</span>
+		}
+<span class="fc" id="L79">		catch (UnreadableResponse ex) {</span>
+<span class="fc" id="L80">			return AuthorizationResult.failed(null, ex.getMessage(), null);</span>
+<span class="fc" id="L81">		}</span>
+<span class="fc" id="L82">		String consulted = text(response, &quot;claveAccesoConsultada&quot;);</span>
+<span class="fc" id="L83">		Element list = child(response, &quot;autorizaciones&quot;);</span>
+<span class="fc bfc" id="L84" title="All 2 branches covered.">		List&lt;Element&gt; entries = list == null ? List.of() : children(list, &quot;autorizacion&quot;);</span>
+<span class="fc bfc" id="L85" title="All 2 branches covered.">		if (entries.isEmpty()) {</span>
+<span class="fc" id="L86">			return new AuthorizationResult(AuthorizationResult.Outcome.NOT_FOUND, null, consulted, null, null, null,</span>
+<span class="fc" id="L87">					List.of(), null, null, null);</span>
+		}
+		// Puede haber varias respuestas no autorizadas y una sola autorizada: esa manda.
+<span class="fc bfc" id="L90" title="All 2 branches covered.">		for (Element entry : entries) {</span>
+<span class="fc bfc" id="L91" title="All 2 branches covered.">			if (&quot;AUTORIZADO&quot;.equalsIgnoreCase(text(entry, &quot;estado&quot;))) {</span>
+<span class="fc" id="L92">				return authorized(entry, consulted);</span>
+			}
+<span class="fc" id="L94">		}</span>
+<span class="fc" id="L95">		Element latest = entries.get(0);</span>
+<span class="fc" id="L96">		OffsetDateTime latestDate = date(text(latest, &quot;fechaAutorizacion&quot;));</span>
+<span class="fc bfc" id="L97" title="All 2 branches covered.">		for (Element entry : entries) {</span>
+<span class="fc" id="L98">			OffsetDateTime entryDate = date(text(entry, &quot;fechaAutorizacion&quot;));</span>
+<span class="pc bpc" id="L99" title="2 of 6 branches missed.">			if (entryDate != null &amp;&amp; (latestDate == null || entryDate.isAfter(latestDate))) {</span>
+<span class="nc" id="L100">				latest = entry;</span>
+<span class="nc" id="L101">				latestDate = entryDate;</span>
+			}
+<span class="fc" id="L103">		}</span>
+<span class="fc" id="L104">		String status = text(latest, &quot;estado&quot;);</span>
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">		String normalized = status == null ? &quot;&quot; : status.toUpperCase(Locale.ROOT);</span>
+<span class="fc bfc" id="L106" title="All 4 branches covered.">		boolean rejected = normalized.equals(&quot;NO AUTORIZADO&quot;) || normalized.equals(&quot;RECHAZADO&quot;);</span>
+<span class="fc" id="L107">		List&lt;SriMessage&gt; messages = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L108">		addMessages(latest, messages);</span>
+<span class="fc" id="L109">		return new AuthorizationResult(</span>
+<span class="fc bfc" id="L110" title="All 2 branches covered.">				rejected ? AuthorizationResult.Outcome.NOT_AUTHORIZED : AuthorizationResult.Outcome.PROCESSING,</span>
+<span class="fc" id="L111">				bounded(status, MAX_STATUS), consulted, null, latestDate, text(latest, &quot;ambiente&quot;),</span>
+<span class="fc" id="L112">				List.copyOf(messages), null, null, null);</span>
+	}
+
+	private static AuthorizationResult authorized(Element entry, String consulted) {
+<span class="fc" id="L116">		String status = bounded(text(entry, &quot;estado&quot;), MAX_STATUS);</span>
+<span class="fc" id="L117">		String number = text(entry, &quot;numeroAutorizacion&quot;);</span>
+<span class="fc" id="L118">		OffsetDateTime date = date(text(entry, &quot;fechaAutorizacion&quot;));</span>
+<span class="fc" id="L119">		List&lt;SriMessage&gt; messages = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L120">		addMessages(entry, messages);</span>
+<span class="fc" id="L121">		String error = null;</span>
+<span class="fc bfc" id="L122" title="All 4 branches covered.">		if (number == null || !AUTHORIZATION_NUMBER.matcher(number).matches()) {</span>
+<span class="fc" id="L123">			error = &quot;La autorización no trae un número de autorización válido&quot;;</span>
+		}
+<span class="fc bfc" id="L125" title="All 2 branches covered.">		else if (date == null) {</span>
+<span class="fc" id="L126">			error = &quot;La autorización no trae una fecha legible&quot;;</span>
+		}
+<span class="fc bfc" id="L128" title="All 2 branches covered.">		if (error != null) {</span>
+<span class="fc" id="L129">			return new AuthorizationResult(AuthorizationResult.Outcome.FAILED, status, consulted, null, null,</span>
+<span class="fc" id="L130">					text(entry, &quot;ambiente&quot;), List.copyOf(messages), null, error, null);</span>
+		}
+<span class="fc" id="L132">		return new AuthorizationResult(AuthorizationResult.Outcome.AUTHORIZED, status, consulted, number, date,</span>
+<span class="fc" id="L133">				text(entry, &quot;ambiente&quot;), List.copyOf(messages), null, null, null);</span>
+	}
+
+	private static final class UnreadableResponse extends Exception {
+
+		private static final long serialVersionUID = 1L;
+
+		UnreadableResponse(String message) {
+<span class="fc" id="L141">			super(message);</span>
+<span class="fc" id="L142">		}</span>
+
+	}
+
+	private static Element responseElement(byte[] body, String localName) throws UnreadableResponse {
+<span class="pc bpc" id="L147" title="1 of 4 branches missed.">		if (body == null || body.length == 0) {</span>
+<span class="fc" id="L148">			throw new UnreadableResponse(&quot;La respuesta del SRI llegó vacía&quot;);</span>
+		}
+		Document document;
+		try {
+<span class="fc" id="L152">			document = SecureXml.parse(body);</span>
+		}
+<span class="fc" id="L154">		catch (SAXException | IOException ex) {</span>
+<span class="fc" id="L155">			throw new UnreadableResponse(&quot;La respuesta del SRI no es un XML legible&quot;);</span>
+<span class="fc" id="L156">		}</span>
+<span class="fc bfc" id="L157" title="All 2 branches covered.">		if (document.getElementsByTagNameNS(&quot;*&quot;, &quot;Fault&quot;).getLength() &gt; 0) {</span>
+<span class="fc" id="L158">			throw new UnreadableResponse(&quot;El SRI respondió con un error SOAP (Fault)&quot;);</span>
+		}
+<span class="fc" id="L160">		NodeList found = document.getElementsByTagNameNS(&quot;*&quot;, localName);</span>
+<span class="fc bfc" id="L161" title="All 2 branches covered.">		if (found.getLength() == 0) {</span>
+<span class="fc" id="L162">			found = document.getElementsByTagName(localName);</span>
+		}
+<span class="fc bfc" id="L164" title="All 2 branches covered.">		if (found.getLength() != 1) {</span>
+<span class="fc" id="L165">			throw new UnreadableResponse(&quot;La respuesta del SRI no contiene &quot; + localName);</span>
+		}
+<span class="fc" id="L167">		return (Element) found.item(0);</span>
+	}
+
+	private static void addMessages(Element parent, List&lt;SriMessage&gt; into) {
+<span class="fc" id="L171">		Element list = child(parent, &quot;mensajes&quot;);</span>
+<span class="pc bpc" id="L172" title="1 of 2 branches missed.">		if (list == null) {</span>
+<span class="nc" id="L173">			return;</span>
+		}
+<span class="fc bfc" id="L175" title="All 2 branches covered.">		for (Element message : children(list, &quot;mensaje&quot;)) {</span>
+<span class="fc bfc" id="L176" title="All 2 branches covered.">			if (into.size() == MAX_MESSAGES) {</span>
+<span class="fc" id="L177">				return;</span>
+			}
+<span class="fc" id="L179">			into.add(new SriMessage(bounded(text(message, &quot;identificador&quot;), 20),</span>
+<span class="fc" id="L180">					bounded(text(message, &quot;mensaje&quot;), MAX_TEXT),</span>
+<span class="fc" id="L181">					bounded(text(message, &quot;informacionAdicional&quot;), MAX_TEXT), bounded(text(message, &quot;tipo&quot;), 30)));</span>
+<span class="fc" id="L182">		}</span>
+<span class="fc" id="L183">	}</span>
+
+	private static OffsetDateTime date(String text) {
+<span class="fc bfc" id="L186" title="All 2 branches covered.">		if (text == null) {</span>
+<span class="fc" id="L187">			return null;</span>
+		}
+		try {
+<span class="fc" id="L190">			return OffsetDateTime.parse(text);</span>
+		}
+<span class="fc" id="L192">		catch (DateTimeParseException withoutOffset) {</span>
+			try {
+<span class="fc" id="L194">				return LocalDateTime.parse(text).atOffset(ECUADOR);</span>
+			}
+<span class="fc" id="L196">			catch (DateTimeParseException ex) {</span>
+<span class="fc" id="L197">				return null;</span>
+			}
+		}
+	}
+
+	private static List&lt;Element&gt; children(Element parent, String localName) {
+<span class="fc" id="L203">		List&lt;Element&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L204" title="All 2 branches covered.">		for (Node node = parent.getFirstChild(); node != null; node = node.getNextSibling()) {</span>
+<span class="pc bpc" id="L205" title="1 of 4 branches missed.">			if (node instanceof Element element &amp;&amp; localName.equals(localName(element))) {</span>
+<span class="fc" id="L206">				result.add(element);</span>
+			}
+		}
+<span class="fc" id="L209">		return result;</span>
+	}
+
+	private static Element child(Element parent, String localName) {
+<span class="fc" id="L213">		List&lt;Element&gt; found = children(parent, localName);</span>
+<span class="fc bfc" id="L214" title="All 2 branches covered.">		return found.isEmpty() ? null : found.get(0);</span>
+	}
+
+	/** Texto del hijo, sin espacios alrededor; nulo si no existe o está vacío. */
+	private static String text(Element parent, String localName) {
+<span class="fc" id="L219">		Element element = child(parent, localName);</span>
+<span class="fc bfc" id="L220" title="All 2 branches covered.">		if (element == null) {</span>
+<span class="fc" id="L221">			return null;</span>
+		}
+<span class="fc" id="L223">		String value = element.getTextContent().trim();</span>
+<span class="pc bpc" id="L224" title="1 of 2 branches missed.">		return value.isEmpty() ? null : value;</span>
+	}
+
+	private static String localName(Element element) {
+<span class="pc bpc" id="L228" title="1 of 2 branches missed.">		return element.getLocalName() != null ? element.getLocalName() : element.getTagName();</span>
+	}
+
+	private static String bounded(String value, int max) {
+<span class="fc bfc" id="L232" title="All 4 branches covered.">		return value == null || value.length() &lt;= max ? value : value.substring(0, max);</span>
+	}
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.13.202504020838</span></div></body></html>
