@@ -3,9 +3,10 @@ package com.example.einvoice.identity;
 import java.util.UUID;
 
 /**
- * Usuario autenticado de la petición: identidad del proveedor OIDC ya asociada a su fila en users.
+ * Usuario autenticado de la petición, tal como está ahora en la base.
  *
- * @param emailVerified lo que el proveedor de identidad dice del correo; nulo si no dice nada
+ * @param sessionId sesión con la que obtuvo el token de acceso
+ * @param emailVerified si ya confirmó su correo con el enlace que se le envió
  */
-public record UserIdentity(UUID userId, String issuer, String subject, String email, Boolean emailVerified) {
+public record UserIdentity(UUID userId, UUID sessionId, String email, boolean emailVerified) {
 }

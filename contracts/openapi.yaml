@@ -1,18 +1,21 @@
 openapi: 3.1.0
 info:
   title: Facturación electrónica Ecuador — API
-  version: 0.12.0
+  version: 0.13.0
   description: >
     Contrato de la API REST. Un test (OpenApiContractIT) falla si las rutas de este archivo y las
     de los controladores dejan de coincidir. El tenant activo nunca se envía en el cuerpo: se
     resuelve con las membresías del usuario autenticado y, si tiene varias, con la cabecera
     X-Tenant-Id. Cualquier operación puede responder 429 (errorCode RATE_LIMITED) si el usuario
     supera su cupo de peticiones por minuto; la cabecera Retry-After dice cuántos segundos esperar.
+    Los tokens de acceso los emite la propia API (POST /auth/login); las operaciones de /auth que
+    no necesitan sesión lo dicen con security vacío.
 servers:
   - url: /api/v1
 security:
   - bearerAuth: []
 tags:
+  - name: auth
   - name: tenants
   - name: team
   - name: taxpayers
@@ -26,6 +29,221 @@ tags:
   - name: certificates
   - name: webhooks
 paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: >
+        Crea una cuenta y envía al correo un enlace para confirmarlo. La respuesta es la misma si el
+        correo ya tiene cuenta: entonces no cambia nada y al correo le llega un aviso con un enlace
+        para cambiar la contraseña.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '202':
+          description: Recibido; el correo dice cómo seguir.
+        '400': { $ref: '#/components/responses/Problem' }
+        '422':
+          description: errorCode WEAK_PASSWORD (entre 12 y 128 caracteres, y no el propio correo).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Abre una sesión con correo y contraseña.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '200':
+          description: Sesión abierta.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tokens' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401':
+          description: >
+            errorCode INVALID_CREDENTIALS. Es igual si el correo no tiene cuenta o si la contraseña no
+            es la suya.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429':
+          description: >
+            errorCode ACCOUNT_LOCKED (demasiados fallos seguidos con ese correo) o RATE_LIMITED
+            (demasiadas peticiones desde esa dirección IP). Retry-After dice cuántos segundos esperar.
+          headers:
+            Retry-After: { schema: { type: integer } }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshSession
+      summary: >
+        Entrega un token de acceso nuevo y cambia el de renovación. Presentar un token de renovación ya
+        usado cierra la sesión entera.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: Tokens nuevos de la misma sesión.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tokens' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401':
+          description: errorCode INVALID_REFRESH_TOKEN, la sesión caducó, se cerró o el token ya se usó.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Cierra la sesión de ese token de renovación. Sin efecto si ya estaba cerrada.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '204':
+          description: Sesión cerrada.
+        '400': { $ref: '#/components/responses/Problem' }
+  /auth/email-verification:
+    post:
+      tags: [auth]
+      operationId: verifyEmail
+      summary: Confirma el correo con el código del enlace que se envió.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LinkToken' }
+      responses:
+        '204':
+          description: Correo confirmado.
+        '400':
+          description: errorCode INVALID_LINK, el enlace no existe, ya se usó o caducó.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /auth/email-verification/resend:
+    post:
+      tags: [auth]
+      operationId: resendEmailVerification
+      summary: Vuelve a enviar el enlace para confirmar el correo, si falta confirmarlo.
+      responses:
+        '202':
+          description: Recibido.
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/password-reset/request:
+    post:
+      tags: [auth]
+      operationId: requestPasswordReset
+      summary: >
+        Envía un enlace para elegir otra contraseña. La respuesta es la misma si el correo no tiene
+        cuenta.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        '202':
+          description: Recibido.
+        '400': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/password-reset:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      summary: >
+        Pone la contraseña nueva con el código del enlace y cierra todas las sesiones de la cuenta.
+        También deja el correo confirmado.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token: { type: string, minLength: 1, maxLength: 200 }
+                newPassword: { type: string, maxLength: 1024 }
+      responses:
+        '204':
+          description: Contraseña cambiada.
+        '400':
+          description: errorCode INVALID_LINK, el enlace no existe, ya se usó o caducó.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: errorCode WEAK_PASSWORD. El enlace sigue valiendo.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /auth/password:
+    post:
+      tags: [auth]
+      operationId: changePassword
+      summary: Cambia la contraseña conociendo la actual y cierra las demás sesiones; esta sigue.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string, maxLength: 1024 }
+                newPassword: { type: string, maxLength: 1024 }
+      responses:
+        '204':
+          description: Contraseña cambiada.
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '422':
+          description: errorCode INVALID_CURRENT_PASSWORD o WEAK_PASSWORD.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: La cuenta de la sesión.
+      responses:
+        '200':
+          description: Cuenta.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Problem' }
   /tenants:
     post:
       tags: [tenants]
@@ -142,137 +360,6 @@ paths:
         '404': { $ref: '#/components/responses/Problem' }
         '409':
           description: errorCode OWNER_PROTECTED, el propietario no se retira.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-  /invitations:
-    post:
-      tags: [team]
-      operationId: createInvitation
-      summary: >
-        Invita a un correo a la empresa con un rol. Requiere OWNER o ADMIN, y nadie concede un rol
-        igual o superior al suyo (403 ROLE_NOT_GRANTABLE). La respuesta trae el código de la
-        invitación: es la única vez que se muestra. Invitar de nuevo al mismo correo anula la anterior
-        (queda como revocada en la auditoría), salvo que quien invita no pudiera revocarla: entonces
-        403 ROLE_NOT_GRANTABLE y la anterior sigue en pie.
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email, role]
-              properties:
-                email: { type: string, format: email, maxLength: 254 }
-                role: { $ref: '#/components/schemas/Role' }
-      responses:
-        '201':
-          description: Invitación creada.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/CreatedInvitation' }
-        '400': { $ref: '#/components/responses/Problem' }
-        '401': { $ref: '#/components/responses/Problem' }
-        '403': { $ref: '#/components/responses/Problem' }
-        '409':
-          description: >
-            errorCode ALREADY_MEMBER (esa persona ya es miembro) o INVITATION_LIMIT_REACHED (la
-            empresa tiene 50 invitaciones pendientes).
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-    get:
-      tags: [team]
-      operationId: listInvitations
-      summary: Invitaciones pendientes y vigentes de la empresa, sin su código. Requiere OWNER o ADMIN.
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-      responses:
-        '200':
-          description: Invitaciones pendientes.
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/Invitation' }
-        '400': { $ref: '#/components/responses/Problem' }
-        '401': { $ref: '#/components/responses/Problem' }
-        '403': { $ref: '#/components/responses/Problem' }
-  /invitations/{id}:
-    delete:
-      tags: [team]
-      operationId: revokeInvitation
-      summary: Anula una invitación pendiente; su enlace deja de valer.
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
-      responses:
-        '204':
-          description: Anulada.
-        '400': { $ref: '#/components/responses/Problem' }
-        '401': { $ref: '#/components/responses/Problem' }
-        '403': { $ref: '#/components/responses/Problem' }
-        '404': { $ref: '#/components/responses/Problem' }
-  /invitations/preview:
-    post:
-      tags: [team]
-      operationId: previewInvitation
-      summary: >
-        Qué empresa y qué rol ofrece un código de invitación. Con sesión, sin empresa activa. Mismas
-        respuestas de error que al aceptar.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/InvitationToken' }
-      responses:
-        '200':
-          description: Lo que ofrece la invitación.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/InvitationPreview' }
-        '400': { $ref: '#/components/responses/Problem' }
-        '401': { $ref: '#/components/responses/Problem' }
-        '403': { $ref: '#/components/responses/Problem' }
-        '404': { $ref: '#/components/responses/Problem' }
-  /invitations/accept:
-    post:
-      tags: [team]
-      operationId: acceptInvitation
-      summary: >
-        Acepta una invitación: quien inició sesión pasa a ser miembro de esa empresa con el rol
-        ofrecido. Su token debe traer el correo invitado. Con sesión, sin empresa activa.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/InvitationToken' }
-      responses:
-        '200':
-          description: Empresa a la que ahora pertenece, con su rol.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Tenant' }
-        '400': { $ref: '#/components/responses/Problem' }
-        '401': { $ref: '#/components/responses/Problem' }
-        '403':
-          description: >
-            errorCode INVITATION_EMAIL_MISMATCH (la invitación es para otro correo, o el token no
-            informa del correo) o EMAIL_NOT_VERIFIED.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-        '404':
-          description: >
-            errorCode INVITATION_NOT_VALID: el código no existe, caducó, se anuló o ya se usó. La
-            respuesta no distingue cuál.
-          content:
-            application/problem+json:
-              schema: { $ref: '#/components/schemas/Problem' }
-        '409':
-          description: errorCode ALREADY_MEMBER.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -1191,7 +1278,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Token de acceso del proveedor OIDC configurado en OIDC_ISSUER.
+      description: Token de acceso que emite la API en POST /auth/login y POST /auth/refresh (HS256, 15 minutos).
   headers:
     X-Correlation-ID:
       description: >
@@ -1225,6 +1312,42 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
   schemas:
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, maxLength: 1024 }
+    Tokens:
+      type: object
+      required: [accessToken, expiresIn, refreshToken, refreshExpiresAt]
+      properties:
+        accessToken:
+          type: string
+          description: 'Token de acceso; se envía en la cabecera Authorization: Bearer.'
+        expiresIn: { type: integer, description: Segundos de vigencia del token de acceso. }
+        refreshToken: { type: string, description: Token de renovación; cambia en cada uso. }
+        refreshExpiresAt:
+          type: string
+          format: date-time
+          description: Fin de la sesión; después hay que volver a ingresar.
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string, minLength: 1, maxLength: 200 }
+    LinkToken:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, minLength: 1, maxLength: 200 }
+    Me:
+      type: object
+      required: [id, email, emailVerified]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        emailVerified: { type: boolean }
     Problem:
       type: object
       required: [status, errorCode, correlationId]
@@ -1290,13 +1413,14 @@ components:
             - WEBHOOK_SUBSCRIPTION_DISABLED
             - REPLACED_DOCUMENT_OTHER_ISSUER
             - DOCUMENT_ALREADY_REPLACED
-            - INVITATION_NOT_VALID
-            - INVITATION_EMAIL_MISMATCH
-            - EMAIL_NOT_VERIFIED
-            - ALREADY_MEMBER
+            - INVALID_CREDENTIALS
+            - ACCOUNT_LOCKED
+            - INVALID_REFRESH_TOKEN
+            - INVALID_LINK
+            - WEAK_PASSWORD
+            - INVALID_CURRENT_PASSWORD
             - ROLE_NOT_GRANTABLE
             - OWNER_PROTECTED
-            - INVITATION_LIMIT_REACHED
             - PRODUCTION_REQUIREMENTS_NOT_MET
             - PAYMENT_METHOD_UNKNOWN
             - PAYMENTS_MISMATCH
@@ -1306,7 +1430,7 @@ components:
         correlationId: { type: string }
         errors:
           type: array
-          description: Solo con VALIDATION_FAILED.
+          description: Con VALIDATION_FAILED, WEAK_PASSWORD e INVALID_CURRENT_PASSWORD.
           items:
             type: object
             properties:
@@ -1676,17 +1800,6 @@ components:
         self:
           type: boolean
           description: Si es quien hace la consulta.
-    Invitation:
-      type: object
-      required: [id, email, role, expiresAt]
-      properties:
-        id: { type: string, format: uuid }
-        email: { type: string }
-        role: { $ref: '#/components/schemas/Role' }
-        expiresAt: { type: string, format: date-time }
-        invitedBy:
-          type: [string, 'null']
-          description: Correo de quien la creó.
     WebhookEventType:
       type: string
       enum: [document.received, document.authorized, document.rejected, document.delivered]
@@ -1768,32 +1881,6 @@ components:
         status: { type: string, enum: [ACTIVE, DISABLED] }
         createdAt: { type: string, format: date-time }
         secret: { type: string, description: 'Secreto de firma (whsec_...). No se vuelve a mostrar.' }
-    CreatedInvitation:
-      type: object
-      required: [id, email, role, expiresAt, token]
-      properties:
-        id: { type: string, format: uuid }
-        email: { type: string }
-        role: { $ref: '#/components/schemas/Role' }
-        expiresAt: { type: string, format: date-time }
-        token:
-          type: string
-          description: >
-            Código de la invitación. Solo aparece aquí: el servidor guarda su huella, no el código.
-            Quien invita lo comparte con la persona invitada.
-    InvitationToken:
-      type: object
-      required: [token]
-      properties:
-        token: { type: string, minLength: 1, maxLength: 200 }
-    InvitationPreview:
-      type: object
-      required: [tenantName, role, email, expiresAt]
-      properties:
-        tenantName: { type: string }
-        role: { $ref: '#/components/schemas/Role' }
-        email: { type: string }
-        expiresAt: { type: string, format: date-time }
     CreateTaxpayerRequest:
       type: object
       required: [ruc, legalName, headOfficeAddress, defaultEnvironment]

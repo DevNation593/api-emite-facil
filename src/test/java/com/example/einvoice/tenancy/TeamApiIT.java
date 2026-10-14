@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -13,15 +12,13 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.example.einvoice.support.AbstractIntegrationTest;
+import com.example.einvoice.support.TestData;
 import com.example.einvoice.support.TestTokens;
-import com.jayway.jsonpath.JsonPath;
 
 /** Quién forma parte de la empresa, con qué rol, y quién puede cambiarlo. */
-@TestPropertySource(properties = "einvoice.invitations.allow-without-email=true")
 class TeamApiIT extends AbstractIntegrationTest {
 
 	String owner;
@@ -39,11 +36,9 @@ class TeamApiIT extends AbstractIntegrationTest {
 	}
 
 	Member member(String role) throws Exception {
-		String subject = "u-" + UUID.randomUUID();
-		UUID userId = jdbc.queryForObject("INSERT INTO users (issuer, subject, email) VALUES (?, ?, ?) RETURNING id",
-				UUID.class, TestTokens.ISSUER, subject, subject + "@example.test");
+		UUID userId = TestData.user(jdbc);
 		jdbc.update("INSERT INTO memberships (user_id, tenant_id, role) VALUES (?, ?, ?)", userId, tenant, role);
-		return new Member(TestTokens.bearer(subject), userId);
+		return new Member(TestTokens.bearer(userId), userId);
 	}
 
 	UUID ownerId() {
@@ -146,33 +141,6 @@ class TeamApiIT extends AbstractIntegrationTest {
 	}
 
 	@Test
-	void removingAMemberCancelsTheInvitationsTheyLeftPending() throws Exception {
-		Member admin = member("ADMIN");
-		String ownEmail = "otra-cuenta-" + UUID.randomUUID() + "@example.test";
-		String body = mvc
-			.perform(json(post("/api/v1/invitations"), admin.token(), "{\"email\":\"" + ownEmail + "\",\"role\":\"BILLER\"}")
-				.header(TENANT_HEADER, tenant))
-			.andExpect(status().isCreated())
-			.andReturn()
-			.getResponse()
-			.getContentAsString();
-		String code = JsonPath.read(body, "$.token");
-		mvc.perform(json(post("/api/v1/invitations"), owner, "{\"email\":\"nueva@example.test\",\"role\":\"AUDITOR\"}")
-			.header(TENANT_HEADER, tenant)).andExpect(status().isCreated());
-
-		remove(owner, admin.userId()).andExpect(status().isNoContent());
-
-		// Si no, quien sale podría volver a entrar con otra cuenta que se invitó a sí mismo.
-		mvc.perform(json(post("/api/v1/invitations/accept"), TestTokens.bearer("u-" + UUID.randomUUID(), ownEmail),
-				"{\"token\":\"" + code + "\"}"))
-			.andExpect(status().isNotFound());
-		mvc.perform(as(get("/api/v1/invitations"), owner).header(TENANT_HEADER, tenant))
-			.andExpect(jsonPath("$", hasSize(1)))
-			.andExpect(jsonPath("$[0].email").value("nueva@example.test"));
-		assertThat(events("INVITATION_REVOKED")).isEqualTo(1);
-	}
-
-	@Test
 	void anAdministratorRemovesOnlyThoseBelow() throws Exception {
 		Member admin = member("ADMIN");
 		Member other = member("ADMIN");
@@ -198,39 +166,6 @@ class TeamApiIT extends AbstractIntegrationTest {
 		// Y desde fuera no se toca a los de esta.
 		mvc.perform(as(delete("/api/v1/members/" + biller.userId()), stranger)).andExpect(status().isNotFound());
 		assertThat(role(biller.userId())).isEqualTo("BILLER");
-	}
-
-	@Test
-	void withoutAnEmailInTheTokenTheLinkAloneIsEnoughOnlyIfTheProviderIsConfiguredSo() throws Exception {
-		String body = mvc
-			.perform(json(post("/api/v1/invitations"), owner, "{\"email\":\"sin-correo@example.test\",\"role\":\"AUDITOR\"}")
-				.header(TENANT_HEADER, tenant))
-			.andExpect(status().isCreated())
-			.andReturn()
-			.getResponse()
-			.getContentAsString();
-		String code = JsonPath.read(body, "$.token");
-
-		// Aquí einvoice.invitations.allow-without-email está activado.
-		mvc.perform(json(post("/api/v1/invitations/accept"), TestTokens.bearerWithoutEmail("u-" + UUID.randomUUID()),
-				"{\"token\":\"" + code + "\"}"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.role").value("AUDITOR"));
-	}
-
-	@Test
-	void evenThenAnotherEmailIsRefused() throws Exception {
-		String body = mvc
-			.perform(json(post("/api/v1/invitations"), owner, "{\"email\":\"esperada@example.test\",\"role\":\"AUDITOR\"}")
-				.header(TENANT_HEADER, tenant))
-			.andReturn()
-			.getResponse()
-			.getContentAsString();
-
-		mvc.perform(json(post("/api/v1/invitations/accept"), TestTokens.bearer("u-" + UUID.randomUUID(), "otra@example.test"),
-				"{\"token\":\"" + JsonPath.<String>read(body, "$.token") + "\"}"))
-			.andExpect(status().isForbidden())
-			.andExpect(jsonPath("$.errorCode").value("INVITATION_EMAIL_MISMATCH"));
 	}
 
 }

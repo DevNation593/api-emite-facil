@@ -43,6 +43,11 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 		assertThat(contract.get("openapi").toString()).startsWith("3.1");
 		assertThat(contract.get("security")).isNotNull();
 		paths(contract).forEach((path, item) -> operations(item).forEach((method, operation) -> {
+			// Las públicas (registrarse, ingresar…) dicen security: [] y no piden token.
+			if (List.of().equals(asMap(operation).get("security"))) {
+				assertThat(path).as("solo /auth tiene operaciones públicas").startsWith("/auth/");
+				return;
+			}
 			Map<String, Object> responses = asMap(asMap(operation).get("responses"));
 			assertThat(responses.keySet()).as("%s %s", method, path).contains("401");
 		}));

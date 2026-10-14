@@ -79,18 +79,6 @@ public class TeamService {
 			.param("user", userId)
 			.update();
 		audit.record(access.tenantId(), access.userId(), "MEMBER_REMOVED", "USER", userId, Map.of("role", current.name()));
-		// Las invitaciones que dejó pendientes caen con él: si no, podría volver con otra cuenta.
-		jdbc.sql("""
-				UPDATE invitations SET revoked_at = now()
-				 WHERE tenant_id = :tenant AND invited_by = :user AND accepted_at IS NULL AND revoked_at IS NULL
-				RETURNING id, role
-				""")
-			.param("tenant", access.tenantId())
-			.param("user", userId)
-			.query()
-			.listOfRows()
-			.forEach(left -> audit.record(access.tenantId(), access.userId(), "INVITATION_REVOKED", "INVITATION",
-					(UUID) left.get("id"), Map.of("role", left.get("role"), "reason", "INVITER_REMOVED")));
 	}
 
 	/** Rol del miembro, con su membresía bloqueada. Un usuario de otra empresa se trata como inexistente. */

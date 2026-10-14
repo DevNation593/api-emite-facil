@@ -73,10 +73,20 @@ class SecurityIT extends AbstractIntegrationTest {
 
 	@Test
 	void rejectsTokenWithBlankSubject() throws Exception {
-		mvc.perform(get("/api/v1/tenants").header(HttpHeaders.AUTHORIZATION, TestTokens.bearer("", null)))
+		mvc.perform(get("/api/v1/tenants").header(HttpHeaders.AUTHORIZATION, TestTokens.bearer("")))
 			.andExpect(status().isUnauthorized());
-		mvc.perform(get("/api/v1/tenants").header(HttpHeaders.AUTHORIZATION, TestTokens.bearer("   ", null)))
+		mvc.perform(get("/api/v1/tenants").header(HttpHeaders.AUTHORIZATION, TestTokens.bearer("   ")))
 			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void rejectsWellSignedTokenOfSomeoneWhoIsNotAUser() throws Exception {
+		// Firmado con la clave de la API, pero su sujeto no es un usuario: ni un id inexistente ni otra cosa.
+		for (String subject : new String[] { java.util.UUID.randomUUID().toString(), "u-no-es-un-id" }) {
+			mvc.perform(get("/api/v1/tenants").header(HttpHeaders.AUTHORIZATION, TestTokens.bearer(subject)))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.errorCode").value("UNAUTHENTICATED"));
+		}
 	}
 
 	@Test

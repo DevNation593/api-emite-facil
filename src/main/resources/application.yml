@@ -48,14 +48,6 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: validate
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          # Emisor OIDC que firma los tokens de acceso y audiencia que identifica a esta API en ellos.
-          # Ambos son obligatorios: la aplicación no arranca sin ellos.
-          issuer-uri: ${OIDC_ISSUER}
-          audiences: ${OIDC_AUDIENCE}
 einvoice:
   crypto:
     # Clave maestra (32 bytes en Base64) que envuelve las claves con las que se cifran los
@@ -93,14 +85,24 @@ einvoice:
     token: ${EINVOICE_METRICS_TOKEN:}
     # Cada cuánto se recalcula el estado de la operación (comprobantes, colas, outbox, certificados).
     refresh-interval-ms: 30000
-  invitations:
-    # Invitaciones a una empresa: cuánto valen y cuántas puede haber pendientes a la vez.
-    ttl: 7d
-    max-pending: 50
-    # Una invitación solo la acepta quien inicia sesión con el correo invitado, y para eso el token
-    # de acceso debe traer el correo. Con true, si el proveedor de identidad no lo incluye, basta el
-    # enlace: vale entonces para cualquiera que lo tenga hasta que se use o caduque.
-    allow-without-email: ${EINVOICE_INVITATIONS_ALLOW_WITHOUT_EMAIL:false}
+  auth:
+    # Clave con la que la API firma sus tokens de acceso (HS256). Obligatoria, al menos 32 bytes
+    # aleatorios (openssl rand -base64 48). Cambiarla invalida al momento los tokens de acceso; las
+    # sesiones siguen, porque sus tokens de renovación están en la base.
+    jwt-secret: ${EINVOICE_JWT_SECRET:}
+    # Dirección pública de la aplicación web: los enlaces de los correos (confirmar el correo,
+    # cambiar la contraseña) llevan a ella. Obligatoria; no se toma de la petición.
+    web-url: ${EINVOICE_WEB_URL:}
+    access-token-ttl: 15m
+    # Una sesión dura como mucho esto, por mucho que se renueve: luego se vuelve a pedir la contraseña.
+    session-ttl: 12h
+    verification-ttl: 24h
+    reset-ttl: 1h
+    # Fallos seguidos con un correo antes de bloquearlo, y cuánto dura el bloqueo.
+    max-login-failures: 5
+    lockout: 15m
+    # Peticiones por minuto de una IP a los endpoints públicos de /api/v1/auth.
+    public-requests-per-minute: 20
   webhooks:
     # Avisos a los sistemas de cada empresa. Apagado por defecto: encenderlo es aceptar que la
     # aplicación llame a direcciones que eligen los clientes (solo https y solo direcciones públicas).
