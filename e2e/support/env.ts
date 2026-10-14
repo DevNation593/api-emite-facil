@@ -98,14 +98,11 @@ function secrets(): Secrets {
 export function apiEnv(): Record<string, string> {
   const env = {
     SERVER_PORT: String(PORTS.api),
-    SPRING_DATASOURCE_URL: `jdbc:postgresql://localhost:${PORTS.postgres}/einvoice`,
-    SPRING_DATASOURCE_USERNAME: "app",
-    SPRING_DATASOURCE_PASSWORD: INFRA.postgresPassword,
+    DATABASE_URL: `postgresql://app:${INFRA.postgresPassword}@localhost:${PORTS.postgres}/einvoice`,
     SPRING_RABBITMQ_PORT: String(PORTS.rabbitmq),
     SPRING_RABBITMQ_USERNAME: INFRA.rabbitmqUser,
     SPRING_RABBITMQ_PASSWORD: INFRA.rabbitmqPassword,
-    SPRING_DATA_REDIS_PORT: String(PORTS.redis),
-    SPRING_DATA_REDIS_PASSWORD: INFRA.redisPassword,
+    REDIS_URL: `redis://:${INFRA.redisPassword}@localhost:${PORTS.redis}`,
     OIDC_ISSUER: URLS.issuer,
     OIDC_AUDIENCE: "einvoice-api",
     EINVOICE_MASTER_KEY: secrets().masterKey,

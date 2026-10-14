@@ -11,8 +11,8 @@
 -- admiten como -v migrator_password=... -v app_password=...
 --
 -- Después, la aplicación arranca con:
+--   DATABASE_URL=postgresql://einvoice_app:<app_password>@<host>:5432/einvoice
 --   SPRING_FLYWAY_USER=einvoice_migrator      SPRING_FLYWAY_PASSWORD=<migrator_password>
---   SPRING_DATASOURCE_USERNAME=einvoice_app   SPRING_DATASOURCE_PASSWORD=<app_password>
 --
 -- En desarrollo local no hace falta: un solo usuario migra y opera.
 

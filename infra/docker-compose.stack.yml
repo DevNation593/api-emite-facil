@@ -19,14 +19,13 @@ services:
       context: ..
     image: einvoice-api:local
     environment: &api-environment
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/einvoice
-      SPRING_DATASOURCE_USERNAME: app
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?set}
+      # Las contraseñas del .env van dentro de una URL: con caracteres como @ : / % deben escribirse
+      # codificadas (%40 para la arroba).
+      DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD:?set}@postgres:5432/einvoice
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:?set}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set}
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?set}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set}@redis:6379
       OIDC_ISSUER: ${OIDC_ISSUER:?set}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-einvoice-api}
       EINVOICE_MASTER_KEY: ${EINVOICE_MASTER_KEY:?set}
