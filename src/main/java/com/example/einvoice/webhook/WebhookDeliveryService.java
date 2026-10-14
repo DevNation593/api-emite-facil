@@ -77,6 +77,80 @@ public class WebhookDeliveryService {
 		return sent;
 	}
 
+	/**
+	 * Intenta los avisos de prueba pendientes de la suscripción y devuelve cuántos se entregaron. Cada
+	 * uno se intenta una vez y su resultado no cuenta para la suscripción: es para probar ahora, no
+	 * para insistir.
+	 */
+	public int processTests(UUID tenantId, UUID subscriptionId) {
+		if (!properties.enabled()) {
+			return 0;
+		}
+		int sent = 0;
+		for (UUID deliveryId : repository.pendingTests(tenantId, subscriptionId, properties.sendLease())) {
+			Optional<Claim> claim = repository.claim(deliveryId, properties.sendLease());
+			if (claim.isPresent() && attemptTest(tenantId, deliveryId, claim.get())) {
+				sent++;
+			}
+		}
+		return sent;
+	}
+
+	private boolean attemptTest(UUID tenantId, UUID deliveryId, Claim claim) {
+		int attempt = claim.attemptCount();
+		Optional<Target> found = repository.target(tenantId, claim.subscriptionId());
+		if (found.isEmpty()) {
+			return false;
+		}
+		Target target = found.get();
+		if (!"ACTIVE".equals(target.status())) {
+			repository.markFailed(deliveryId, attempt, null, "La suscripción está desactivada");
+			return false;
+		}
+		URI url;
+		InetAddress address;
+		try {
+			url = urls.parse(target.url());
+			address = urls.vet(url);
+		}
+		catch (WebhookUrlException ex) {
+			repository.markFailed(deliveryId, attempt, null, ex.getMessage());
+			return false;
+		}
+		Map<String, Object> event = new LinkedHashMap<>();
+		event.put("eventId", claim.eventId().toString());
+		event.put("eventType", claim.eventType());
+		event.put("occurredAt", timestamp(claim.occurredAt().toInstant()));
+		event.put("tenantId", tenantId.toString());
+		event.put("subscriptionId", claim.subscriptionId().toString());
+		byte[] body = json.writeValueAsBytes(event);
+		WebhookSender.Result result;
+		try {
+			result = sender.send(url, address, headers(tenantId, claim, target, body), body);
+		}
+		catch (SecretCipherException | IllegalArgumentException ex) {
+			log.error("No se pudo firmar el aviso de prueba {} de la suscripción {}: {}", deliveryId,
+					claim.subscriptionId(), ex.getClass().getSimpleName());
+			repository.markFailed(deliveryId, attempt, null, "No se pudo firmar el aviso");
+			return false;
+		}
+		catch (RuntimeException ex) {
+			// Como en los demás avisos: solo el tipo, que el mensaje podría llevar la dirección.
+			log.error("Fallo inesperado al enviar el aviso de prueba {} de la suscripción {}: {}", deliveryId,
+					claim.subscriptionId(), ex.getClass().getName());
+			repository.markFailed(deliveryId, attempt, null, "Fallo inesperado: " + ex.getClass().getSimpleName());
+			return false;
+		}
+		if (result.delivered()) {
+			repository.markSent(deliveryId, result.status());
+			return true;
+		}
+		Integer status = result.status() == 0 ? null : result.status();
+		repository.markFailed(deliveryId, attempt, status,
+				result.error() != null ? result.error() : "El receptor respondió " + result.status());
+		return false;
+	}
+
 	private boolean attempt(UUID tenantId, UUID documentId, UUID deliveryId, Claim claim) {
 		int attempt = claim.attemptCount();
 		if (attempt > properties.retryMaxAttempts()) {

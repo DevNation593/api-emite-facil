@@ -57,6 +57,23 @@ public class WebhookRepository {
 			.list();
 	}
 
+	/** Avisos de prueba de la suscripción que se pueden intentar ahora, con el mismo criterio que {@link #pending}. */
+	public List<UUID> pendingTests(UUID tenantId, UUID subscriptionId, Duration lease) {
+		return jdbc.sql("""
+				SELECT id FROM webhook_deliveries
+				WHERE tenant_id = :tenantId AND subscription_id = :subscriptionId AND document_id IS NULL
+				 AND ((status = 'PENDING' AND (retry_after IS NULL OR retry_after <= now()))
+				  OR (status = 'SENDING'
+				   AND sending_since < now() - make_interval(secs => CAST(:lease AS double precision))))
+				ORDER BY occurred_at, id
+				""")
+			.param("tenantId", tenantId)
+			.param("subscriptionId", subscriptionId)
+			.param("lease", seconds(lease))
+			.query(UUID.class)
+			.list();
+	}
+
 	/**
 	 * Reserva el aviso para enviarlo. Vacío si otro proceso se adelantó o si aún no ha pasado la espera
 	 * de su reintento. Queda programado al vencer el plazo de envío: si este proceso muere antes de

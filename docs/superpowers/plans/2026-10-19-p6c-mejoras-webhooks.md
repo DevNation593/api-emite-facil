@@ -12,7 +12,7 @@
 
 **Tech Stack:** el de los planes anteriores; nada nuevo.
 
-**Repositorios:** API en `backend-emite-facil` y pantalla en `client-factura-facil`. Una rama del mismo nombre en cada uno (`p6c-mejoras-webhooks`), para que el CI de la API pruebe con la web de esa rama. PR a `dev` en los dos.
+**Repositorios:** API en `api-emite-facil` y pantalla en `client-factura-facil`. Una rama del mismo nombre en cada uno (`p6c-mejoras-webhooks`), para que el CI de la API pruebe con la web de esa rama. PR a `dev` en los dos.
 
 **Spec:** [doc 11](../../11-api-specification.md) ("Webhooks salientes"), [doc 10](../../10-security.md), [Plan 6b](2026-10-16-p6b-webhooks.md) (decisiones que siguen valiendo).
 
