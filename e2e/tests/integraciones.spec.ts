@@ -47,11 +47,26 @@ test("el sistema de una empresa recibe avisos firmados de lo que pasa con sus co
     await expect(page.locator("main")).not.toContainText(secret);
   });
 
+  await test.step("un aviso de prueba llega firmado sin emitir nada", async () => {
+    await page.getByRole("button", { name: `Enviar aviso de prueba a ${url}` }).click();
+    await expect(page.getByText(/Aviso de prueba en camino/)).toBeVisible();
+
+    const [request] = await received(1);
+    expect(verifySignature(secret, request!)).toBe(true);
+    const body = JSON.parse(request!.body) as Record<string, unknown>;
+    expect(body).toMatchObject({ eventType: "webhook.test", tenantId: company.tenantId });
+    expect(body).not.toHaveProperty("document");
+    // El historial, que se abrió solo, lo muestra entregado sin recargar.
+    const history = page.getByRole("table", { name: /Avisos enviados a/ });
+    await expect(history.getByRole("row", { name: /Aviso de prueba/ })).toContainText("Entregado");
+    await shot("integraciones-aviso-de-prueba");
+  });
+
   await test.step("una factura autorizada produce un aviso firmado, sin datos del cliente ni importes", async () => {
     const invoice = await seedInvoice(page, company, { customer, product });
     const document = await waitForState(page, company, invoice.id, "AUTHORIZED");
 
-    const [request] = await received(1);
+    const request = (await received(2))[1];
     expect(verifySignature(secret, request!)).toBe(true);
     expect(verifySignature("whsec_" + Buffer.alloc(32, 7).toString("base64"), request!)).toBe(false);
     const notification = JSON.parse(request!.body) as Notification;
@@ -85,11 +100,11 @@ test("el sistema de una empresa recibe avisos firmados de lo que pasa con sus co
     await waitForState(page, company, rejected.id, "RETURNED");
     await clearSriScript(company.ruc);
 
-    const requests = await received(2);
-    const notification = JSON.parse(requests[1]!.body) as Notification;
+    const requests = await received(3);
+    const notification = JSON.parse(requests[2]!.body) as Notification;
     expect(notification.eventType).toBe("document.rejected");
     expect(notification.document).toMatchObject({ id: rejected.id, state: "RETURNED", authorizationNumber: null });
-    expect(verifySignature(secret, requests[1]!)).toBe(true);
+    expect(verifySignature(secret, requests[2]!)).toBe(true);
   });
 
   await test.step("al cambiar el secreto, los avisos van firmados con el nuevo y con el anterior", async () => {
@@ -101,10 +116,10 @@ test("el sistema de una empresa recibe avisos firmados de lo que pasa con sus co
 
     const invoice = await seedInvoice(page, company, { customer, product });
     await waitForState(page, company, invoice.id, "AUTHORIZED");
-    const requests = await received(3);
-    expect(requests[2]!.headers["webhook-signature"]!.split(" ")).toHaveLength(2);
-    expect(verifySignature(rotated, requests[2]!)).toBe(true);
-    expect(verifySignature(secret, requests[2]!)).toBe(true);
+    const requests = await received(4);
+    expect(requests[3]!.headers["webhook-signature"]!.split(" ")).toHaveLength(2);
+    expect(verifySignature(rotated, requests[3]!)).toBe(true);
+    expect(verifySignature(secret, requests[3]!)).toBe(true);
   });
 
   await test.step("apagada, deja de recibir avisos", async () => {
@@ -122,8 +137,8 @@ test("el sistema de una empresa recibe avisos firmados de lo que pasa con sus co
     const history = await apiCall<{ total: number }>(page, "GET", `/webhooks/subscriptions/${subscription.id}/deliveries?page=0&size=20`, {
       tenantId: company.tenantId,
     });
-    expect(history.body.total).toBe(3);
-    expect(await sinkRequests(sink)).toHaveLength(3);
+    expect(history.body.total).toBe(4);
+    expect(await sinkRequests(sink)).toHaveLength(4);
   });
 });
 

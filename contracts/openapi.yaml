@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Facturación electrónica Ecuador — API
-  version: 0.11.0
+  version: 0.12.0
   description: >
     Contrato de la API REST. Un test (OpenApiContractIT) falla si las rutas de este archivo y las
     de los controladores dejan de coincidir. El tenant activo nunca se envía en el cuerpo: se
@@ -1131,6 +1131,35 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+  /webhooks/subscriptions/{id}/test:
+    post:
+      tags: [webhooks]
+      operationId: testWebhookSubscription
+      summary: >
+        Envía a la dirección un aviso de prueba (eventType webhook.test), firmado como los demás pero
+        sin comprobante: su cuerpo lleva eventId, eventType, occurredAt, tenantId y subscriptionId.
+        Sale por la cola de avisos en unos instantes y aparece en el historial. Se intenta una sola
+        vez y no cuenta para apagar la suscripción. Mientras uno esté en camino no se admite otro.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202':
+          description: Aviso de prueba anotado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDelivery' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: >
+            WEBHOOKS_DISABLED (la instalación no envía avisos), WEBHOOK_SUBSCRIPTION_DISABLED (la
+            suscripción está apagada) o WEBHOOK_TEST_PENDING (ya hay un aviso de prueba en camino).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   /webhooks/subscriptions/{id}/secret:
     post:
       tags: [webhooks]
@@ -1697,14 +1726,18 @@ components:
           type: [string, 'null']
           format: date-time
           description: Hasta cuándo sigue firmando el secreto anterior, si se rotó hace poco.
+    WebhookDeliveryEventType:
+      type: string
+      enum: [document.received, document.authorized, document.rejected, document.delivered, webhook.test]
+      description: Los eventos de las suscripciones, más webhook.test, el aviso de prueba.
     WebhookDelivery:
       type: object
       required: [id, eventId, eventType, documentId, status, attemptCount, occurredAt]
       properties:
         id: { type: string, format: uuid }
         eventId: { type: string, format: uuid, description: El webhook-id con que viaja el aviso. }
-        eventType: { $ref: '#/components/schemas/WebhookEventType' }
-        documentId: { type: string, format: uuid }
+        eventType: { $ref: '#/components/schemas/WebhookDeliveryEventType' }
+        documentId: { type: [string, 'null'], format: uuid, description: Nulo en un aviso de prueba. }
         status: { type: string, enum: [PENDING, SENDING, SENT, FAILED] }
         attemptCount: { type: integer }
         lastStatus: { type: [integer, 'null'], description: Código HTTP de la última respuesta del receptor, si la hubo. }
