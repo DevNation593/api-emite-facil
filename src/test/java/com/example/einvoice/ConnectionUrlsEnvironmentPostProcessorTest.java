@@ -70,6 +70,28 @@ class ConnectionUrlsEnvironmentPostProcessorTest {
 	}
 
 	@Test
+	void theSchemaInTheUrlIsAlsoTheOneFlywayMigrates() {
+		MockEnvironment environment = database("postgresql://app:secreto@db:5432/postgres?sslmode=require&currentSchema=einvoice");
+		assertThat(environment.getProperty("spring.datasource.url"))
+			.isEqualTo("jdbc:postgresql://db:5432/postgres?sslmode=require&currentSchema=einvoice");
+		assertThat(environment.getProperty("spring.flyway.schemas")).isEqualTo("einvoice");
+	}
+
+	@Test
+	void withoutSchemaFlywayKeepsItsDefault() {
+		assertThat(database("postgresql://app:secreto@db:5432/einvoice?sslmode=require")
+			.containsProperty("spring.flyway.schemas")).isFalse();
+	}
+
+	@Test
+	void rejectsSeveralSchemasBecauseFlywayWouldManageAllOfThem() {
+		assertThatThrownBy(() -> database("postgresql://app:secreto@db:5432/postgres?currentSchema=einvoice,public"))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessageContaining("currentSchema")
+			.hasMessageNotContaining("secreto");
+	}
+
+	@Test
 	void decodesPercentEncodedCredentials() {
 		MockEnvironment environment = database("postgresql://app%40corp:p%40ss%3Aw+rd%2F@localhost:5432/einvoice");
 		assertThat(environment.getProperty("spring.datasource.username")).isEqualTo("app@corp");

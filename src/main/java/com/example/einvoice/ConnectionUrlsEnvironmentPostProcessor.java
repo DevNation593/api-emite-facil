@@ -61,7 +61,34 @@ public class ConnectionUrlsEnvironmentPostProcessor implements EnvironmentPostPr
 		Map<String, Object> properties = new LinkedHashMap<>();
 		properties.put("spring.datasource.url", "jdbc:postgresql://" + uri.getHost() + ":" + port + path + query);
 		putCredentials(DATABASE_URL, uri, "spring.datasource.username", "spring.datasource.password", properties);
+		String schema = schema(uri.getRawQuery());
+		if (schema != null) {
+			properties.put("spring.flyway.schemas", schema);
+		}
 		return properties;
+	}
+
+	/**
+	 * El parámetro currentSchema de la URL fija el esquema en el que trabaja la aplicación; Flyway debe migrar y
+	 * crear ese mismo, o no hallaría las tablas. Sirve para una base compartida cuyo esquema public no es de esta
+	 * aplicación (Supabase, por ejemplo, deja ahí una función propia y publica ese esquema en su API).
+	 */
+	private static String schema(String rawQuery) {
+		if (rawQuery == null) {
+			return null;
+		}
+		for (String parameter : rawQuery.split("&")) {
+			int equals = parameter.indexOf('=');
+			if (equals > 0 && "currentSchema".equals(parameter.substring(0, equals))) {
+				String schema = decode(DATABASE_URL, parameter.substring(equals + 1)).strip();
+				if (schema.isEmpty() || schema.contains(",")) {
+					// Flyway gestionaría todos los de la lista, incluido limpiarlos.
+					throw new IllegalArgumentException(DATABASE_URL + " debe indicar un solo esquema en currentSchema");
+				}
+				return schema;
+			}
+		}
+		return null;
 	}
 
 	static Map<String, Object> rabbitProperties(String value) {
