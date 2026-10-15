@@ -26,6 +26,9 @@ test("una cuenta nueva confirma su correo, cambia la contraseña y vuelve a entr
     await shot("ingresar");
     await signIn(page, user);
     await signedIn(page);
+    // Sin empresa todavía: se queda en la aplicación y se le ofrece crear una.
+    await expect(page.getByRole("link", { name: "elija o cree una empresa" })).toBeVisible();
+    await expect(page).toHaveURL(/\/documentos$/);
     await page.goto("/cuenta");
     await expect(page.getByText("Sin confirmar")).toBeVisible();
     await shot("cuenta-sin-confirmar");
