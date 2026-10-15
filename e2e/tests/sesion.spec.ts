@@ -1,12 +1,12 @@
 import { URLS, USERS } from "../support/env.ts";
-import { expect, login, test } from "../support/fixtures.ts";
+import { expect, login, signIn, test } from "../support/fixtures.ts";
 import { seedCompany, seedCustomer, seedInvoice, seedProduct, useCompany, waitForState } from "../support/seed.ts";
 
 // Cada prueba inicia su propia sesión: cerrar una no debe dejar sin sesión a las demás pruebas.
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test("la sesión se renueva sola: tras caducar la ficha de acceso se emite sin volver a entrar", async ({ page }) => {
-  // La ficha de acceso de esta pila dura 60 segundos; la prueba espera a que caduque.
+  // La ficha de acceso de esta pila dura 60 segundos (EINVOICE_AUTH_ACCESS_TOKEN_TTL); la prueba espera a que caduque.
   test.setTimeout(180_000);
   await login(page, USERS.demo);
   const company = await seedCompany(page);
@@ -32,10 +32,10 @@ test("la sesión se renueva sola: tras caducar la ficha de acceso se emite sin v
   await page.getByRole("button", { name: "Emitir factura" }).click();
   await expect(page).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
   await expect(page.getByText("Autorizada", { exact: true })).toBeVisible();
-  expect(visited.filter((url) => url.includes("/ingresar") || url.startsWith(URLS.issuer))).toEqual([]);
+  expect(visited.filter((url) => url.includes("/ingresar"))).toEqual([]);
 });
 
-test("un enlace directo pide iniciar sesión y vuelve a esa página; cerrar sesión la cierra también en el proveedor", async ({ page }) => {
+test("un enlace directo pide iniciar sesión y vuelve a esa página; cerrar sesión la cierra también en la API", async ({ page }) => {
   await login(page, USERS.demo);
   const company = await seedCompany(page);
   const customer = await seedCustomer(page, company);
@@ -60,11 +60,7 @@ test("un enlace directo pide iniciar sesión y vuelve a esa página; cerrar sesi
   });
 
   await test.step("al iniciar sesión, que vuelve a pedir la contraseña, se llega al comprobante", async () => {
-    await page.getByRole("link", { name: "Iniciar sesión" }).click();
-    // El proveedor no recuerda la sesión anterior: pide las credenciales otra vez.
-    await page.locator("#username").fill(USERS.demo.username);
-    await page.locator("#password").fill(USERS.demo.password);
-    await page.locator("#kc-login").click();
+    await signIn(page, USERS.demo);
 
     await expect(page).toHaveURL(`${URLS.web}${detail}`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(document.number);

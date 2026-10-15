@@ -4,7 +4,7 @@
 Base `/api/v1`, JSON UTF-8, JWT o access tokens de integraciones con scopes y tenant resuelto por autenticación; timestamps ISO 8601 con offset; dinero como **cadena decimal** en JSON para evitar pérdida de precisión; identificadores UUID. OpenAPI 3.1 contract-first.
 
 ## Autenticación, tenant y roles (implementado)
-- **Autenticación:** la API es un *resource server* OAuth2. Valida el JWT del emisor OIDC configurado en `OIDC_ISSUER`: firma, emisor, vigencia, que tenga expiración y sujeto, y que su audiencia (`aud`) incluya la de esta API (`OIDC_AUDIENCE`). No hay `POST /auth/sessions`, la sesión es del proveedor de identidad. El usuario es el par `(iss, sub)` y se crea en su primera petición.
+- **Autenticación:** la API emite y valida sus propios JWT. `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/email-verification` y `/auth/password-reset[/request]` son públicos; el resto exige `Authorization: Bearer` con un token de acceso de la API (HS256, emisor y audiencia `einvoice-api`, con expiración). El sujeto es el id del usuario, que debe existir. Detalle en el contrato (`contracts/openapi.yaml`, etiqueta `auth`) y en el doc 10.
 - **Tenant activo:** se resuelve con las membresías del usuario. Si pertenece a una sola empresa no envía nada; si pertenece a varias envía la cabecera `X-Tenant-Id` (`400 TENANT_REQUIRED` si falta, `400 TENANT_HEADER_INVALID` si no es un UUID). Una empresa ajena, inexistente o suspendida responde `403 TENANT_FORBIDDEN` con el mismo cuerpo. El `tenantId` nunca se lee del cuerpo.
 - **Roles por membresía:** `OWNER`, `ADMIN`, `BILLER`, `AUDITOR`. Todos leen; solo `OWNER` y `ADMIN` crean emisores, establecimientos y puntos (`403 ROLE_FORBIDDEN` en otro caso). Los scopes finos de la tabla de abajo quedan para los clientes de integración (PR-10).
 - **Aislamiento:** un recurso de otra empresa responde `404 NOT_FOUND` igual que uno inexistente.
@@ -19,13 +19,6 @@ El contrato vigente es [`contracts/openapi.yaml`](../contracts/openapi.yaml); un
 | POST | `/tenants` | cualquier usuario autenticado | 201; el creador queda como `OWNER` |
 | GET | `/tenants` | cualquier usuario autenticado | empresas donde tiene membresía activa |
 | GET | `/tenants/current` | miembro | empresa activa y rol |
-| GET | `/members` | `OWNER`, `ADMIN` | miembros de la empresa, con su correo y su rol |
-| PUT | `/members/{userId}/role` | `OWNER` | cambia el rol; `409 OWNER_PROTECTED` sobre el propietario |
-| DELETE | `/members/{userId}` | `OWNER`, `ADMIN` | 204; nadie retira a quien tiene un rol igual o superior al suyo (`403 ROLE_NOT_GRANTABLE`) |
-| POST | `/invitations` | `OWNER`, `ADMIN` | 201 con el código de la invitación, que solo aparece aquí; `409 ALREADY_MEMBER`, `409 INVITATION_LIMIT_REACHED` |
-| GET | `/invitations` | `OWNER`, `ADMIN` | invitaciones pendientes, sin su código |
-| DELETE | `/invitations/{id}` | `OWNER`, `ADMIN` | 204; el enlace deja de valer |
-| POST | `/invitations/preview`, `/invitations/accept` | cualquier usuario autenticado | qué ofrece un código, y aceptarlo; `404 INVITATION_NOT_VALID`, `403 INVITATION_EMAIL_MISMATCH` |
 | POST | `/webhooks/subscriptions` | `OWNER`, `ADMIN` | 201 con el secreto de firma, que solo aparece aquí; `422 WEBHOOK_URL_NOT_ALLOWED`, `409 WEBHOOK_LIMIT_REACHED`, `409 WEBHOOKS_DISABLED` |
 | GET | `/webhooks/subscriptions` | `OWNER`, `ADMIN` | suscripciones de la empresa, sin su secreto |
 | PUT | `/webhooks/subscriptions/{id}` | `OWNER`, `ADMIN` | cambia dirección, eventos y descripción; apaga o enciende (`enabled`) |

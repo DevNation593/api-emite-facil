@@ -35,7 +35,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			problem.setProperty("errors",
 					ex.errors().stream().map(error -> Map.of("field", error.field(), "message", error.message())).toList());
 		}
-		return handleExceptionInternal(ex, problem, new HttpHeaders(), ex.status(), request);
+		HttpHeaders headers = new HttpHeaders();
+		if (ex.retryAfterSeconds() > 0) {
+			headers.set(HttpHeaders.RETRY_AFTER, Long.toString(ex.retryAfterSeconds()));
+		}
+		return handleExceptionInternal(ex, problem, headers, ex.status(), request);
 	}
 
 	@ExceptionHandler(Exception.class)

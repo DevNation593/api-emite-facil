@@ -17,15 +17,34 @@ public class ApiException extends RuntimeException {
 
 	private final List<FieldError> errors;
 
+	/** Segundos tras los que conviene volver a intentar (cabecera Retry-After); 0 si no aplica. */
+	private final long retryAfterSeconds;
+
 	public ApiException(HttpStatus status, String errorCode, String detail) {
 		this(status, errorCode, detail, List.of());
 	}
 
 	public ApiException(HttpStatus status, String errorCode, String detail, List<FieldError> errors) {
+		this(status, errorCode, detail, errors, 0);
+	}
+
+	private ApiException(HttpStatus status, String errorCode, String detail, List<FieldError> errors,
+			long retryAfterSeconds) {
 		super(detail);
 		this.status = status;
 		this.errorCode = errorCode;
 		this.errors = List.copyOf(errors);
+		this.retryAfterSeconds = retryAfterSeconds;
+	}
+
+	/** 429 que dice cuándo se puede volver a intentar. */
+	public static ApiException tooManyRequests(String errorCode, String detail, long retryAfterSeconds) {
+		return new ApiException(HttpStatus.TOO_MANY_REQUESTS, errorCode, detail, List.of(),
+				Math.max(1, retryAfterSeconds));
+	}
+
+	public long retryAfterSeconds() {
+		return retryAfterSeconds;
 	}
 
 	public List<FieldError> errors() {

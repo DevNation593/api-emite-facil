@@ -1,27 +1,22 @@
 // Levanta o baja la infraestructura de las pruebas con navegador.
-//   node scripts/stack.ts up     genera el reino, el certificado y los secretos, y arranca los contenedores
+//   node scripts/stack.ts up     genera el certificado y los secretos, y arranca los contenedores
 //   node scripts/stack.ts down   los detiene y borra sus datos
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import {
   CERT_PASSWORD,
   CERT_PATH,
-  PORTS,
-  REALM_PATH,
   REPO_DIR,
   SECRETS_PATH,
   TMP_DIR,
-  URLS,
-  USERS,
   composeEnv,
 } from "../support/env.ts";
 
 const COMPOSE_FILE = path.join(REPO_DIR, "infra", "docker-compose.e2e.yml");
-const DEV_REALM = path.join(REPO_DIR, "infra", "keycloak", "einvoice-realm.json");
 
 function compose(...args: string[]): void {
   const result = spawnSync("docker", ["compose", "-f", COMPOSE_FILE, ...args], {
@@ -34,32 +29,6 @@ function compose(...args: string[]): void {
 }
 
 /** El reino de desarrollo, con la dirección de esta pila, dos usuarios y fichas de acceso cortas. */
-function writeRealm(): void {
-  const realm = JSON.parse(readFileSync(DEV_REALM, "utf8"));
-  // Un minuto: cualquier prueba larga cruza una renovación de la ficha de acceso.
-  realm.accessTokenLifespan = 60;
-  for (const client of realm.clients) {
-    if (client.clientId === "einvoice-web") {
-      client.redirectUris = [`${URLS.web}/auth/callback`];
-      client.attributes["post.logout.redirect.uris"] = `${URLS.web}/ingresar`;
-    }
-  }
-  realm.users = Object.values(USERS).map((user) => {
-    const [firstName, ...rest] = user.name.split(" ");
-    return {
-      username: user.username,
-      enabled: true,
-      emailVerified: true,
-      email: user.email,
-      firstName,
-      lastName: rest.join(" "),
-      credentials: [{ type: "password", value: user.password, temporary: false }],
-    };
-  });
-  writeFileSync(REALM_PATH, JSON.stringify(realm, null, 2));
-}
-
-/** El JDK que ejecuta la API. keytool no siempre está en el PATH aunque java sí: se le pregunta a java. */
 function javaHome(): string {
   if (process.env.JAVA_HOME) {
     return process.env.JAVA_HOME;
@@ -102,43 +71,20 @@ function writeSecrets(): void {
     JSON.stringify({
       masterKey: randomBytes(32).toString("base64"),
       sessionSecret: randomBytes(48).toString("base64"),
+      jwtSecret: randomBytes(48).toString("base64"),
     }),
   );
 }
 
-async function waitForKeycloak(): Promise<void> {
-  const url = `${URLS.issuer}/.well-known/openid-configuration`;
-  const deadline = Date.now() + 180_000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // Aún no escucha.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-  throw new Error(`Keycloak no respondió en ${url} (puerto ${PORTS.keycloak})`);
-}
-
 async function up(): Promise<void> {
   mkdirSync(TMP_DIR, { recursive: true });
-  writeRealm();
   writeCertificate();
   writeSecrets();
   compose("up", "-d", "--wait");
-  await waitForKeycloak();
-  console.log(`Pila de pruebas en marcha. Keycloak: ${URLS.issuer}`);
+  console.log("Pila de pruebas en marcha.");
 }
 
 function down(): void {
-  if (!existsSync(REALM_PATH)) {
-    // El compose exige el archivo aunque solo sea para bajar.
-    mkdirSync(TMP_DIR, { recursive: true });
-    writeFileSync(REALM_PATH, "{}");
-  }
   compose("down", "-v", "--remove-orphans");
   rmSync(TMP_DIR, { recursive: true, force: true });
 }

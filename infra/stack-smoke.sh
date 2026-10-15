@@ -23,7 +23,7 @@ for service in api worker web; do
   check "$service no corre como root" "$([ "${uid:-0}" != "0" ] && echo sí || echo no)" "sí"
 done
 check "la base tiene las migraciones aplicadas" \
-  "$(docker exec einvoice-postgres-1 psql -U app -d einvoice -At -c 'SELECT count(*) > 0 AND bool_and(success) FROM flyway_schema_history' 2>/dev/null)" "t"
+  "$(docker exec einvoice-postgres-1 sh -c 'psql -U "$(sh /connection-url.sh user "$CONNECTION_URL")" -d "$(sh /connection-url.sh path "$CONNECTION_URL")" -At -c "SELECT count(*) > 0 AND bool_and(success) FROM flyway_schema_history"' 2>/dev/null)" "t"
 check "la API no publica ningún puerto" "$(docker port einvoice-api-1 2>/dev/null | wc -l | tr -d ' ')" "0"
 check "la web responde la pantalla de ingreso" "$(curl -s -o /dev/null -w '%{http_code}' "$web/ingresar")" "200"
 policy="$(curl -s -D - -o /dev/null "$web/ingresar" | tr -d '\r' | grep -i '^content-security-policy:')"

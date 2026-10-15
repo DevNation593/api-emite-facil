@@ -24,8 +24,8 @@ public final class TestData {
 	}
 
 	public static UUID user(JdbcTemplate jdbc) {
-		return jdbc.queryForObject("INSERT INTO users (issuer, subject) VALUES ('https://idp.test', ?) RETURNING id",
-				UUID.class, "sub-" + UUID.randomUUID());
+		return jdbc.queryForObject("INSERT INTO users (email) VALUES (?) RETURNING id", UUID.class,
+				"u-" + UUID.randomUUID() + "@example.test");
 	}
 
 	public static UUID taxpayer(JdbcTemplate jdbc, UUID tenantId, String ruc) {

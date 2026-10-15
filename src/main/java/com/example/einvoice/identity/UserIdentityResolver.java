@@ -1,7 +1,12 @@
 package com.example.einvoice.identity;
 
+import java.time.OffsetDateTime;
+import java.util.Optional;
+import java.util.UUID;
+
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -15,16 +20,22 @@ import org.springframework.web.method.support.ModelAndViewContainer;
 
 import com.example.einvoice.web.ApiException;
 
-/** Resuelve un parámetro {@link UserIdentity} a partir del JWT ya validado de la petición. */
+/**
+ * Resuelve un parámetro {@link UserIdentity} a partir del JWT ya validado de la petición. El sujeto es
+ * el id del usuario; se lee de la base para tener su correo y su verificación al día.
+ */
 @Component
 public class UserIdentityResolver implements HandlerMethodArgumentResolver {
 
 	private static final String ATTRIBUTE = UserIdentity.class.getName();
 
-	private final UserDirectory users;
+	private record Row(UUID id, String email, OffsetDateTime emailVerifiedAt) {
+	}
 
-	public UserIdentityResolver(UserDirectory users) {
-		this.users = users;
+	private final JdbcClient jdbc;
+
+	public UserIdentityResolver(JdbcClient jdbc) {
+		this.jdbc = jdbc;
 	}
 
 	@Override
@@ -46,18 +57,34 @@ public class UserIdentityResolver implements HandlerMethodArgumentResolver {
 		}
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 		if (!(authentication instanceof JwtAuthenticationToken token)) {
-			throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "Se requiere un token de acceso válido");
+			throw unauthenticated();
 		}
 		Jwt jwt = token.getToken();
-		String issuer = jwt.getIssuer() != null ? jwt.getIssuer().toString() : null;
-		String email = jwt.getClaimAsString("email");
-		if (issuer == null || jwt.getSubject() == null) {
-			throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "Se requiere un token de acceso válido");
-		}
-		UserIdentity identity = new UserIdentity(users.resolve(issuer, jwt.getSubject(), email), issuer,
-				jwt.getSubject(), email, jwt.getClaimAsBoolean("email_verified"));
+		UUID userId = uuid(jwt.getSubject()).orElseThrow(UserIdentityResolver::unauthenticated);
+		UUID sessionId = uuid(jwt.getClaimAsString(AccessTokens.SESSION_CLAIM))
+			.orElseThrow(UserIdentityResolver::unauthenticated);
+		// Un token de un usuario que ya no existe no sirve, por bien firmado que esté.
+		Row row = jdbc.sql("SELECT id, email, email_verified_at FROM users WHERE id = :id")
+			.param("id", userId)
+			.query(Row.class)
+			.optional()
+			.orElseThrow(UserIdentityResolver::unauthenticated);
+		UserIdentity identity = new UserIdentity(row.id(), sessionId, row.email(), row.emailVerifiedAt() != null);
 		webRequest.setAttribute(ATTRIBUTE, identity, RequestAttributes.SCOPE_REQUEST);
 		return identity;
+	}
+
+	private static Optional<UUID> uuid(String value) {
+		try {
+			return Optional.of(UUID.fromString(value));
+		}
+		catch (IllegalArgumentException | NullPointerException ex) {
+			return Optional.empty();
+		}
+	}
+
+	private static ApiException unauthenticated() {
+		return new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "Se requiere un token de acceso válido");
 	}
 
 }
