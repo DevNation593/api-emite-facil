@@ -1,12 +1,17 @@
 # 11 — Especificación API REST v1
 
 ## Convenciones
-Base `/api/v1`, JSON UTF-8, JWT o access tokens de integraciones con scopes y tenant resuelto por autenticación; timestamps ISO 8601 con offset; dinero como **cadena decimal** en JSON para evitar pérdida de precisión; identificadores UUID. OpenAPI 3.1 contract-first.
+Base `/api/v1`, JSON UTF-8, JWT de la API para personas o API key (`X-Api-Key`) para otros sistemas, y tenant resuelto por autenticación; timestamps ISO 8601 con offset; dinero como **cadena decimal** en JSON para evitar pérdida de precisión; identificadores UUID. OpenAPI 3.1 contract-first.
 
 ## Autenticación, tenant y roles (implementado)
 - **Autenticación:** la API emite y valida sus propios JWT. `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/email-verification` y `/auth/password-reset[/request]` son públicos; el resto exige `Authorization: Bearer` con un token de acceso de la API (HS256, emisor y audiencia `einvoice-api`, con expiración). El sujeto es el id del usuario, que debe existir. Detalle en el contrato (`contracts/openapi.yaml`, etiqueta `auth`) y en el doc 10.
+- **API keys para otros sistemas** (ERP, punto de venta, tienda en línea): van en la cabecera `X-Api-Key` con el formato `efk_<publicId>_<secreto>`, nunca en `Authorization`. Las crea un `OWNER` o `ADMIN` con `POST /api-keys` (el valor completo solo aparece en esa respuesta) y no caducan; revocarlas corta al momento. Una key actúa siempre como `BILLER` de su empresa, a nombre de quien la creó, aunque esa persona sea `OWNER`: crea clientes, emite y reemite facturas, consulta comprobantes y su estado, descarga XML y RIDE, reenvía el correo y lee `GET /tenants/current`. No necesita `X-Tenant-Id`; si lo envía, debe ser su empresa (`403 TENANT_FORBIDDEN`). La configuración (emisores, establecimientos, puntos, secuenciales, certificados, productos, webhooks, paso a producción y las propias API keys) le responde `403 ROLE_FORBIDDEN`. En el contrato, las operaciones que la aceptan declaran el esquema `apiKey` además de `bearerAuth`.
+  - Key mal formada, inexistente, con otro secreto o revocada: `401 UNAUTHENTICATED`, con el mismo cuerpo en todos los casos. También `401` si la empresa está suspendida o quien la creó ya no tiene en ella una membresía activa con un rol que factura.
+  - `X-Api-Key` y `Authorization` en la misma petición: `400 CREDENTIALS_AMBIGUOUS`, aunque la key venga vacía.
+  - Lo que solo hace una persona responde `403 API_KEY_NOT_ALLOWED`: `POST /tenants`, `GET /tenants`, `GET /auth/me`, `POST /auth/password` y `POST /auth/email-verification/resend`.
+  - Tiene su propio cupo de peticiones por minuto, aparte del de su creador.
 - **Tenant activo:** se resuelve con las membresías del usuario. Si pertenece a una sola empresa no envía nada; si pertenece a varias envía la cabecera `X-Tenant-Id` (`400 TENANT_REQUIRED` si falta, `400 TENANT_HEADER_INVALID` si no es un UUID). Una empresa ajena, inexistente o suspendida responde `403 TENANT_FORBIDDEN` con el mismo cuerpo. El `tenantId` nunca se lee del cuerpo.
-- **Roles por membresía:** `OWNER`, `ADMIN`, `BILLER`, `AUDITOR`. Todos leen; solo `OWNER` y `ADMIN` crean emisores, establecimientos y puntos (`403 ROLE_FORBIDDEN` en otro caso). Los scopes finos de la tabla de abajo quedan para los clientes de integración (PR-10).
+- **Roles por membresía:** `OWNER`, `ADMIN`, `BILLER`, `AUDITOR`. Todos leen; solo `OWNER` y `ADMIN` crean emisores, establecimientos y puntos (`403 ROLE_FORBIDDEN` en otro caso). Las API keys no tienen rol propio: usan el de `BILLER`.
 - **Aislamiento:** un recurso de otra empresa responde `404 NOT_FOUND` igual que uno inexistente.
 - **Correlación:** toda respuesta lleva `X-Correlation-ID`; se respeta el enviado por el cliente si cumple `[A-Za-z0-9._-]{1,64}`. El mismo valor aparece en cada línea de log de la petición y en el cuerpo de los errores.
 - **Texto libre:** nombres y direcciones no admiten caracteres de control (`400 VALIDATION_FAILED`).
@@ -18,7 +23,7 @@ El contrato vigente es [`contracts/openapi.yaml`](../contracts/openapi.yaml); un
 |---|---|---|---|
 | POST | `/tenants` | cualquier usuario autenticado | 201; el creador queda como `OWNER` |
 | GET | `/tenants` | cualquier usuario autenticado | empresas donde tiene membresía activa |
-| GET | `/tenants/current` | miembro | empresa activa y rol |
+| GET | `/tenants/current` | miembro o API key | empresa activa y rol |
 | POST | `/webhooks/subscriptions` | `OWNER`, `ADMIN` | 201 con el secreto de firma, que solo aparece aquí; `422 WEBHOOK_URL_NOT_ALLOWED`, `409 WEBHOOK_LIMIT_REACHED`, `409 WEBHOOKS_DISABLED` |
 | GET | `/webhooks/subscriptions` | `OWNER`, `ADMIN` | suscripciones de la empresa, sin su secreto |
 | PUT | `/webhooks/subscriptions/{id}` | `OWNER`, `ADMIN` | cambia dirección, eventos y descripción; apaga o enciende (`enabled`) |
@@ -28,26 +33,29 @@ El contrato vigente es [`contracts/openapi.yaml`](../contracts/openapi.yaml); un
 | GET | `/webhooks/subscriptions/{id}/deliveries` | `OWNER`, `ADMIN` | avisos de la suscripción, paginados, los más recientes primero |
 | POST | `/webhooks/deliveries/{id}/retry` | `OWNER`, `ADMIN` | 202: vuelve a enviar un aviso fallido; `409 WEBHOOK_DELIVERY_NOT_RETRYABLE`, `409 WEBHOOK_SUBSCRIPTION_DISABLED` |
 | POST | `/taxpayers` | `OWNER`, `ADMIN` | 201; `409 RUC_ALREADY_REGISTERED` si el RUC ya existe en la plataforma |
-| GET | `/taxpayers`, `/taxpayers/{id}` | miembro | emisores de la empresa activa |
+| GET | `/taxpayers`, `/taxpayers/{id}` | miembro o API key | emisores de la empresa activa |
 | POST | `/taxpayers/{taxpayerId}/establishments` | `OWNER`, `ADMIN` | 201; `409 ESTABLISHMENT_CODE_TAKEN` |
-| GET | `/taxpayers/{taxpayerId}/establishments` | miembro | lista ordenada por código |
+| GET | `/taxpayers/{taxpayerId}/establishments` | miembro o API key | lista ordenada por código |
 | POST | `/emission-points` | `OWNER`, `ADMIN` | 201; `409 EMISSION_POINT_CODE_TAKEN` |
-| GET | `/emission-points?establishmentId=` | miembro | lista ordenada por código |
+| GET | `/emission-points?establishmentId=` | miembro o API key | lista ordenada por código |
 | PUT | `/emission-points/{id}/sequence` | `OWNER`, `ADMIN` | fija el próximo secuencial antes del primer comprobante; `409 SEQUENCE_ALREADY_USED` después |
-| GET | `/catalogs/identification-types`, `/catalogs/payment-methods`, `/catalogs/tax-rates` | cualquier usuario autenticado | catálogos de la ficha técnica |
-| POST | `/customers` | `OWNER`, `ADMIN`, `BILLER` | 201; `409 CUSTOMER_ALREADY_EXISTS`; `422 IDENTIFICATION_TYPE_UNKNOWN` o `IDENTIFICATION_INVALID` |
-| GET | `/customers?page=&size=&q=`, `/customers/{id}` | miembro | página `{items, page, size, total}`; `q` busca por nombre o prefijo de identificación |
+| GET | `/catalogs/identification-types`, `/catalogs/payment-methods`, `/catalogs/tax-rates` | cualquier usuario autenticado o API key | catálogos de la ficha técnica |
+| POST | `/customers` | `OWNER`, `ADMIN`, `BILLER`, API key | 201; `409 CUSTOMER_ALREADY_EXISTS`; `422 IDENTIFICATION_TYPE_UNKNOWN` o `IDENTIFICATION_INVALID` |
+| GET | `/customers?page=&size=&q=`, `/customers/{id}` | miembro o API key | página `{items, page, size, total}`; `q` busca por nombre o prefijo de identificación |
 | POST | `/products` | `OWNER`, `ADMIN` | 201; `409 PRODUCT_SKU_TAKEN`; `422 TAX_RATE_UNKNOWN` |
-| GET | `/products?page=&size=&q=`, `/products/{id}` | miembro | página; `q` busca en nombre o código |
-| POST | `/invoices` | `OWNER`, `ADMIN`, `BILLER` | 202 `{id, state, statusUrl}` con el documento en `RESERVED` |
-| GET | `/documents?page=&size=`, `/documents/{id}` | miembro | resumen paginado; documento completo con totales, líneas y pagos |
-| GET | `/documents/{id}/artifacts/{kind}` | miembro | `xml-unsigned`, `xml-signed`, `sri-authorization` (respuesta del SRI), `xml-authorized` (XML autorizado que se entrega) o `ride` (PDF), con su SHA-256 en `ETag`; 404 si aún no existe |
-| POST | `/documents/{id}/retry` | `OWNER`, `ADMIN`, `BILLER` | 202 `{id, state}`: devuelve el comprobante a la cola sin cambiar su estado; `409 DOCUMENT_NOT_RETRYABLE` fuera de `RESERVED`, `GENERATED`, `SIGNATURE_FAILED`, `SIGNED`, `SENDING` y `RECEIVED` |
-| GET | `/documents/{id}/sri-attempts` | miembro | llamadas al SRI del comprobante, la más reciente primero, con estado literal, resultado y mensajes; nunca la respuesta cruda |
-| GET | `/documents/{id}/deliveries` | miembro | entregas al receptor, la más reciente primero: destinatario, estado, intentos, último error y fechas |
-| POST | `/documents/{id}/deliveries` | `OWNER`, `ADMIN`, `BILLER` | 202: nuevo envío por correo; cuerpo opcional `{"email"}` para otra dirección. `409 DOCUMENT_NOT_AUTHORIZED`, `DELIVERY_DISABLED` o `DELIVERY_LIMIT_REACHED`; `422 DELIVERY_RECIPIENT_MISSING` |
+| GET | `/products?page=&size=&q=`, `/products/{id}` | miembro o API key | página; `q` busca en nombre o código |
+| POST | `/invoices` | `OWNER`, `ADMIN`, `BILLER`, API key | 202 `{id, state, statusUrl}` con el documento en `RESERVED` |
+| GET | `/documents?page=&size=`, `/documents/{id}` | miembro o API key | resumen paginado; documento completo con totales, líneas y pagos |
+| GET | `/documents/{id}/artifacts/{kind}` | miembro o API key | `xml-unsigned`, `xml-signed`, `sri-authorization` (respuesta del SRI), `xml-authorized` (XML autorizado que se entrega) o `ride` (PDF), con su SHA-256 en `ETag`; 404 si aún no existe |
+| POST | `/documents/{id}/retry` | `OWNER`, `ADMIN`, `BILLER`, API key | 202 `{id, state}`: devuelve el comprobante a la cola sin cambiar su estado; `409 DOCUMENT_NOT_RETRYABLE` fuera de `RESERVED`, `GENERATED`, `SIGNATURE_FAILED`, `SIGNED`, `SENDING` y `RECEIVED` |
+| GET | `/documents/{id}/sri-attempts` | miembro o API key | llamadas al SRI del comprobante, la más reciente primero, con estado literal, resultado y mensajes; nunca la respuesta cruda |
+| GET | `/documents/{id}/deliveries` | miembro o API key | entregas al receptor, la más reciente primero: destinatario, estado, intentos, último error y fechas |
+| POST | `/documents/{id}/deliveries` | `OWNER`, `ADMIN`, `BILLER`, API key | 202: nuevo envío por correo; cuerpo opcional `{"email"}` para otra dirección. `409 DOCUMENT_NOT_AUTHORIZED`, `DELIVERY_DISABLED` o `DELIVERY_LIMIT_REACHED`; `422 DELIVERY_RECIPIENT_MISSING` |
 | POST | `/certificates` | `OWNER`, `ADMIN` | 201 con los metadatos del certificado; `422` con `CERTIFICATE_UNREADABLE`, `CERTIFICATE_NO_PRIVATE_KEY`, `CERTIFICATE_AMBIGUOUS`, `CERTIFICATE_KEY_MISMATCH`, `CERTIFICATE_EXPIRED`, `CERTIFICATE_NOT_YET_VALID` o `CERTIFICATE_KEY_UNSUPPORTED` |
-| GET | `/certificates?taxpayerId=` | miembro | metadatos del certificado activo y de los reemplazados; nunca el contenido |
+| GET | `/certificates?taxpayerId=` | miembro o API key | metadatos del certificado activo y de los reemplazados; nunca el contenido |
+| POST | `/api-keys` | `OWNER`, `ADMIN` | 201 `{id, name, publicId, key, createdAt}`; `key` es el valor completo y solo aparece aquí. Nombre de 1 a 80 caracteres, único entre las activas sin distinguir mayúsculas (`409 API_KEY_NAME_TAKEN`); hasta 10 activas por empresa (`409 API_KEY_LIMIT`) |
+| GET | `/api-keys` | `OWNER`, `ADMIN` | keys de la empresa sin su valor `{id, name, publicId, createdBy, createdAt, lastUsedAt, revokedAt}`, primero las activas; `createdBy` es el correo del creador |
+| DELETE | `/api-keys/{id}` | `OWNER`, `ADMIN` | 204: revoca al momento y sin vuelta atrás; una ya revocada responde 204 sin cambios; `404 API_KEY_NOT_FOUND` si no es de la empresa |
 
 ### Reglas de `POST /invoices`
 - **Idempotencia:** cabecera `Idempotency-Key` obligatoria (hasta 100 caracteres: letras, dígitos y `. _ : -`). Misma clave y mismo cuerpo devuelven el mismo documento; misma clave con otro cuerpo, `409 IDEMPOTENCY_KEY_REUSED`. El orden de las claves y los espacios del JSON no cuentan. Una petición que falla no consume la clave.

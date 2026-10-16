@@ -53,6 +53,37 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 		}));
 	}
 
+	/** Lo que solo hace una persona (recibe UserIdentity) no puede anunciar que acepta una API key. */
+	@Test
+	void personOnlyOperationsDoNotAcceptApiKeys() throws IOException {
+		Map<String, Object> contract = load();
+		Map<String, Object> scheme = asMap(asMap(asMap(contract.get("components")).get("securitySchemes")).get("apiKey"));
+		assertThat(scheme).containsEntry("type", "apiKey").containsEntry("in", "header").containsEntry("name", "X-Api-Key");
+
+		String base = asMap(((List<?>) contract.get("servers")).get(0)).get("url").toString();
+		Set<String> withKey = new TreeSet<>();
+		paths(contract).forEach((path, item) -> operations(item).forEach((method, operation) -> {
+			Object security = asMap(operation).get("security");
+			if (security instanceof List<?> options && options.stream().anyMatch(o -> asMap(o).containsKey("apiKey"))) {
+				withKey.add(method.toUpperCase() + " " + base + path);
+			}
+		}));
+		Set<String> personOnly = new TreeSet<>();
+		mappings.getHandlerMethods().forEach((info, handler) -> {
+			boolean needsPerson = java.util.Arrays.stream(handler.getMethodParameters())
+				.anyMatch(p -> p.getParameterType().equals(com.example.einvoice.identity.UserIdentity.class));
+			if (needsPerson) {
+				for (String pattern : info.getPatternValues()) {
+					for (RequestMethod method : info.getMethodsCondition().getMethods()) {
+						personOnly.add(method.name() + " " + pattern);
+					}
+				}
+			}
+		});
+		assertThat(personOnly).isNotEmpty();
+		assertThat(withKey).isNotEmpty().doesNotContainAnyElementsOf(personOnly);
+	}
+
 	private Set<String> implementedRoutes() {
 		Set<String> routes = new TreeSet<>();
 		mappings.getHandlerMethods().keySet().forEach(info -> {

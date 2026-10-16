@@ -171,6 +171,30 @@ class RateLimitIT extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void apiKeyHasItsOwnBucket() throws Exception {
+		anotherMinute();
+		String owner = newUserToken();
+		createTenant(owner);
+		String created = mvc.perform(json(post("/api/v1/api-keys"), owner, "{\"name\":\"ERP Contable\"}"))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		String key = com.jayway.jsonpath.JsonPath.read(created, "$.key");
+
+		// La key agota sus 8 peticiones del minuto.
+		for (int i = 0; i < 8; i++) {
+			mvc.perform(get("/api/v1/tenants/current").header("X-Api-Key", key)).andExpect(status().isOk());
+		}
+		mvc.perform(get("/api/v1/tenants/current").header("X-Api-Key", key))
+			.andExpect(status().isTooManyRequests())
+			.andExpect(jsonPath("$.errorCode").value("RATE_LIMITED"));
+
+		// Su creador, con su JWT, lleva solo 2 peticiones de las suyas y sigue trabajando.
+		mvc.perform(as(get("/api/v1/tenants/current"), owner)).andExpect(status().isOk());
+	}
+
+	@Test
 	void requestsWithoutAUserAreNotCounted() throws Exception {
 		anotherMinute();
 		for (int i = 0; i < 12; i++) {

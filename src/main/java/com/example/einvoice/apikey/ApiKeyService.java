@@ -3,6 +3,7 @@ package com.example.einvoice.apikey;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.dao.DuplicateKeyException;
@@ -16,9 +17,9 @@ import com.example.einvoice.tenancy.TenantAccess;
 import com.example.einvoice.web.ApiException;
 
 /**
- * Gestión de las API keys de una empresa: crear, listar y revocar. Solo OWNER y ADMIN. El valor
- * completo de una key sale una vez, en la respuesta de creación; ni él ni su hash llegan a la
- * auditoría ni a los registros.
+ * Gestión de las API keys de una empresa: crear, listar y revocar (solo OWNER y ADMIN), y comprobar
+ * la key que presenta un sistema externo. El valor completo de una key sale una vez, en la respuesta
+ * de creación; ni él ni su hash llegan a la auditoría ni a los registros.
  */
 @Service
 public class ApiKeyService {
@@ -96,6 +97,43 @@ public class ApiKeyService {
 			.param("tenant", access.tenantId())
 			.query(ApiKeyView.class)
 			.list();
+	}
+
+	private record StoredKey(UUID id, UUID tenantId, UUID createdBy, String secretHash) {
+	}
+
+	/**
+	 * Comprueba el valor de la cabecera X-Api-Key. Vacío si el formato no vale (sin consultar la base),
+	 * si la key no existe, si el secreto no coincide o si está revocada; quien llama no distingue entre
+	 * esos casos. Sin caché: una key revocada deja de servir en la petición siguiente.
+	 */
+	@Transactional(readOnly = true)
+	public Optional<ApiKeyAuthentication> authenticate(String headerValue) {
+		Optional<ApiKeyCredential.Presented> presented = ApiKeyCredential.parse(headerValue);
+		if (presented.isEmpty()) {
+			return Optional.empty();
+		}
+		String secret = presented.get().secret();
+		return jdbc.sql("""
+				SELECT id, tenant_id, created_by, secret_hash FROM api_keys
+				 WHERE public_id = :publicId AND revoked_at IS NULL
+				""")
+			.param("publicId", presented.get().publicId())
+			.query(StoredKey.class)
+			.optional()
+			.filter(stored -> ApiKeyCredential.matches(secret, stored.secretHash()))
+			.map(stored -> new ApiKeyAuthentication(stored.id(), stored.tenantId(), stored.createdBy()));
+	}
+
+	/** Anota el último uso, como mucho una escritura por minuto y key. */
+	@Transactional
+	public void touch(UUID apiKeyId) {
+		jdbc.sql("""
+				UPDATE api_keys SET last_used_at = now()
+				 WHERE id = :id AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')
+				""")
+			.param("id", apiKeyId)
+			.update();
 	}
 
 	/** Revocar una key ya revocada no cambia nada ni se audita; una que no es de la empresa es 404. */

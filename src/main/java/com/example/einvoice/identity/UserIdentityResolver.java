@@ -18,11 +18,13 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 
+import com.example.einvoice.apikey.ApiKeyAuthentication;
 import com.example.einvoice.web.ApiException;
 
 /**
  * Resuelve un parámetro {@link UserIdentity} a partir del JWT ya validado de la petición. El sujeto es
- * el id del usuario; se lee de la base para tener su correo y su verificación al día.
+ * el id del usuario; se lee de la base para tener su correo y su verificación al día. Una API key no
+ * es una persona: los endpoints que piden {@link UserIdentity} la rechazan con 403 API_KEY_NOT_ALLOWED.
  */
 @Component
 public class UserIdentityResolver implements HandlerMethodArgumentResolver {
@@ -56,6 +58,11 @@ public class UserIdentityResolver implements HandlerMethodArgumentResolver {
 			return identity;
 		}
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+		if (authentication instanceof ApiKeyAuthentication) {
+			// Crear o listar empresas y la cuenta propia son cosas de una persona.
+			throw new ApiException(HttpStatus.FORBIDDEN, "API_KEY_NOT_ALLOWED",
+					"Esta operación solo la hace una persona, no una API key");
+		}
 		if (!(authentication instanceof JwtAuthenticationToken token)) {
 			throw unauthenticated();
 		}
