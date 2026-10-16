@@ -49,7 +49,7 @@ public class ProductService {
 			}
 			throw ex;
 		}
-		audit.record(access.tenantId(), access.userId(), "PRODUCT_CREATED", "PRODUCT", product.getId(),
+		audit.record(access, "PRODUCT_CREATED", "PRODUCT", product.getId(),
 				Map.of("sku", sku));
 		return product;
 	}

@@ -250,4 +250,46 @@ class ApiKeyAuthenticationIT extends AbstractIntegrationTest {
 		assertThat(output.getAll()).doesNotContain(secret()).doesNotContain(key);
 	}
 
+	@Test
+	void auditNamesTheKeyAndItsCreator() throws Exception {
+		UUID creator = jdbc.queryForObject("SELECT created_by FROM api_keys WHERE id = ?", UUID.class, keyId);
+		String issued = mvc
+			.perform(jsonWithKey(post("/api/v1/invoices"), key, scenario.invoiceJson("1", "11.50"))
+				.header("Idempotency-Key", UUID.randomUUID().toString()))
+			.andExpect(status().isAccepted())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		UUID documentId = UUID.fromString(JsonPath.read(issued, "$.id"));
+		mvc.perform(jsonWithKey(post("/api/v1/customers"), key, customerJson("06", "PA1234567", "María Pérez")))
+			.andExpect(status().isCreated());
+
+		for (String action : List.of("INVOICE_RESERVED", "CUSTOMER_CREATED")) {
+			assertThat(jdbc.queryForList(
+					"SELECT actor_id, api_key_id FROM audit_events WHERE tenant_id = ? AND action = ? AND api_key_id = ?",
+					scenario.tenant(), action, keyId))
+				.singleElement()
+				.satisfies(row -> {
+					assertThat(row.get("actor_id")).isEqualTo(creator);
+					assertThat(row.get("api_key_id")).isEqualTo(keyId);
+				});
+		}
+		assertThat(jdbc.queryForObject("SELECT created_by FROM fiscal_documents WHERE id = ?", UUID.class,
+				documentId))
+			.isEqualTo(creator);
+
+		// El mismo dueño con su sesión: el evento no lleva key.
+		String own = mvc
+			.perform(json(post("/api/v1/customers"), scenario.owner(), customerJson("06", "PA7654321", "Ana Ruiz"))
+				.header(TENANT_HEADER, scenario.tenant()))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		assertThat(jdbc.queryForList("SELECT api_key_id FROM audit_events WHERE action = 'CUSTOMER_CREATED' AND entity_id = ?",
+				UUID.fromString(JsonPath.read(own, "$.id"))))
+			.singleElement()
+			.satisfies(row -> assertThat(row.get("api_key_id")).isNull());
+	}
+
 }

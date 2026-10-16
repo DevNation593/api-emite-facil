@@ -81,7 +81,7 @@ public class ApiKeyService {
 			}
 			throw e;
 		}
-		audit.record(access.tenantId(), access.userId(), "API_KEY_CREATED", "API_KEY", id, Map.of("name", trimmed));
+		audit.record(access, "API_KEY_CREATED", "API_KEY", id, Map.of("name", trimmed));
 		return new CreatedApiKey(id, trimmed, generated.publicId(), generated.value(), createdAt);
 	}
 
@@ -161,7 +161,7 @@ public class ApiKeyService {
 			}
 			return;
 		}
-		audit.record(access.tenantId(), access.userId(), "API_KEY_REVOKED", "API_KEY", id,
+		audit.record(access, "API_KEY_REVOKED", "API_KEY", id,
 				Map.of("name", revoked.get(0)));
 	}
 

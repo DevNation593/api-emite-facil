@@ -101,7 +101,7 @@ public class CertificateService {
 			.param("encryptedPassword", encryptedPassword)
 			.param("createdBy", access.userId())
 			.update();
-		audit.record(access.tenantId(), access.userId(), "CERTIFICATE_UPLOADED", "CERTIFICATE", id,
+		audit.record(access, "CERTIFICATE_UPLOADED", "CERTIFICATE", id,
 				Map.of("taxpayerId", taxpayerId.toString(), "fingerprintSha256", fingerprint, "validTo",
 						validTo.toString()));
 		return view(access.tenantId(), id);
