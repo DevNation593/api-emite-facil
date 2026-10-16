@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Facturación electrónica Ecuador — API
-  version: 0.14.0
+  version: 0.15.0
   description: >
     Contrato de la API REST. Un test (OpenApiContractIT) falla si las rutas de este archivo y las
     de los controladores dejan de coincidir. El tenant activo nunca se envía en el cuerpo: se
@@ -27,6 +27,7 @@ tags:
   - name: documents
   - name: certificates
   - name: webhooks
+  - name: api-keys
 paths:
   /auth/register:
     post:
@@ -1199,6 +1200,78 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
+  /api-keys:
+    post:
+      tags: [api-keys]
+      operationId: createApiKey
+      summary: >
+        Crea una API key para que otro sistema llame a la API. Requiere OWNER o ADMIN. La respuesta
+        trae el valor completo (efk_...): es la única vez que se muestra. Hasta 10 activas por
+        empresa (409 API_KEY_LIMIT); el nombre no puede repetirse entre las activas, sin distinguir
+        mayúsculas (409 API_KEY_NAME_TAKEN).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateApiKeyRequest' }
+      responses:
+        '201':
+          description: API key creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedApiKey' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: errorCode API_KEY_LIMIT (ya hay 10 activas) o API_KEY_NAME_TAKEN (nombre en uso).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [api-keys]
+      operationId: listApiKeys
+      summary: >
+        API keys de la empresa, sin su valor. Incluye las revocadas: primero las activas y luego por
+        fecha de creación, la más nueva primero. Requiere OWNER o ADMIN.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: API keys.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ApiKey' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /api-keys/{id}:
+    delete:
+      tags: [api-keys]
+      operationId: revokeApiKey
+      summary: >
+        Revoca la API key de inmediato y sin vuelta atrás. Revocar una ya revocada responde 204 sin
+        cambiar nada. Requiere OWNER o ADMIN.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204':
+          description: Revocada.
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
 components:
   securitySchemes:
     bearerAuth:
@@ -1793,6 +1866,31 @@ components:
         status: { type: string, enum: [ACTIVE, DISABLED] }
         createdAt: { type: string, format: date-time }
         secret: { type: string, description: 'Secreto de firma (whsec_...). No se vuelve a mostrar.' }
+    ApiKey:
+      type: object
+      required: [id, name, publicId, createdBy, createdAt, lastUsedAt, revokedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        publicId: { type: string, description: 'Los 12 caracteres que identifican la key: efk_<publicId>_...' }
+        createdBy: { type: [string, 'null'], description: Correo de quien la creó. }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    CreatedApiKey:
+      type: object
+      required: [id, name, publicId, key, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        publicId: { type: string }
+        key: { type: string, description: 'Valor completo (efk_...). No se vuelve a mostrar.' }
+        createdAt: { type: string, format: date-time }
+    CreateApiKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80, description: Se recorta; sin caracteres de control. }
     CreateTaxpayerRequest:
       type: object
       required: [ruc, legalName, headOfficeAddress, defaultEnvironment]
