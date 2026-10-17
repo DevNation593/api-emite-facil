@@ -1,53 +1,63 @@
 # Infraestructura de las pruebas con navegador (e2e/). Aislada de la de desarrollo: otro proyecto de
 # compose, otros puertos y ningún volumen con nombre: los datos viven en memoria y se pierden al bajar.
 # No se usa a mano: la levanta y la baja `npm run stack:up` / `npm run stack:down` desde /e2e, que
-# pone las credenciales de prueba (e2e/support/env.ts) y genera el reino de Keycloak.
+# pone las credenciales de prueba (e2e/support/env.ts). Como en el
+# compose de desarrollo, PostgreSQL, RabbitMQ y Redis sacan sus credenciales de las mismas URL que
+# lee la API (infra/connection-url.sh); el puerto publicado va aparte porque compose no lo puede
+# leer de la URL.
 name: einvoice-e2e
 services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: einvoice
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: ${E2E_POSTGRES_PASSWORD:?set}
+      CONNECTION_URL: ${E2E_DATABASE_URL:?set}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        export POSTGRES_USER="$$(sh /connection-url.sh user "$$CONNECTION_URL")"
+        export POSTGRES_PASSWORD="$$(sh /connection-url.sh password "$$CONNECTION_URL")"
+        export POSTGRES_DB="$$(sh /connection-url.sh path "$$CONNECTION_URL")"
+        exec docker-entrypoint.sh postgres
     ports: ["127.0.0.1:${E2E_POSTGRES_PORT:?set}:5432"]
     tmpfs: [/var/lib/postgresql/data]
+    volumes: [./connection-url.sh:/connection-url.sh:ro]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d einvoice"]
+      test: ["CMD", "pg_isready", "-q"]
       interval: 2s
       retries: 30
   rabbitmq:
     image: rabbitmq:4-management
     environment:
-      RABBITMQ_DEFAULT_USER: ${E2E_RABBITMQ_USER:?set}
-      RABBITMQ_DEFAULT_PASS: ${E2E_RABBITMQ_PASSWORD:?set}
+      CONNECTION_URL: ${E2E_RABBITMQ_URL:?set}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        export RABBITMQ_DEFAULT_USER="$$(sh /connection-url.sh user "$$CONNECTION_URL")"
+        export RABBITMQ_DEFAULT_PASS="$$(sh /connection-url.sh password "$$CONNECTION_URL")"
+        exec docker-entrypoint.sh rabbitmq-server
     ports: ["127.0.0.1:${E2E_RABBITMQ_PORT:?set}:5672"]
     tmpfs: [/var/lib/rabbitmq]
+    volumes: [./connection-url.sh:/connection-url.sh:ro]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 3s
       retries: 40
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--requirepass", "${E2E_REDIS_PASSWORD:?set}", "--save", ""]
     environment:
-      REDISCLI_AUTH: ${E2E_REDIS_PASSWORD:?set}
+      CONNECTION_URL: ${E2E_REDIS_URL:?set}
+    entrypoint:
+      - sh
+      - -c
+      - exec docker-entrypoint.sh redis-server --requirepass "$$(sh /connection-url.sh password "$$CONNECTION_URL")" --save ""
     ports: ["127.0.0.1:${E2E_REDIS_PORT:?set}:6379"]
+    volumes: [./connection-url.sh:/connection-url.sh:ro]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$(sh /connection-url.sh password "$$CONNECTION_URL")" redis-cli ping | grep -q PONG']
       interval: 2s
       retries: 30
-  # El mismo proveedor de identidad de desarrollo, con un reino generado para estas pruebas a partir
-  # de infra/keycloak/einvoice-realm.json. Su base de datos es la interna, en memoria del contenedor.
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.6
-    command: ["start-dev", "--import-realm"]
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${E2E_KEYCLOAK_ADMIN_PASSWORD:?set}
-    ports: ["127.0.0.1:${E2E_KEYCLOAK_PORT:?set}:8080"]
-    volumes:
-      - ${E2E_REALM_FILE:?set}:/opt/keycloak/data/import/einvoice-realm.json:ro
   # Servidor SMTP que solo captura: ningún correo sale de esta máquina.
   mailpit:
     image: axllent/mailpit:v1.31.4

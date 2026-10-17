@@ -7,6 +7,8 @@ import { URLS } from "./env.ts";
 export type ReceivedMail = {
   subject: string;
   from: string;
+  /** Cuerpo en texto plano. */
+  text: string;
   attachments: { fileName: string; contentType: string }[];
 };
 
@@ -14,6 +16,7 @@ type MailpitSummary = { ID: string };
 type MailpitMessage = {
   Subject: string;
   From: { Address: string };
+  Text: string;
   Attachments: { FileName: string; ContentType: string }[];
 };
 
@@ -34,9 +37,19 @@ export async function waitForMail(address: string, count = 1): Promise<ReceivedM
   return {
     subject: message.Subject,
     from: message.From.Address,
+    text: message.Text,
     attachments: message.Attachments.map((attachment) => ({
       fileName: attachment.FileName,
       contentType: attachment.ContentType,
     })),
   };
+}
+
+/** El enlace a la web que trae un correo de la cuenta (confirmar el correo, cambiar la contraseña). */
+export function linkIn(mail: ReceivedMail): string {
+  const link = /https?:\/\/\S+#token=[A-Za-z0-9_-]+/.exec(mail.text)?.[0];
+  if (!link || !link.startsWith(`${URLS.web}/`)) {
+    throw new Error(`El correo "${mail.subject}" no trae un enlace a la web`);
+  }
+  return link;
 }

@@ -49,7 +49,7 @@ public class EstablishmentService {
 			}
 			throw ex;
 		}
-		audit.record(access.tenantId(), access.userId(), "ESTABLISHMENT_CREATED", "ESTABLISHMENT",
+		audit.record(access, "ESTABLISHMENT_CREATED", "ESTABLISHMENT",
 				establishment.getId(), Map.of("taxpayerId", taxpayer.getId().toString(), "code", code));
 		return establishment;
 	}
@@ -75,7 +75,7 @@ public class EstablishmentService {
 			}
 			throw ex;
 		}
-		audit.record(access.tenantId(), access.userId(), "EMISSION_POINT_CREATED", "EMISSION_POINT", point.getId(),
+		audit.record(access, "EMISSION_POINT_CREATED", "EMISSION_POINT", point.getId(),
 				Map.of("establishmentId", establishment.getId().toString(), "code", code));
 		return point;
 	}

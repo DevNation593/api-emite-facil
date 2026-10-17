@@ -1,10 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-import { FRONTEND_DIR, PORTS, URLS, USERS, apiEnv, apiJar, webEnv } from "./support/env.ts";
+import { FRONTEND_DIR, PORTS, URLS, apiEnv, apiJar, webEnv } from "./support/env.ts";
 
 const CI = Boolean(process.env.CI);
 
-// Las pruebas comparten una API, una base y un proveedor de identidad: van de una en una. Cada archivo
+// Las pruebas comparten una API y una base: van de una en una. Cada archivo
 // trabaja con su propia empresa, así que el orden entre archivos no importa.
 export default defineConfig({
   testDir: "./tests",
@@ -29,7 +29,7 @@ export default defineConfig({
     {
       name: "chromium",
       dependencies: ["setup"],
-      use: { ...devices["Desktop Chrome"], storageState: USERS.demo.stateFile },
+      use: { ...devices["Desktop Chrome"] },
     },
   ],
   // Lo que se despliega: el jar de la API y la compilación de producción de la web.

@@ -15,7 +15,6 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import com.example.einvoice.support.AbstractIntegrationTest;
-import com.example.einvoice.support.TestTokens;
 import com.jayway.jsonpath.JsonPath;
 
 class TenantApiIT extends AbstractIntegrationTest {
@@ -54,19 +53,6 @@ class TenantApiIT extends AbstractIntegrationTest {
 			.andExpect(jsonPath("$[*].id", containsInAnyOrder(first.toString(), second.toString())))
 			.andExpect(jsonPath("$[*].id", not(hasItem(foreign.toString()))))
 			.andExpect(jsonPath("$[0].role").value("OWNER"));
-	}
-
-	@Test
-	void sameSubjectIsOneUser() throws Exception {
-		String subject = "u-" + UUID.randomUUID();
-		mvc.perform(as(get("/api/v1/tenants"), TestTokens.bearer(subject))).andExpect(status().isOk());
-		mvc.perform(as(get("/api/v1/tenants"), TestTokens.bearer(subject, "nuevo@example.test")))
-			.andExpect(status().isOk());
-
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE subject = ?", Integer.class, subject))
-			.isEqualTo(1);
-		assertThat(jdbc.queryForObject("SELECT email FROM users WHERE subject = ?", String.class, subject))
-			.isEqualTo("nuevo@example.test");
 	}
 
 	@Test

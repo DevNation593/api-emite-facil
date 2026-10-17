@@ -19,4 +19,5 @@ WORKDIR /app
 COPY --from=build /app.jar app.jar
 USER 10001:10001
 EXPOSE 8080
+# infra/docker-compose.stack.yml repite esta orden en su entrypoint: cambiar las dos a la vez.
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]

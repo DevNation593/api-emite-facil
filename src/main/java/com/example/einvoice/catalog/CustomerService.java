@@ -57,7 +57,7 @@ public class CustomerService {
 			throw ex;
 		}
 		// La bitácora no guarda datos personales: basta el tipo de identificación.
-		audit.record(access.tenantId(), access.userId(), "CUSTOMER_CREATED", "CUSTOMER", customer.getId(),
+		audit.record(access, "CUSTOMER_CREATED", "CUSTOMER", customer.getId(),
 				Map.of("idType", idType));
 		return customer;
 	}

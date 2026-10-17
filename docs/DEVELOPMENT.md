@@ -11,7 +11,7 @@ El desglose ejecutable de estas etapas está en el [plan maestro](superpowers/pl
 ## 3. Orden exacto de trabajo
 - **Etapa 0 (conformidad)**: verificar ficha v2.34, resolución de proveedores y anexos desde el SRI; contrastar con el paquete oficial los XSD/XML de factura y `xmldsig-core-schema.xsd` ya incorporados en `src/main/resources/xsd/invoice/`, y registrar URL, hash, fecha y texto normativo. Ver [anexo de integración de XSD](14-xsd-integration.md). Crear tabla `schema_registry`/catálogos. Confirmar aplicación de `RUC Proveedor` y habilitación del emisor.
 - **Etapa 1 (infra)**: repositorio con Maven, Docker Compose, PostgreSQL/Flyway, RabbitMQ, Redis; CI, healthchecks y Testcontainers. Next.js llega en el Plan 7 y el almacenamiento S3 local queda pendiente de elegir (doc 13).
-- **Etapa 2 (seguridad)**: OIDC, tenants, memberships/RBAC, taxpayers, sucursales/puntos; tenant isolation tests.
+- **Etapa 2 (seguridad)**: identidad (hoy, cuentas propias de la API: Plan 10), tenants, memberships/RBAC, taxpayers, sucursales/puntos; tenant isolation tests.
 - **Etapa 3 (datos)**: clientes/productos, tasas efectivas por fecha, validaciones, BigDecimal, persistencia secuenciales, outbox transaccional, idempotencia.
 - **Etapa 4 (fiscal)**: generador XML factura por versión, validación XSD y firma XAdES-BES. Fixture aceptado SRI es obligatorio antes de integrar emisión real.
 - **Etapa 5 (SRI)**: clientes SOAP, mapping de estados, workers, reconciliación y DLQ; nunca equiparar RECIBIDA a AUTORIZADO.
@@ -57,7 +57,7 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d
 # Pruebas con navegador del recorrido completo: desde /e2e, con su propia infraestructura (e2e/README.md).
 npm run stack:up && npm run e2e
 ```
-Para `spring-boot:run` la aplicación necesita `OIDC_ISSUER` (URL del proveedor OIDC que emite los tokens) y `OIDC_AUDIENCE` (audiencia de esta API en esos tokens); y `EINVOICE_MASTER_KEY` (clave maestra de 32 bytes en Base64 que cifra los certificados; para desarrollo, `openssl rand -base64 32`); sin ellas no arranca. Además lee las variables estándar de Spring, con los mismos valores del `.env`: `SPRING_DATASOURCE_URL` (`jdbc:postgresql://localhost:5432/einvoice`), `SPRING_DATASOURCE_USERNAME` (`app`), `SPRING_DATASOURCE_PASSWORD`, `SPRING_RABBITMQ_USERNAME`, `SPRING_RABBITMQ_PASSWORD` y `SPRING_DATA_REDIS_PASSWORD`. Host y puerto de RabbitMQ y Redis usan `localhost` y sus puertos por defecto; si se cambian en `.env`, definir también `SPRING_RABBITMQ_PORT` y `SPRING_DATA_REDIS_PORT`.
+Para `spring-boot:run` la aplicación necesita `EINVOICE_JWT_SECRET` (clave con la que firma sus tokens, al menos 32 bytes: `openssl rand -base64 48`), `EINVOICE_WEB_URL` (dirección de la web, `http://localhost:3000`) y `EINVOICE_MASTER_KEY` (clave maestra de 32 bytes en Base64 que cifra los certificados; para desarrollo, `openssl rand -base64 32`); sin ellas no arranca. La base de datos, RabbitMQ y Redis se conectan con las mismas `DATABASE_URL`, `RABBITMQ_URL` y `REDIS_URL` del `.env` con las que se levantó la infraestructura: basta exportarlas.
 
 **Transmisión al SRI.** Por defecto la aplicación **no transmite**: genera y firma, y los comprobantes esperan en `SIGNED`. Para enviar al ambiente de pruebas del SRI hay que definir `SRI_ENABLED_ENVIRONMENTS=1` (y `1,2` para producción, solo después de la certificación). El procesamiento en segundo plano necesita RabbitMQ en marcha; `EINVOICE_WORKER_ENABLED=false` lo apaga en esa instancia. Los tiempos de espera y reintentos están en el doc 08.
 
@@ -69,25 +69,20 @@ Para `spring-boot:run` la aplicación necesita `OIDC_ISSUER` (URL del proveedor 
 
 ### Arrancar todo en local, con la aplicación web
 
-Hace falta un proveedor de identidad. Para desarrollo hay un Keycloak en el compose, bajo el perfil `idp`, con un reino ya preparado (`infra/keycloak/einvoice-realm.json`): cliente web `einvoice-web`, audiencia `einvoice-api` y un usuario `demo` cuya contraseña es la de `KEYCLOAK_DEMO_PASSWORD` en el `.env`. **No es una elección para producción.**
+No hace falta proveedor de identidad: las cuentas las lleva la API.
 
-1. En `.env`, definir además `KEYCLOAK_ADMIN_PASSWORD` y `KEYCLOAK_DEMO_PASSWORD`.
-2. Infraestructura con el proveedor de identidad:
-   ```bash
-   docker compose --env-file .env -f infra/docker-compose.yml --profile idp up -d
-   ```
-3. API, desde la raíz de este repositorio, con `OIDC_ISSUER=http://localhost:8081/realms/einvoice`, `OIDC_AUDIENCE=einvoice-api` y el resto de variables de arriba:
+1. API, desde la raíz de este repositorio, con las variables de arriba (y, si se quieren recibir los correos de la cuenta, un SMTP en `SPRING_MAIL_*` y `DELIVERY_EMAIL_FROM`):
    ```bash
    ./mvnw spring-boot:run
    ```
-4. Aplicación web, desde el repositorio de la web (`client-factura-facil`), tras copiar `.env.example` a `.env.local` y poner un `SESSION_SECRET`:
+2. Aplicación web, desde el repositorio de la web (`client-factura-facil`), tras copiar `.env.example` a `.env.local` y poner un `SESSION_SECRET`:
    ```bash
    npm ci
    ```
    ```bash
    npm run dev
    ```
-5. Abrir `http://localhost:3000` e iniciar sesión con el usuario `demo`.
+3. Abrir `http://localhost:3000`, crear una cuenta en "Crear una cuenta" e ingresar. Sin SMTP el correo de confirmación no llega, pero se puede usar la aplicación igual.
 
 Sin certificado, una factura emitida queda en "Sin firmar"; con uno de prueba queda en "Firmada" y no avanza, porque la transmisión al SRI está apagada (`SRI_ENABLED_ENVIRONMENTS`). Detalles de la aplicación web en [frontend/README.md](https://github.com/DevNation593/client-factura-facil/blob/dev/README.md).
 

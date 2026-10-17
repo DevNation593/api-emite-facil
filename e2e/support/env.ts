@@ -15,7 +15,6 @@ export const REPO_DIR = path.resolve(E2E_DIR, "..");
 export const FRONTEND_DIR = path.resolve(process.env.E2E_FRONTEND_DIR ?? path.join(REPO_DIR, "..", "client-factura-facil"));
 export const TMP_DIR = path.join(E2E_DIR, ".tmp");
 
-export const REALM_PATH = path.join(TMP_DIR, "realm.json");
 export const SECRETS_PATH = path.join(TMP_DIR, "secrets.json");
 export const CERT_PATH = path.join(TMP_DIR, "firma.p12");
 export const CERT_PASSWORD = "clave-de-prueba-p12";
@@ -24,7 +23,6 @@ export const PORTS = {
   postgres: 55432,
   rabbitmq: 55672,
   redis: 56379,
-  keycloak: 8181,
   smtp: 51025,
   mailpit: 58025,
   api: 8180,
@@ -35,57 +33,45 @@ export const PORTS = {
 export const URLS = {
   web: `http://localhost:${PORTS.web}`,
   api: `http://localhost:${PORTS.api}`,
-  issuer: `http://localhost:${PORTS.keycloak}/realms/einvoice`,
   simulator: `http://127.0.0.1:${PORTS.simulator}`,
   mailpit: `http://127.0.0.1:${PORTS.mailpit}`,
 } as const;
 
-export type TestUser = { username: string; password: string; email: string; name: string; stateFile: string };
+/** Cuenta de prueba: se registra desde la pantalla de registro al empezar (tests/auth.setup.ts). */
+export type TestUser = { email: string; password: string };
 
 export const USERS = {
   demo: {
-    username: "demo",
-    password: "demo-solo-pruebas",
     email: "demo@example.test",
-    name: "Usuario Demo",
-    stateFile: path.join(TMP_DIR, "demo.json"),
-  },
-  colega: {
-    username: "colega",
-    password: "colega-solo-pruebas",
-    email: "colega@example.test",
-    name: "Colega Pruebas",
-    stateFile: path.join(TMP_DIR, "colega.json"),
+    password: "demo-solo-pruebas",
   },
 } as const satisfies Record<string, TestUser>;
 
-const INFRA = {
-  postgresPassword: "postgres-solo-pruebas",
-  rabbitmqUser: "einvoice",
-  rabbitmqPassword: "rabbitmq-solo-pruebas",
-  redisPassword: "redis-solo-pruebas",
-  keycloakAdminPassword: "keycloak-solo-pruebas",
+/**
+ * Conexiones de la pila, una URL cada una. Las leen tanto los contenedores (que sacan de ellas sus
+ * credenciales) como la API.
+ */
+const CONNECTIONS = {
+  database: `postgresql://app:postgres-solo-pruebas@localhost:${PORTS.postgres}/einvoice`,
+  rabbitmq: `amqp://einvoice:rabbitmq-solo-pruebas@localhost:${PORTS.rabbitmq}`,
+  redis: `redis://:redis-solo-pruebas@localhost:${PORTS.redis}`,
 };
 
 /** Variables con las que se levanta infra/docker-compose.e2e.yml. */
 export function composeEnv(): Record<string, string> {
   return {
-    E2E_POSTGRES_PASSWORD: INFRA.postgresPassword,
+    E2E_DATABASE_URL: CONNECTIONS.database,
     E2E_POSTGRES_PORT: String(PORTS.postgres),
-    E2E_RABBITMQ_USER: INFRA.rabbitmqUser,
-    E2E_RABBITMQ_PASSWORD: INFRA.rabbitmqPassword,
+    E2E_RABBITMQ_URL: CONNECTIONS.rabbitmq,
     E2E_RABBITMQ_PORT: String(PORTS.rabbitmq),
-    E2E_REDIS_PASSWORD: INFRA.redisPassword,
+    E2E_REDIS_URL: CONNECTIONS.redis,
     E2E_REDIS_PORT: String(PORTS.redis),
-    E2E_KEYCLOAK_ADMIN_PASSWORD: INFRA.keycloakAdminPassword,
-    E2E_KEYCLOAK_PORT: String(PORTS.keycloak),
-    E2E_REALM_FILE: REALM_PATH,
     E2E_SMTP_PORT: String(PORTS.smtp),
     E2E_MAILPIT_PORT: String(PORTS.mailpit),
   };
 }
 
-type Secrets = { masterKey: string; sessionSecret: string };
+type Secrets = { masterKey: string; sessionSecret: string; jwtSecret: string };
 
 function secrets(): Secrets {
   if (!existsSync(SECRETS_PATH)) {
@@ -98,17 +84,17 @@ function secrets(): Secrets {
 export function apiEnv(): Record<string, string> {
   const env = {
     SERVER_PORT: String(PORTS.api),
-    SPRING_DATASOURCE_URL: `jdbc:postgresql://localhost:${PORTS.postgres}/einvoice`,
-    SPRING_DATASOURCE_USERNAME: "app",
-    SPRING_DATASOURCE_PASSWORD: INFRA.postgresPassword,
-    SPRING_RABBITMQ_PORT: String(PORTS.rabbitmq),
-    SPRING_RABBITMQ_USERNAME: INFRA.rabbitmqUser,
-    SPRING_RABBITMQ_PASSWORD: INFRA.rabbitmqPassword,
-    SPRING_DATA_REDIS_PORT: String(PORTS.redis),
-    SPRING_DATA_REDIS_PASSWORD: INFRA.redisPassword,
-    OIDC_ISSUER: URLS.issuer,
-    OIDC_AUDIENCE: "einvoice-api",
+    DATABASE_URL: CONNECTIONS.database,
+    RABBITMQ_URL: CONNECTIONS.rabbitmq,
+    REDIS_URL: CONNECTIONS.redis,
     EINVOICE_MASTER_KEY: secrets().masterKey,
+    EINVOICE_JWT_SECRET: secrets().jwtSecret,
+    // Los enlaces de los correos (confirmar el correo, cambiar la contraseña) llevan a la web de la pila.
+    EINVOICE_WEB_URL: URLS.web,
+    // Fichas de acceso cortas: la prueba de sesión espera a que una caduque y se renueve sola.
+    EINVOICE_AUTH_ACCESS_TOKEN_TTL: "60s",
+    // Todo llega desde esta máquina: el límite por dirección IP no debe estorbar a las pruebas.
+    EINVOICE_AUTH_PUBLIC_REQUESTS_PER_MINUTE: "1000",
     SRI_ENABLED_ENVIRONMENTS: "1",
     EINVOICE_SRI_ALLOW_CUSTOM_ENDPOINTS: "true",
     EINVOICE_SRI_TEST_RECEPTION: `${URLS.simulator}/recepcion`,
@@ -150,11 +136,6 @@ export function webEnv(): Record<string, string> {
     API_BASE_URL: URLS.api,
     API_TIMEOUT_MS: "",
     APP_BASE_URL: URLS.web,
-    OIDC_ISSUER: URLS.issuer,
-    OIDC_CLIENT_ID: "einvoice-web",
-    OIDC_CLIENT_SECRET: "",
-    OIDC_AUDIENCE: "",
-    OIDC_SCOPE: "",
     SESSION_SECRET: secrets().sessionSecret,
     NEXT_TELEMETRY_DISABLED: "1",
   };

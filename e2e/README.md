@@ -15,9 +15,9 @@ Abren la aplicación en un navegador de verdad (Chromium, con Playwright) y reco
 | `simulator/` | SRI simulado y receptor de avisos, en Node, con sus propias pruebas. |
 | `scripts/stack.ts` | Levanta y baja la infraestructura. |
 | `scripts/servers.ts` | Deja en marcha simulador, API y web mientras se escriben pruebas. |
-| `../infra/docker-compose.e2e.yml` | PostgreSQL, RabbitMQ, Redis, Keycloak y un servidor SMTP que solo captura (Mailpit). |
+| `../infra/docker-compose.e2e.yml` | PostgreSQL, RabbitMQ, Redis y un servidor SMTP que solo captura (Mailpit). |
 
-La pila está aislada de la de desarrollo: otro proyecto de compose (`einvoice-e2e`), datos en memoria y puertos propios, todos en `127.0.0.1`: PostgreSQL 55432, RabbitMQ 55672, Redis 56379, Keycloak 8181, Mailpit 51025 y 58025, API 8180, web 3100, simulador 8190.
+La pila está aislada de la de desarrollo: otro proyecto de compose (`einvoice-e2e`), datos en memoria y puertos propios, todos en `127.0.0.1`: PostgreSQL 55432, RabbitMQ 55672, Redis 56379, Mailpit 51025 y 58025, API 8180, web 3100, simulador 8190.
 
 ## Ejecutarlas
 
@@ -41,7 +41,7 @@ Hacen falta Docker, Node 24 y un JDK 21 o posterior.
    npm ci && npx playwright install chromium
    ```
 
-3. Levantar la infraestructura. Genera en `.tmp/` (sin versionar) el reino de Keycloak, un certificado de firma de prueba y los secretos de esta pila:
+3. Levantar la infraestructura. Genera en `.tmp/` (sin versionar) un certificado de firma de prueba y los secretos de esta pila:
 
    ```bash
    npm run stack:up
@@ -67,7 +67,7 @@ Para escribir o depurar pruebas, `npm run servers` deja simulador, API y web en 
 
 ## Cómo está hecha la pila
 
-- **El reino de Keycloak se deriva del de desarrollo** (`infra/keycloak/einvoice-realm.json`): las mismas reglas, con la dirección de esta pila, dos usuarios (`demo` y `colega`) y fichas de acceso de 60 segundos, para que las pruebas largas crucen una renovación de sesión.
+- **Las cuentas son las de la propia API.** `tests/auth.setup.ts` registra al usuario `demo` desde la pantalla de registro y guarda su sesión; `tests/cuenta.spec.ts` recorre la confirmación del correo, el cambio y la recuperación de contraseña con los enlaces que captura Mailpit. La API de esta pila da fichas de acceso de 60 segundos, para que las pruebas largas crucen una renovación de sesión.
 - **El SRI simulado** responde con la forma de los ejemplos de la ficha técnica (la misma que usa `SriSoapSamples` en el backend). Recibe y autoriza todo, salvo que un guion diga otra cosa para el RUC de un emisor: `DEVUELTA`, `NO AUTORIZADO`, `EN PROCESO` o `CAIDO` (corta la conexión). De una clave que no recibió responde que no la conoce, como el real.
 - **El certificado** es autofirmado, generado con `keytool` como los de las pruebas del backend. No sirve ante el SRI.
 - **La API** arranca con la transmisión habilitada solo para el ambiente de pruebas y apuntando al simulador, el correo hacia Mailpit y los avisos (webhooks) encendidos con permiso para direcciones locales. Nada de eso es configuración para un entorno real.

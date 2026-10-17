@@ -53,7 +53,7 @@ public class TaxpayerService {
 			}
 			throw ex;
 		}
-		audit.record(access.tenantId(), access.userId(), "TAXPAYER_CREATED", "TAXPAYER", taxpayer.getId(),
+		audit.record(access, "TAXPAYER_CREATED", "TAXPAYER", taxpayer.getId(),
 				Map.of("ruc", ruc));
 		return taxpayer;
 	}

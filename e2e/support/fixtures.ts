@@ -1,20 +1,41 @@
 import { expect, test as base, type Locator, type Page } from "@playwright/test";
 
-import { URLS, type TestUser } from "./env.ts";
+import { USERS, type TestUser } from "./env.ts";
 
 /**
- * Inicia sesión como lo hace una persona: desde la pantalla de ingreso, con el formulario del
- * proveedor de identidad. `startAt` es la página de la aplicación que se pide primero.
+ * Inicia sesión como lo hace una persona: pide `startAt`, la aplicación la manda a la pantalla de
+ * ingreso y, con el correo y la contraseña, la devuelve a donde iba.
  */
 export async function login(page: Page, user: TestUser, startAt = "/"): Promise<void> {
   await page.goto(startAt);
-  await page.getByRole("link", { name: "Iniciar sesión" }).click();
-  await page.waitForURL((url) => url.href.startsWith(URLS.issuer));
-  // El formulario es de Keycloak, no nuestro: se rellena por sus identificadores.
-  await page.locator("#username").fill(user.username);
-  await page.locator("#password").fill(user.password);
-  await page.locator("#kc-login").click();
-  await page.waitForURL((url) => url.href.startsWith(URLS.web) && !url.pathname.startsWith("/auth/"));
+  await signIn(page, user);
+  await signedIn(page);
+}
+
+/**
+ * Espera a que la aplicación esté cargada con la sesión. Tras ingresar, la web navega a donde iba el
+ * usuario y puede redirigir otra vez (de "/" a "/documentos"): pedir otra página antes la cortaría.
+ */
+export async function signedIn(page: Page): Promise<void> {
+  await page.waitForURL((url) => !url.pathname.startsWith("/ingresar"));
+  await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
+}
+
+/** Rellena y envía el formulario de la pantalla de ingreso, que ya está abierta. */
+export async function signIn(page: Page, user: TestUser): Promise<void> {
+  await page.getByLabel("Correo").fill(user.email);
+  await page.getByLabel("Contraseña").fill(user.password);
+  await page.getByRole("button", { name: "Ingresar" }).click();
+}
+
+/** Crea la cuenta desde la pantalla de registro. Si el correo ya tenía una, la pantalla dice lo mismo. */
+export async function register(page: Page, user: TestUser): Promise<void> {
+  await page.goto("/registro");
+  await page.getByLabel("Correo").fill(user.email);
+  await page.getByLabel("Contraseña", { exact: true }).fill(user.password);
+  await page.getByLabel("Repita la contraseña").fill(user.password);
+  await page.getByRole("button", { name: "Crear cuenta" }).click();
+  await expect(page.getByText(`Le enviamos un correo a ${user.email}`)).toBeVisible();
 }
 
 /** El valor de la opción de una lista cuyo texto cumple el patrón: los catálogos vienen de la API. */
@@ -25,6 +46,17 @@ export async function optionValue(select: Locator, text: RegExp): Promise<string
 }
 
 export const test = base.extend<{ shot: (name: string) => Promise<void> }>({
+  // Cada prueba entra con su propia sesión, como una persona en su navegador. Compartir una guardada
+  // haría que dos pruebas presentaran el mismo token de renovación, y la API cierra la sesión cuando
+  // ve uno ya usado. Una prueba sin sesión lo dice con test.use({ storageState: … }).
+  storageState: async ({ browser }, use, testInfo) => {
+    const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL });
+    const page = await context.newPage();
+    await login(page, USERS.demo);
+    const state = await context.storageState();
+    await context.close();
+    await use(state);
+  },
   // Captura de pantalla completa, adjunta al informe: sirve para mirar las pantallas una a una.
   shot: async ({ page }, use, testInfo) => {
     await use(async (name) => {

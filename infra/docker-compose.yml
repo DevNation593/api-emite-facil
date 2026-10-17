@@ -1,56 +1,66 @@
 # Infraestructura local de desarrollo. Las credenciales vienen de un .env sin versionar
-# (ver .env.example). Los puertos se publican solo en 127.0.0.1.
-# El almacenamiento de objetos compatible con S3 se añade en el Plan 4 (docs/13-deployment.md).
+# (ver .env.example): las mismas DATABASE_URL, RABBITMQ_URL y REDIS_URL que lee la API. Cada
+# contenedor saca de su URL el usuario, la contraseña y la base (infra/connection-url.sh), así
+# que no se repiten en otras variables. Los puertos son fijos y se publican solo en 127.0.0.1:
+# PostgreSQL 5432, RabbitMQ 5672 (y 15672, la consola) y Redis 6379; las URL deben usarlos.
+# Cambiar la contraseña de una URL no cambia la de un PostgreSQL ya creado: se fija la primera vez
+# que arranca con el volumen vacío.
 name: einvoice
 services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: einvoice
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set}
-    ports: ["127.0.0.1:${POSTGRES_PORT:-5432}:5432"]
-    volumes: [pgdata:/var/lib/postgresql/data]
+      CONNECTION_URL: ${DATABASE_URL:?set}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        export POSTGRES_USER="$$(sh /connection-url.sh user "$$CONNECTION_URL")"
+        export POSTGRES_PASSWORD="$$(sh /connection-url.sh password "$$CONNECTION_URL")"
+        export POSTGRES_DB="$$(sh /connection-url.sh path "$$CONNECTION_URL")"
+        exec docker-entrypoint.sh postgres
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./connection-url.sh:/connection-url.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d einvoice"]
+      test: ["CMD", "pg_isready", "-q"]
       interval: 10s
       retries: 5
   rabbitmq:
     image: rabbitmq:4-management
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?set}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set}
+      CONNECTION_URL: ${RABBITMQ_URL:?set}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        export RABBITMQ_DEFAULT_USER="$$(sh /connection-url.sh user "$$CONNECTION_URL")"
+        export RABBITMQ_DEFAULT_PASS="$$(sh /connection-url.sh password "$$CONNECTION_URL")"
+        vhost="$$(sh /connection-url.sh path "$$CONNECTION_URL")"
+        if [ -n "$$vhost" ]; then export RABBITMQ_DEFAULT_VHOST="$$vhost"; fi
+        exec docker-entrypoint.sh rabbitmq-server
     ports:
-      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:5672:5672"
       - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes: [./connection-url.sh:/connection-url.sh:ro]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       retries: 10
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set}"]
     environment:
-      REDISCLI_AUTH: ${REDIS_PASSWORD:?set}
-    ports: ["127.0.0.1:${REDIS_PORT:-6379}:6379"]
+      CONNECTION_URL: ${REDIS_URL:?set}
+    entrypoint:
+      - sh
+      - -c
+      - exec docker-entrypoint.sh redis-server --requirepass "$$(sh /connection-url.sh password "$$CONNECTION_URL")"
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: [./connection-url.sh:/connection-url.sh:ro]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$(sh /connection-url.sh password "$$CONNECTION_URL")" redis-cli ping | grep -q PONG']
       interval: 10s
       retries: 5
-  # Proveedor OIDC SOLO para desarrollo local: da el inicio de sesión que la API y la aplicación web
-  # necesitan. No se arranca salvo que se pida el perfil: docker compose --profile idp ... up -d
-  # En producción se usa el proveedor de identidad que se elija, no este.
-  keycloak:
-    profiles: [idp]
-    image: quay.io/keycloak/keycloak:26.6
-    command: ["start-dev", "--import-realm"]
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
-      # Contraseña del usuario "demo" del reino importado (infra/keycloak/einvoice-realm.json).
-      KEYCLOAK_DEMO_PASSWORD: ${KEYCLOAK_DEMO_PASSWORD:-}
-    ports: ["127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"]
-    volumes:
-      - ./keycloak/einvoice-realm.json:/opt/keycloak/data/import/einvoice-realm.json:ro
 volumes:
   pgdata: {}

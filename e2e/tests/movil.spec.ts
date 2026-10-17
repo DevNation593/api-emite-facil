@@ -18,7 +18,6 @@ test("las pantallas principales caben en un teléfono sin desplazarse de lado", 
     ["movil-clientes", "/clientes"],
     ["movil-productos", "/productos"],
     ["movil-emisor", "/configuracion/emisor"],
-    ["movil-equipo", "/equipo"],
     ["movil-integraciones", "/integraciones"],
   ];
   for (const [name, path] of screens) {
