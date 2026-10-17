@@ -27,6 +27,9 @@ public class ApiKeyService {
 	/** Máximo de keys activas por empresa. */
 	static final int MAX_ACTIVE = 10;
 
+	/** Largo máximo del nombre, ya recortado. */
+	static final int MAX_NAME_LENGTH = 80;
+
 	private static final String ACTIVE_NAME_INDEX = "uq_api_keys_active_name";
 
 	private final JdbcClient jdbc;
@@ -41,7 +44,7 @@ public class ApiKeyService {
 	@Transactional
 	public CreatedApiKey create(TenantAccess access, String name) {
 		access.requireWrite();
-		String trimmed = name.strip();
+		String trimmed = validName(name);
 		// Serializa las altas de la empresa para que el tope se decida de una en una.
 		jdbc.sql("SELECT id FROM tenants WHERE id = :tenant FOR UPDATE")
 			.param("tenant", access.tenantId())
@@ -83,6 +86,23 @@ public class ApiKeyService {
 		}
 		audit.record(access, "API_KEY_CREATED", "API_KEY", id, Map.of("name", trimmed));
 		return new CreatedApiKey(id, trimmed, generated.publicId(), generated.value(), createdAt);
+	}
+
+	/**
+	 * El nombre se recorta, también de espacios Unicode que Bean Validation no ve (un nombre hecho solo
+	 * de U+3000 pasa @NotBlank), y el largo se mide después de recortar: así nunca llega a la base un
+	 * nombre que su CHECK rechazaría con un 500.
+	 */
+	private static String validName(String name) {
+		String trimmed = name.strip();
+		int length = trimmed.codePointCount(0, trimmed.length());
+		if (length == 0 || length > MAX_NAME_LENGTH) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED",
+					"La petición no cumple las reglas de validación",
+					List.of(new ApiException.FieldError("name",
+							"debe tener entre 1 y " + MAX_NAME_LENGTH + " caracteres sin contar los espacios de los extremos")));
+		}
+		return trimmed;
 	}
 
 	@Transactional(readOnly = true)

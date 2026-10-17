@@ -19,7 +19,6 @@ import com.example.einvoice.web.TextRules;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
 
 /** Gestión de las API keys de la empresa: solo OWNER y ADMIN. */
 @RestController
@@ -32,8 +31,8 @@ public class ApiKeyController {
 		this.keys = keys;
 	}
 
-	record CreateApiKeyRequest(
-			@NotBlank @Size(max = 80) @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String name) {
+	/** El largo (1 a 80 tras recortar) lo comprueba el servicio, que recorta también espacios Unicode. */
+	record CreateApiKeyRequest(@NotBlank @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String name) {
 	}
 
 	@PostMapping

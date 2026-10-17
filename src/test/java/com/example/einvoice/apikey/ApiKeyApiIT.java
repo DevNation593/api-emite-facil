@@ -178,8 +178,18 @@ class ApiKeyApiIT extends AbstractIntegrationTest {
 			create(owner, bad).andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.errorCode").value("VALIDATION_FAILED"));
 		}
+		// Espacios Unicode que @NotBlank no ve (ideográfico, de párrafo): al recortar, el nombre queda vacío.
+		for (String bad : List.of("　", "　 　", "  " + "a".repeat(81) + "　")) {
+			create(owner, bad).andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.errorCode").value("VALIDATION_FAILED"))
+				.andExpect(jsonPath("$.errors[0].field").value("name"));
+		}
 		create(owner, "  ERP  ").andExpect(status().isCreated()).andExpect(jsonPath("$.name").value("ERP"));
 		list(owner).andExpect(jsonPath("$[0].name").value("ERP"));
+		// El largo se mide ya recortado: 80 caracteres con espacios alrededor valen.
+		String eighty = "b".repeat(80);
+		create(owner, "  " + eighty + "　 ").andExpect(status().isCreated())
+			.andExpect(jsonPath("$.name").value(eighty));
 	}
 
 	@Test
