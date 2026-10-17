@@ -1372,7 +1372,9 @@ components:
       name: X-Api-Key
       description: >
         API key de la empresa (efk_<publicId>_<secreto>), creada con POST /api-keys. Actúa con el rol
-        BILLER a nombre de quien la creó. No se envía junto con Authorization.
+        BILLER a nombre de quien la creó. No se envía junto con Authorization. Si la base no responde
+        al comprobarla, la respuesta es 503 INTERNAL_ERROR, no 401: la key sigue valiendo y se puede
+        reintentar.
   headers:
     X-Correlation-ID:
       description: >
