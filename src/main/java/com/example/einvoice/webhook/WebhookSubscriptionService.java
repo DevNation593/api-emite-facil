@@ -144,7 +144,7 @@ public class WebhookSubscriptionService {
 			.param("user", access.userId())
 			.query(Row.class)
 			.single();
-		audit.record(access.tenantId(), access.userId(), "WEBHOOK_CREATED", "WEBHOOK", id, Map.of("eventTypes", types));
+		audit.record(access, "WEBHOOK_CREATED", "WEBHOOK", id, Map.of("eventTypes", types));
 		Subscription view = row.view();
 		return new Created(view.id(), view.url(), view.eventTypes(), view.description(), view.status(), view.createdAt(),
 				secret);
@@ -206,7 +206,7 @@ public class WebhookSubscriptionService {
 			.param("tenant", access.tenantId())
 			.query(Row.class)
 			.single();
-		audit.record(access.tenantId(), access.userId(), "WEBHOOK_UPDATED", "WEBHOOK", id,
+		audit.record(access, "WEBHOOK_UPDATED", "WEBHOOK", id,
 				Map.of("eventTypes", types, "enabled", enabled));
 		return row.view();
 	}
@@ -220,7 +220,7 @@ public class WebhookSubscriptionService {
 			.param("id", id)
 			.param("tenant", access.tenantId())
 			.update();
-		audit.record(access.tenantId(), access.userId(), "WEBHOOK_DELETED", "WEBHOOK", id, Map.of());
+		audit.record(access, "WEBHOOK_DELETED", "WEBHOOK", id, Map.of());
 	}
 
 	/** Cambia el secreto. El anterior sigue firmando un tiempo para que el receptor pueda cambiarlo sin perder avisos. */
@@ -242,7 +242,7 @@ public class WebhookSubscriptionService {
 			.param("tenant", access.tenantId())
 			.query(OffsetDateTime.class)
 			.single();
-		audit.record(access.tenantId(), access.userId(), "WEBHOOK_SECRET_ROTATED", "WEBHOOK", id, Map.of());
+		audit.record(access, "WEBHOOK_SECRET_ROTATED", "WEBHOOK", id, Map.of());
 		return new RotatedSecret(secret, expires);
 	}
 
@@ -311,7 +311,7 @@ public class WebhookSubscriptionService {
 			.param("test", TEST_EVENT)
 			.query(Delivery.class)
 			.single();
-		audit.record(access.tenantId(), access.userId(), "WEBHOOK_TEST_REQUESTED", "WEBHOOK", subscriptionId, Map.of());
+		audit.record(access, "WEBHOOK_TEST_REQUESTED", "WEBHOOK", subscriptionId, Map.of());
 		return delivery;
 	}
 
@@ -348,7 +348,7 @@ public class WebhookSubscriptionService {
 				   SET status = 'PENDING', attempt_count = 0, retry_after = NULL, sending_since = NULL, next_attempt_at = now()
 				 WHERE id = :id
 				""").param("id", deliveryId).update();
-		audit.record(access.tenantId(), access.userId(), "WEBHOOK_DELIVERY_RETRIED", "WEBHOOK_DELIVERY", deliveryId,
+		audit.record(access, "WEBHOOK_DELIVERY_RETRIED", "WEBHOOK_DELIVERY", deliveryId,
 				Map.of());
 	}
 

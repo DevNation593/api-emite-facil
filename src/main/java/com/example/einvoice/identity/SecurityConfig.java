@@ -1,19 +1,16 @@
 package com.example.einvoice.identity;
 
 import java.time.InstantSource;
-import java.util.List;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
-import org.springframework.security.oauth2.jwt.SupplierJwtDecoder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -24,6 +21,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
+import com.example.einvoice.apikey.ApiKeyAuthenticationFilter;
+import com.example.einvoice.apikey.ApiKeyService;
 import com.example.einvoice.web.ApiException;
 import com.example.einvoice.web.RateLimitFilter;
 import com.example.einvoice.web.RateLimitProperties;
@@ -32,12 +31,18 @@ import com.example.einvoice.web.RateLimiter;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
- * La API es un resource server OAuth2: valida JWT del emisor OIDC configurado y no mantiene sesión.
- * Solo el health es público.
+ * La API valida los JWT que ella misma emite (AccessTokens) y las API keys de los sistemas externos
+ * (cabecera X-Api-Key), y no mantiene sesión HTTP. Son públicos el health y los endpoints de
+ * /api/v1/auth para registrarse, ingresar, renovar y recuperar la contraseña.
  */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(RateLimitProperties.class)
+@EnableConfigurationProperties({ RateLimitProperties.class, AuthProperties.class })
 public class SecurityConfig {
+
+	/** Lo que se hace sin sesión: crear la cuenta, entrar, renovar, salir y los enlaces de los correos. */
+	static final String[] PUBLIC_AUTH = { "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh",
+			"/api/v1/auth/logout", "/api/v1/auth/email-verification", "/api/v1/auth/password-reset/request",
+			"/api/v1/auth/password-reset" };
 
 	/** Reloj del límite de peticiones; las pruebas ponen el suyo. */
 	@Bean
@@ -52,24 +57,25 @@ public class SecurityConfig {
 		return new RateLimiter(redis, properties, registry, clock);
 	}
 
-	/**
-	 * Decodificador de producción. La configuración del proveedor se descarga en el primer token,
-	 * no al arrancar, para que una caída del proveedor no impida levantar la aplicación.
-	 */
 	@Bean
-	JwtDecoder jwtDecoder(@Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuer,
-			@Value("${spring.security.oauth2.resourceserver.jwt.audiences}") List<String> audiences) {
-		return new SupplierJwtDecoder(() -> {
-			NimbusJwtDecoder decoder = NimbusJwtDecoder.withIssuerLocation(issuer).build();
-			decoder.setJwtValidator(JwtValidation.validator(issuer, audiences));
-			return decoder;
-		});
+	AccessTokens accessTokens(AuthProperties properties) {
+		return new AccessTokens(properties, InstantSource.system());
+	}
+
+	@Bean
+	JwtDecoder jwtDecoder(AccessTokens tokens) {
+		return tokens.decoder();
+	}
+
+	@Bean
+	AuthAttemptLimiter authAttemptLimiter(StringRedisTemplate redis, AuthProperties properties) {
+		return new AuthAttemptLimiter(redis, properties, InstantSource.system());
 	}
 
 	@Bean
 	SecurityFilterChain apiSecurity(HttpSecurity http,
-			@Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver, RateLimiter limiter)
-			throws Exception {
+			@Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver, RateLimiter limiter,
+			ApiKeyService apiKeys) throws Exception {
 		// Los rechazos de seguridad pasan por ApiExceptionHandler para salir como problem+json.
 		AuthenticationEntryPoint unauthenticated = (request, response, ex) -> resolver.resolveException(request,
 				response, null,
@@ -80,6 +86,8 @@ public class SecurityConfig {
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests(requests -> requests.requestMatchers(EndpointRequest.to("health"))
 				.permitAll()
+				.requestMatchers(HttpMethod.POST, PUBLIC_AUTH)
+				.permitAll()
 				.anyRequest()
 				.authenticated())
 			.oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults())
@@ -87,7 +95,9 @@ public class SecurityConfig {
 				.accessDeniedHandler(forbidden))
 			.exceptionHandling(
 					handling -> handling.authenticationEntryPoint(unauthenticated).accessDeniedHandler(forbidden))
-			// Con el usuario ya identificado, antes de llegar a ningún controlador.
+			// La key va antes que el JWT: si la petición trae Authorization además, se rechaza ahí mismo.
+			.addFilterBefore(new ApiKeyAuthenticationFilter(apiKeys, resolver), BearerTokenAuthenticationFilter.class)
+			// Con el usuario o la key ya identificados, antes de llegar a ningún controlador.
 			.addFilterAfter(new RateLimitFilter(limiter, resolver), BearerTokenAuthenticationFilter.class);
 		return http.build();
 	}

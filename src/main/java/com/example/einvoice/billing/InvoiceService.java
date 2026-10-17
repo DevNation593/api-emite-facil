@@ -259,12 +259,12 @@ public class InvoiceService {
 				taxpayer.getSpecialTaxpayerCode(), taxpayer.getWithholdingAgentCode(),
 				taxpayer.getRimpeRegime().name(), providerRuc), lines, payments);
 		documents.recordStateChange(access.tenantId(), documentId, null, STATE_RESERVED, null);
-		audit.record(access.tenantId(), access.userId(), "INVOICE_RESERVED", "FISCAL_DOCUMENT", documentId,
+		audit.record(access, "INVOICE_RESERVED", "FISCAL_DOCUMENT", documentId,
 				Map.of("sequence", sequence, "environment", environment));
 		outbox.write(access.tenantId(), documentId, "INVOICE_RESERVED", Map.of("documentId", documentId.toString()));
 		if (command.replacesDocumentId() != null) {
 			documents.linkReplacement(access.tenantId(), documentId, command.replacesDocumentId());
-			audit.record(access.tenantId(), access.userId(), "DOCUMENT_REPLACED", "FISCAL_DOCUMENT",
+			audit.record(access, "DOCUMENT_REPLACED", "FISCAL_DOCUMENT",
 					command.replacesDocumentId(), Map.of("replacedBy", documentId.toString()));
 		}
 		// Red de seguridad: si ese evento se pierde o nadie logra procesarlo, el planificador retoma el documento.

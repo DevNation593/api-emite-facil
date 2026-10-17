@@ -12,7 +12,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.Container.ExecResult;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.MountableFile;
@@ -145,6 +147,23 @@ class DatabaseRolesIT extends AbstractIntegrationTest {
 		assertThat(app.update("UPDATE tenants SET name = 'Andina' WHERE id = ?", tenant)).isEqualTo(1);
 		assertThat(app.queryForObject("SELECT name FROM tenants WHERE id = ?", String.class, tenant)).isEqualTo("Andina");
 		assertThat(app.queryForObject("SELECT count(*) FROM tax_rates", Integer.class)).isPositive();
+
+		// API keys: alta, consulta, revocación y el bloqueo de la empresa que serializa las altas.
+		UUID user = app.queryForObject("INSERT INTO users (email) VALUES (?) RETURNING id", UUID.class,
+				"roles-" + UUID.randomUUID() + "@example.test");
+		UUID key = app.queryForObject("""
+				INSERT INTO api_keys (tenant_id, created_by, name, public_id, secret_hash)
+				VALUES (?, ?, 'ERP', 'AbCdEf123456', ?) RETURNING id
+				""", UUID.class, tenant, user, "0".repeat(64));
+		assertThat(app.queryForObject("SELECT name FROM api_keys WHERE id = ?", String.class, key)).isEqualTo("ERP");
+		assertThat(app.update("UPDATE api_keys SET revoked_at = now(), revoked_by = ? WHERE id = ?", user, key))
+			.isEqualTo(1);
+		new TransactionTemplate(new DataSourceTransactionManager(app.getDataSource()))
+			.executeWithoutResult(status -> assertThat(
+					app.queryForList("SELECT id FROM tenants WHERE id = ? FOR UPDATE", UUID.class, tenant))
+				.containsExactly(tenant));
+		assertThat(app.update("DELETE FROM api_keys WHERE id = ?", key)).isEqualTo(1);
+
 		assertThat(app.update("DELETE FROM tenants WHERE id = ?", tenant)).isEqualTo(1);
 	}
 

@@ -8,16 +8,17 @@ test.describe("sin sesión", () => {
     await page.goto("/");
 
     await expect(page).toHaveURL(/\/ingresar/);
-    await expect(page.getByRole("heading", { name: "Facturación electrónica" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Iniciar sesión" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Ingresar", level: 1 })).toBeVisible();
+    await expect(page.getByLabel("Correo")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Crear una cuenta" })).toBeVisible();
     await shot("ingresar");
   });
 });
 
-test("con sesión se ve el marco de la aplicación con el nombre de quien entró", async ({ page }) => {
+test("con sesión se ve el marco de la aplicación con el correo de quien entró", async ({ page }) => {
   await page.goto("/");
 
   await expect(page).toHaveURL(/\/documentos/);
   await expect(page.getByRole("navigation", { name: "Secciones" })).toBeVisible();
-  await expect(page.getByText(USERS.demo.name)).toBeVisible();
+  await expect(page.locator(".rail-user")).toContainText(USERS.demo.email);
 });

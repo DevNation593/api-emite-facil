@@ -90,8 +90,8 @@ class RateLimitIT extends AbstractIntegrationTest {
 		// Cuántos segundos faltan para la siguiente ventana.
 		assertThat(Integer.parseInt(refused.getResponse().getHeader("Retry-After"))).isEqualTo(30);
 		// La petición rechazada no llegó a crear nada.
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM tenants t JOIN memberships m ON m.tenant_id = t.id"
-				+ " JOIN users u ON u.id = m.user_id WHERE u.subject = ?", Integer.class, subjectOf(user)))
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM memberships WHERE user_id = ?::uuid", Integer.class,
+				subjectOf(user)))
 			.isEqualTo(3);
 	}
 
@@ -168,6 +168,30 @@ class RateLimitIT extends AbstractIntegrationTest {
 			newTenant(next).andExpect(status().isCreated());
 		}
 		newTenant(next).andExpect(status().isTooManyRequests());
+	}
+
+	@Test
+	void apiKeyHasItsOwnBucket() throws Exception {
+		anotherMinute();
+		String owner = newUserToken();
+		createTenant(owner);
+		String created = mvc.perform(json(post("/api/v1/api-keys"), owner, "{\"name\":\"ERP Contable\"}"))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		String key = com.jayway.jsonpath.JsonPath.read(created, "$.key");
+
+		// La key agota sus 8 peticiones del minuto.
+		for (int i = 0; i < 8; i++) {
+			mvc.perform(get("/api/v1/tenants/current").header("X-Api-Key", key)).andExpect(status().isOk());
+		}
+		mvc.perform(get("/api/v1/tenants/current").header("X-Api-Key", key))
+			.andExpect(status().isTooManyRequests())
+			.andExpect(jsonPath("$.errorCode").value("RATE_LIMITED"));
+
+		// Su creador, con su JWT, lleva solo 2 peticiones de las suyas y sigue trabajando.
+		mvc.perform(as(get("/api/v1/tenants/current"), owner)).andExpect(status().isOk());
 	}
 
 	@Test

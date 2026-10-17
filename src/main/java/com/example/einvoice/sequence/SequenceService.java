@@ -121,7 +121,7 @@ public class SequenceService {
 			throw new ApiException(HttpStatus.CONFLICT, "SEQUENCE_ALREADY_USED",
 					"El punto de emisión ya emitió comprobantes de este tipo; su secuencial no se puede cambiar");
 		}
-		audit.record(access.tenantId(), access.userId(), "SEQUENCE_SET", "EMISSION_POINT", emissionPointId,
+		audit.record(access, "SEQUENCE_SET", "EMISSION_POINT", emissionPointId,
 				Map.of("environment", environment, "documentType", documentType, "nextValue", nextValue));
 		return new SequenceView(emissionPointId, environment, documentType, nextValue);
 	}

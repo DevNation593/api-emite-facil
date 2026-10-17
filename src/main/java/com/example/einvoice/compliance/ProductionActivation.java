@@ -84,7 +84,7 @@ public class ProductionActivation {
 				       default_environment = '2'
 				 WHERE id = :id AND tenant_id = :tenant
 				""").param("user", access.userId()).param("id", taxpayerId).param("tenant", access.tenantId()).update();
-		audit.record(access.tenantId(), access.userId(), "TAXPAYER_PRODUCTION_ENABLED", "TAXPAYER", taxpayerId,
+		audit.record(access, "TAXPAYER_PRODUCTION_ENABLED", "TAXPAYER", taxpayerId,
 				Map.of("certificateValidUntil", current.certificateValidUntil().toString(), "authorizedTestDocuments",
 						current.authorizedTestDocuments()));
 		return evaluate(access.tenantId(), taxpayerId, false);

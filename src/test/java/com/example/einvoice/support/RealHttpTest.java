@@ -15,7 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = { "OIDC_ISSUER=https://idp.test", "OIDC_AUDIENCE=einvoice-api", "einvoice.provider.ruc=1790099999001",
+		properties = { "EINVOICE_JWT_SECRET=" + TestTokens.SECRET, "EINVOICE_WEB_URL=http://web.test", "einvoice.provider.ruc=1790099999001",
 				"EINVOICE_MASTER_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
 				"management.endpoint.health.show-components=always", "einvoice.worker.enabled=false",
 				"einvoice.sri.enabled-environments=1", "einvoice.rate-limit.requests-per-minute=1000000",

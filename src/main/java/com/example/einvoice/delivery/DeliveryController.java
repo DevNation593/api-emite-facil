@@ -113,7 +113,7 @@ public class DeliveryController {
 		UUID deliveryId = deliveries.create(access.tenantId(), id, recipient, access.userId());
 		outbox.write(access.tenantId(), id, DELIVERY_REQUESTED, Map.of("documentId", id.toString()));
 		// La dirección no va a la auditoría: es un dato del cliente y ya consta en la entrega.
-		audit.record(access.tenantId(), access.userId(), DELIVERY_REQUESTED, "FISCAL_DOCUMENT", id,
+		audit.record(access, DELIVERY_REQUESTED, "FISCAL_DOCUMENT", id,
 				Map.of("deliveryId", deliveryId.toString()));
 		return DeliveryView.of(deliveries.find(access.tenantId(), deliveryId).orElseThrow());
 	}

@@ -33,7 +33,7 @@ public class ProductService {
 
 	@Transactional
 	public Product create(TenantAccess access, String sku, String name, BigDecimal unitPrice, String ivaRateCode) {
-		access.requireWrite();
+		access.requireProductCreation();
 		if (catalogs.ivaRate(ivaRateCode).isEmpty()) {
 			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "TAX_RATE_UNKNOWN",
 					"La tarifa de IVA no existe en el catálogo");
@@ -49,7 +49,7 @@ public class ProductService {
 			}
 			throw ex;
 		}
-		audit.record(access.tenantId(), access.userId(), "PRODUCT_CREATED", "PRODUCT", product.getId(),
+		audit.record(access, "PRODUCT_CREATED", "PRODUCT", product.getId(),
 				Map.of("sku", sku));
 		return product;
 	}

@@ -22,7 +22,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.jayway.jsonpath.JsonPath;
 
 /** Base de las pruebas *IT: un solo contexto de Spring y un solo juego de contenedores para todas. */
-@SpringBootTest(properties = { "OIDC_ISSUER=https://idp.test", "OIDC_AUDIENCE=einvoice-api", "einvoice.provider.ruc=1790099999001",
+@SpringBootTest(properties = { "EINVOICE_JWT_SECRET=" + TestTokens.SECRET, "EINVOICE_WEB_URL=http://web.test", "einvoice.provider.ruc=1790099999001",
 		// Clave maestra solo de pruebas: Base64 de 32 bytes fijos.
 		"EINVOICE_MASTER_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
 		"management.endpoint.health.show-components=always",
@@ -32,11 +32,12 @@ import com.jayway.jsonpath.JsonPath;
 		"einvoice.sri.enabled-environments=1",
 		// El límite de peticiones se prueba aparte; aquí no debe estorbar a las pruebas que insisten.
 		"einvoice.rate-limit.requests-per-minute=1000000", "einvoice.rate-limit.writes-per-minute=1000000",
+		"einvoice.auth.public-requests-per-minute=1000000",
 		// Los webhooks van a un receptor local sin TLS; la política estricta se prueba aparte.
 		"einvoice.webhooks.enabled=true", "einvoice.webhooks.allow-insecure-http=true",
 		"einvoice.webhooks.allow-private-addresses=true" })
 @AutoConfigureMockMvc
-@Import({ ContainersConfig.class, TestSecurityConfig.class, FailingController.class })
+@Import({ ContainersConfig.class, FailingController.class })
 public abstract class AbstractIntegrationTest {
 
 	public static final String TENANT_HEADER = "X-Tenant-Id";
@@ -92,6 +93,10 @@ public abstract class AbstractIntegrationTest {
 		registry.add("spring.mail.properties.mail.smtp.connectiontimeout", () -> "2000");
 		registry.add("spring.mail.properties.mail.smtp.timeout", () -> "3000");
 		registry.add("spring.mail.properties.mail.smtp.writetimeout", () -> "3000");
+		// Sin estos dos, JavaMail busca el nombre completo del equipo para saludar al servidor y para el
+		// Message-ID, y en algunas máquinas Windows esa búsqueda tarda segundos por cada correo.
+		registry.add("spring.mail.properties.mail.smtp.localhost", () -> "localhost");
+		registry.add("spring.mail.properties.mail.from", () -> "facturas@plataforma.test");
 		registry.add("einvoice.delivery.email.enabled", () -> "true");
 		registry.add("einvoice.delivery.email.from", () -> "facturas@plataforma.test");
 		registry.add("einvoice.delivery.retry-backoff", () -> "1s");
@@ -104,9 +109,9 @@ public abstract class AbstractIntegrationTest {
 	@Autowired
 	protected JdbcTemplate jdbc;
 
-	/** Token de un usuario que todavía no existe en la base. */
-	protected static String newUserToken() {
-		return TestTokens.bearer("u-" + UUID.randomUUID());
+	/** Token de un usuario recién creado, sin empresas. */
+	protected String newUserToken() {
+		return TestTokens.bearer(TestData.user(jdbc));
 	}
 
 	protected static MockHttpServletRequestBuilder as(MockHttpServletRequestBuilder request, String token) {
@@ -232,11 +237,9 @@ public abstract class AbstractIntegrationTest {
 
 	/** Usuario nuevo con una membresía insertada directamente con el rol indicado. */
 	protected String memberToken(UUID tenantId, String role) throws Exception {
-		String subject = "u-" + UUID.randomUUID();
-		UUID userId = jdbc.queryForObject("INSERT INTO users (issuer, subject) VALUES (?, ?) RETURNING id",
-				UUID.class, TestTokens.ISSUER, subject);
+		UUID userId = TestData.user(jdbc);
 		jdbc.update("INSERT INTO memberships (user_id, tenant_id, role) VALUES (?, ?, ?)", userId, tenantId, role);
-		return TestTokens.bearer(subject);
+		return TestTokens.bearer(userId);
 	}
 
 }

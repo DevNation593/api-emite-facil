@@ -63,7 +63,7 @@ public class DocumentRetryController {
 		}
 		documents.schedule(access.tenantId(), id, Duration.ZERO, 0);
 		outbox.write(access.tenantId(), id, RETRY_REQUESTED, Map.of("documentId", id.toString()));
-		audit.record(access.tenantId(), access.userId(), RETRY_REQUESTED, "FISCAL_DOCUMENT", id,
+		audit.record(access, RETRY_REQUESTED, "FISCAL_DOCUMENT", id,
 				Map.of("state", locked.state()));
 		return new RetryAccepted(id, locked.state());
 	}
