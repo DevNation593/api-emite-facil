@@ -54,11 +54,16 @@ test("un sistema externo factura con una API key y deja de poder al revocarla", 
   });
 
   await test.step("al revocarla, la misma llamada recibe 401", async () => {
+    let confirmation = "";
     page.once("dialog", (dialog) => {
-      expect(dialog.message()).toContain("Los sistemas que usen esta key dejarán de poder facturar");
+      confirmation = dialog.message();
       void dialog.accept();
     });
     await keys().getByRole("row", { name: /ERP/ }).getByRole("button", { name: /Revocar/ }).click();
-    await expect.poll(async () => (await issueWithKey()).status, { timeout: 10_000 }).toBe(401);
+    expect(confirmation).toContain("Los sistemas que usen esta key dejarán de poder facturar");
+    // La fila dice "Revocada" cuando la API ya confirmó el DELETE: desde ahí, una sola llamada basta.
+    await expect(keys().getByRole("row", { name: /ERP/ })).toContainText("Revocada");
+    const response = await issueWithKey();
+    expect(response.status, await response.clone().text()).toBe(401);
   });
 });
