@@ -226,6 +226,36 @@ class ApiKeyAuthenticationIT extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void creatorWhoCannotBillDisablesTheKey() throws Exception {
+		// Sigue en la empresa, pero como AUDITOR: ya no factura, así que su key tampoco.
+		jdbc.update(
+				"UPDATE memberships SET role = 'AUDITOR' WHERE tenant_id = ? AND user_id = (SELECT created_by FROM api_keys WHERE id = ?)",
+				scenario.tenant(), keyId);
+		expectUnauthenticated(currentTenant(key));
+	}
+
+	@Test
+	void aKeyCreatesProductsButABillerPersonDoesNot() throws Exception {
+		String created = mvc.perform(jsonWithKey(post("/api/v1/products"), key, productJson("TIENDA-1", "4.50", "4")))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.sku").value("TIENDA-1"))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		UUID productId = UUID.fromString(JsonPath.read(created, "$.id"));
+		assertThat(jdbc.queryForList(
+				"SELECT actor_id, api_key_id FROM audit_events WHERE tenant_id = ? AND action = 'PRODUCT_CREATED' AND entity_id = ?",
+				scenario.tenant(), productId))
+			.singleElement()
+			.satisfies(row -> assertThat(row.get("api_key_id")).isEqualTo(keyId));
+
+		String biller = memberToken(scenario.tenant(), "BILLER");
+		mvc.perform(json(post("/api/v1/products"), biller, productJson("TIENDA-2", "4.50", "4")))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.errorCode").value("ROLE_FORBIDDEN"));
+	}
+
+	@Test
 	void lastUsedAtIsWrittenAtMostOncePerMinute() throws Exception {
 		assertThat(lastUsedAt()).isNull();
 		currentTenant(key).andExpect(status().isOk());

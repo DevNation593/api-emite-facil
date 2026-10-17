@@ -33,7 +33,7 @@ public class ProductService {
 
 	@Transactional
 	public Product create(TenantAccess access, String sku, String name, BigDecimal unitPrice, String ivaRateCode) {
-		access.requireWrite();
+		access.requireProductCreation();
 		if (catalogs.ivaRate(ivaRateCode).isEmpty()) {
 			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "TAX_RATE_UNKNOWN",
 					"La tarifa de IVA no existe en el catálogo");

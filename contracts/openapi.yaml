@@ -682,7 +682,12 @@ paths:
     post:
       tags: [products]
       operationId: createProduct
-      summary: Registra un producto o servicio. Requiere rol OWNER o ADMIN.
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      summary: >
+        Registra un producto o servicio. Requiere rol OWNER o ADMIN, o una API key (un sistema
+        externo factura artículos nuevos). Una persona con rol BILLER no crea productos.
       requestBody:
         required: true
         content:
@@ -1382,6 +1387,8 @@ components:
       description: >
         Empresa activa. Opcional si el usuario pertenece a una sola; obligatoria si pertenece a
         varias (400 TENANT_REQUIRED). Una empresa ajena o inexistente responde 403 TENANT_FORBIDDEN.
+        Con una API key es opcional y, si se envía, tiene que ser la empresa de la key (si no, 403
+        TENANT_FORBIDDEN).
       schema: { type: string, format: uuid }
   responses:
     Problem:

@@ -37,6 +37,20 @@ public record TenantAccess(UUID userId, UUID tenantId, Role role, UUID apiKeyId)
 		}
 	}
 
+	/**
+	 * Alta de productos: OWNER y ADMIN, y también una API key. Una tienda en línea o un ERP factura
+	 * artículos nuevos y cada línea de factura necesita un productId que ya exista, así que la key
+	 * tiene que poder crearlo. Una persona con rol BILLER no crea productos desde la web.
+	 */
+	public void requireProductCreation() {
+		if (viaApiKey()) {
+			requireBilling();
+		}
+		else {
+			requireWrite();
+		}
+	}
+
 	public void requireBilling() {
 		if (!role.canBill()) {
 			throw new ApiException(HttpStatus.FORBIDDEN, "ROLE_FORBIDDEN", "El rol no permite esta operación");

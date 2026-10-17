@@ -103,9 +103,12 @@ Como el rol es BILLER, los `requireWrite()` y `requireOwner()` que ya existen bl
 `ROLE_FORBIDDEN` certificados, establecimientos y puntos de emisión, secuenciales, webhooks, paso a
 producción y la gestión de API keys. No hace falta ninguna regla nueva en esos controladores.
 
-Permitido: crear clientes, emitir y reemitir facturas, consultar comprobantes y su
-estado, descargar XML y RIDE, reenviar el correo y `GET /api/v1/tenants/current`. No crea productos: hoy eso exige `OWNER` o `ADMIN`
-(`ProductService` llama a `requireWrite`) y la key conserva exactamente los permisos de `BILLER`.
+Permitido: crear clientes y productos, emitir y reemitir facturas, consultar comprobantes y su
+estado, descargar XML y RIDE, reenviar el correo y `GET /api/v1/tenants/current`. Los productos son
+la única excepción a "los permisos de `BILLER`": una tienda en línea o un ERP factura artículos nuevos
+y cada línea necesita un `productId` que ya exista, así que `ProductService` llama a
+`requireProductCreation()` (OWNER, ADMIN o una API key). Una persona con rol `BILLER` sigue sin crear
+productos desde la web (decisión de Stiwar, 2026-10-16).
 
 ### Endpoints solo para personas
 
