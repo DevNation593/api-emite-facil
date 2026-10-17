@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Facturación electrónica Ecuador — API
-  version: 0.14.0
+  version: 0.15.0
   description: >
     Contrato de la API REST. Un test (OpenApiContractIT) falla si las rutas de este archivo y las
     de los controladores dejan de coincidir. El tenant activo nunca se envía en el cuerpo: se
@@ -9,7 +9,12 @@ info:
     X-Tenant-Id. Cualquier operación puede responder 429 (errorCode RATE_LIMITED) si el usuario
     supera su cupo de peticiones por minuto; la cabecera Retry-After dice cuántos segundos esperar.
     Los tokens de acceso los emite la propia API (POST /auth/login); las operaciones de /auth que
-    no necesitan sesión lo dicen con security vacío.
+    no necesitan sesión lo dicen con security vacío. Otro sistema puede llamar con una API key en
+    la cabecera X-Api-Key (esquema apiKey) a las operaciones que la declaran: actúa como BILLER de
+    la empresa de la key, a nombre de quien la creó, y no necesita X-Tenant-Id. Una key inválida,
+    revocada, de una empresa suspendida o de un creador sin acceso responde 401 UNAUTHENTICATED;
+    X-Api-Key junto con Authorization, 400 CREDENTIALS_AMBIGUOUS; una key en una operación que
+    solo hace una persona (crear o listar empresas, la cuenta propia), 403 API_KEY_NOT_ALLOWED.
 servers:
   - url: /api/v1
 security:
@@ -27,6 +32,7 @@ tags:
   - name: documents
   - name: certificates
   - name: webhooks
+  - name: api-keys
 paths:
   /auth/register:
     post:
@@ -153,6 +159,7 @@ paths:
         '202':
           description: Recibido.
         '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
   /auth/password-reset/request:
     post:
       tags: [auth]
@@ -226,6 +233,7 @@ paths:
           description: Contraseña cambiada.
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
         '422':
           description: errorCode INVALID_CURRENT_PASSWORD o WEAK_PASSWORD.
           content:
@@ -243,6 +251,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Me' }
         '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
   /tenants:
     post:
       tags: [tenants]
@@ -261,6 +270,7 @@ paths:
               schema: { $ref: '#/components/schemas/Tenant' }
         '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
     get:
       tags: [tenants]
       operationId: listTenants
@@ -274,10 +284,14 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Tenant' }
         '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
   /tenants/current:
     get:
       tags: [tenants]
       operationId: getCurrentTenant
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Empresa activa de la petición y rol del usuario en ella.
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -326,6 +340,9 @@ paths:
     get:
       tags: [taxpayers]
       operationId: listTaxpayers
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Emisores de la empresa activa.
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -344,6 +361,9 @@ paths:
     get:
       tags: [taxpayers]
       operationId: getTaxpayer
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Un emisor de la empresa activa.
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -365,6 +385,9 @@ paths:
     get:
       tags: [taxpayers]
       operationId: getProductionReadiness
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Qué tiene y qué le falta al emisor para pasar a producción.
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -458,6 +481,9 @@ paths:
     get:
       tags: [establishments]
       operationId: listEstablishments
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Establecimientos del emisor, ordenados por código.
       responses:
         '200':
@@ -501,6 +527,9 @@ paths:
     get:
       tags: [emission-points]
       operationId: listEmissionPoints
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Puntos de emisión de un establecimiento, ordenados por código.
       parameters:
         - name: establishmentId
@@ -523,6 +552,9 @@ paths:
     get:
       tags: [catalogs]
       operationId: listIdentificationTypes
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Tipos de identificación del comprador (ficha técnica, tabla 6).
       responses:
         '200':
@@ -532,11 +564,15 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/CodeName' }
+        '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
   /catalogs/payment-methods:
     get:
       tags: [catalogs]
       operationId: listPaymentMethods
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Formas de pago con su vigencia (ficha técnica, tabla 24).
       responses:
         '200':
@@ -546,11 +582,15 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/PaymentMethod' }
+        '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
   /catalogs/tax-rates:
     get:
       tags: [catalogs]
       operationId: listTaxRates
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Tarifas de impuesto por código (ficha técnica, tablas 16 y 17).
       responses:
         '200':
@@ -560,6 +600,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/TaxRate' }
+        '400': { $ref: '#/components/responses/Problem' }
         '401': { $ref: '#/components/responses/Problem' }
   /customers:
     parameters:
@@ -567,6 +608,9 @@ paths:
     post:
       tags: [customers]
       operationId: createCustomer
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Registra un cliente. Requiere rol OWNER, ADMIN o BILLER.
       requestBody:
         required: true
@@ -587,6 +631,9 @@ paths:
     get:
       tags: [customers]
       operationId: listCustomers
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Clientes de la empresa activa, paginados; q busca por nombre o prefijo de identificación.
       parameters:
         - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
@@ -612,6 +659,9 @@ paths:
     get:
       tags: [customers]
       operationId: getCustomer
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Un cliente de la empresa activa.
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -632,7 +682,12 @@ paths:
     post:
       tags: [products]
       operationId: createProduct
-      summary: Registra un producto o servicio. Requiere rol OWNER o ADMIN.
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      summary: >
+        Registra un producto o servicio. Requiere rol OWNER o ADMIN, o una API key (un sistema
+        externo factura artículos nuevos). Una persona con rol BILLER no crea productos.
       requestBody:
         required: true
         content:
@@ -652,6 +707,9 @@ paths:
     get:
       tags: [products]
       operationId: listProducts
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Productos de la empresa activa, paginados; q busca en nombre o código.
       parameters:
         - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
@@ -677,6 +735,9 @@ paths:
     get:
       tags: [products]
       operationId: getProduct
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Un producto de la empresa activa.
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -725,6 +786,9 @@ paths:
     post:
       tags: [invoices]
       operationId: issueInvoice
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: >
         Emite una factura: la calcula, le asigna secuencial y clave de acceso y la deja en RESERVED.
         202 significa aceptada para procesamiento, no autorizada por el SRI. Requiere rol OWNER,
@@ -769,6 +833,9 @@ paths:
     get:
       tags: [documents]
       operationId: listDocuments
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Comprobantes de la empresa activa, del más reciente al más antiguo.
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -794,6 +861,9 @@ paths:
     get:
       tags: [documents]
       operationId: getDocument
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Un comprobante con su estado actual, totales, líneas y pagos.
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -812,6 +882,9 @@ paths:
     get:
       tags: [documents]
       operationId: downloadDocumentArtifact
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: >
         Descarga un artefacto del comprobante, como adjunto con el número del comprobante en el
         nombre. La cabecera ETag lleva su SHA-256.
@@ -853,6 +926,9 @@ paths:
     get:
       tags: [documents]
       operationId: listDocumentDeliveries
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Entregas del comprobante al receptor, la más reciente primero.
       responses:
         '200':
@@ -869,6 +945,9 @@ paths:
     post:
       tags: [documents]
       operationId: requestDocumentDelivery
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: >
         Pide un nuevo envío del comprobante autorizado por correo, con el RIDE y el XML autorizado
         adjuntos, a la dirección del cliente o a la indicada. El envío es asíncrono. Requiere rol
@@ -907,6 +986,9 @@ paths:
     post:
       tags: [documents]
       operationId: retryDocument
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: >
         Devuelve a la cola un comprobante que quedó a medio camino (sin firmar por falta de
         certificado, o sin respuesta definitiva del SRI). No cambia su estado: el procesamiento lo
@@ -935,6 +1017,9 @@ paths:
     get:
       tags: [documents]
       operationId: listDocumentSriAttempts
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Llamadas al SRI hechas para el comprobante, la más reciente primero, con sus mensajes.
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -986,6 +1071,9 @@ paths:
     get:
       tags: [certificates]
       operationId: listCertificates
+      security:
+        - bearerAuth: []
+        - apiKey: []
       summary: Metadatos de los certificados de un emisor, el más reciente primero.
       parameters:
         - { name: taxpayerId, in: query, required: true, schema: { type: string, format: uuid } }
@@ -1199,6 +1287,78 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
+  /api-keys:
+    post:
+      tags: [api-keys]
+      operationId: createApiKey
+      summary: >
+        Crea una API key para que otro sistema llame a la API. Requiere OWNER o ADMIN. La respuesta
+        trae el valor completo (efk_...): es la única vez que se muestra. Hasta 10 activas por
+        empresa (409 API_KEY_LIMIT); el nombre no puede repetirse entre las activas, sin distinguir
+        mayúsculas (409 API_KEY_NAME_TAKEN).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateApiKeyRequest' }
+      responses:
+        '201':
+          description: API key creada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatedApiKey' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409':
+          description: errorCode API_KEY_LIMIT (ya hay 10 activas) o API_KEY_NAME_TAKEN (nombre en uso).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    get:
+      tags: [api-keys]
+      operationId: listApiKeys
+      summary: >
+        API keys de la empresa, sin su valor. Incluye las revocadas: primero las activas y luego por
+        fecha de creación, la más nueva primero. Requiere OWNER o ADMIN.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: API keys.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ApiKey' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /api-keys/{id}:
+    delete:
+      tags: [api-keys]
+      operationId: revokeApiKey
+      summary: >
+        Revoca la API key de inmediato y sin vuelta atrás. Revocar una ya revocada responde 204 sin
+        cambiar nada. Requiere OWNER o ADMIN.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204':
+          description: Revocada.
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
 components:
   securitySchemes:
     bearerAuth:
@@ -1206,6 +1366,15 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Token de acceso que emite la API en POST /auth/login y POST /auth/refresh (HS256, 15 minutos).
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: >
+        API key de la empresa (efk_<publicId>_<secreto>), creada con POST /api-keys. Actúa con el rol
+        BILLER a nombre de quien la creó. No se envía junto con Authorization. Si la base no responde
+        al comprobarla, la respuesta es 503 INTERNAL_ERROR, no 401: la key sigue valiendo y se puede
+        reintentar.
   headers:
     X-Correlation-ID:
       description: >
@@ -1220,6 +1389,8 @@ components:
       description: >
         Empresa activa. Opcional si el usuario pertenece a una sola; obligatoria si pertenece a
         varias (400 TENANT_REQUIRED). Una empresa ajena o inexistente responde 403 TENANT_FORBIDDEN.
+        Con una API key es opcional y, si se envía, tiene que ser la empresa de la key (si no, 403
+        TENANT_FORBIDDEN).
       schema: { type: string, format: uuid }
   responses:
     Problem:
@@ -1288,6 +1459,11 @@ components:
           type: string
           enum:
             - UNAUTHENTICATED
+            - CREDENTIALS_AMBIGUOUS
+            - API_KEY_NOT_ALLOWED
+            - API_KEY_LIMIT
+            - API_KEY_NAME_TAKEN
+            - API_KEY_NOT_FOUND
             - FORBIDDEN
             - TENANT_REQUIRED
             - TENANT_HEADER_INVALID
@@ -1793,6 +1969,31 @@ components:
         status: { type: string, enum: [ACTIVE, DISABLED] }
         createdAt: { type: string, format: date-time }
         secret: { type: string, description: 'Secreto de firma (whsec_...). No se vuelve a mostrar.' }
+    ApiKey:
+      type: object
+      required: [id, name, publicId, createdBy, createdAt, lastUsedAt, revokedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        publicId: { type: string, description: 'Los 12 caracteres que identifican la key: efk_<publicId>_...' }
+        createdBy: { type: [string, 'null'], description: Correo de quien la creó. }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        revokedAt: { type: [string, 'null'], format: date-time }
+    CreatedApiKey:
+      type: object
+      required: [id, name, publicId, key, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        publicId: { type: string }
+        key: { type: string, description: 'Valor completo (efk_...). No se vuelve a mostrar.' }
+        createdAt: { type: string, format: date-time }
+    CreateApiKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80, description: "Se recorta (también los espacios Unicode) y, ya recortado, debe tener entre 1 y 80 caracteres; sin caracteres de control." }
     CreateTaxpayerRequest:
       type: object
       required: [ruc, legalName, headOfficeAddress, defaultEnvironment]

@@ -21,6 +21,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
+import com.example.einvoice.apikey.ApiKeyAuthenticationFilter;
+import com.example.einvoice.apikey.ApiKeyService;
 import com.example.einvoice.web.ApiException;
 import com.example.einvoice.web.RateLimitFilter;
 import com.example.einvoice.web.RateLimitProperties;
@@ -29,8 +31,9 @@ import com.example.einvoice.web.RateLimiter;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
- * La API valida los JWT que ella misma emite (AccessTokens) y no mantiene sesión HTTP. Son públicos el
- * health y los endpoints de /api/v1/auth para registrarse, ingresar, renovar y recuperar la contraseña.
+ * La API valida los JWT que ella misma emite (AccessTokens) y las API keys de los sistemas externos
+ * (cabecera X-Api-Key), y no mantiene sesión HTTP. Son públicos el health y los endpoints de
+ * /api/v1/auth para registrarse, ingresar, renovar y recuperar la contraseña.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({ RateLimitProperties.class, AuthProperties.class })
@@ -71,8 +74,8 @@ public class SecurityConfig {
 
 	@Bean
 	SecurityFilterChain apiSecurity(HttpSecurity http,
-			@Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver, RateLimiter limiter)
-			throws Exception {
+			@Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver, RateLimiter limiter,
+			ApiKeyService apiKeys) throws Exception {
 		// Los rechazos de seguridad pasan por ApiExceptionHandler para salir como problem+json.
 		AuthenticationEntryPoint unauthenticated = (request, response, ex) -> resolver.resolveException(request,
 				response, null,
@@ -92,7 +95,9 @@ public class SecurityConfig {
 				.accessDeniedHandler(forbidden))
 			.exceptionHandling(
 					handling -> handling.authenticationEntryPoint(unauthenticated).accessDeniedHandler(forbidden))
-			// Con el usuario ya identificado, antes de llegar a ningún controlador.
+			// La key va antes que el JWT: si la petición trae Authorization además, se rechaza ahí mismo.
+			.addFilterBefore(new ApiKeyAuthenticationFilter(apiKeys, resolver), BearerTokenAuthenticationFilter.class)
+			// Con el usuario o la key ya identificados, antes de llegar a ningún controlador.
 			.addFilterAfter(new RateLimitFilter(limiter, resolver), BearerTokenAuthenticationFilter.class);
 		return http.build();
 	}

@@ -147,11 +147,11 @@ Lo que estas pruebas no dicen: cómo se ve en Firefox o Safari, ni si el SRI rea
 - Certificado real y RUC habilitado (G3), y con ellos la primera activación de un emisor (G5).
 - Requisitos legales del proveedor (G6).
 - Servidor de correo de producción: sin él no se puede confirmar el correo de una cuenta ni recuperar una contraseña olvidada (doc 10).
-- Un proxy de entrada que fije `X-Forwarded-For` delante de la web: la API limita los intentos de ingreso por la IP que le pasa la web.
+- Un proxy de entrada con TLS delante de la web y de la API (los sistemas externos llaman a la API directamente). En la dirección pública de la API debe reemplazar `X-Forwarded-For`, no añadirse a él, porque la API limita por su primer valor, y conviene que publique solo `/api/v1/**` sin `/api/v1/auth/**`. La web llama a la API por su dirección interna, no a través de ese proxy (pone ella la IP del navegador en `X-Forwarded-For`; por el proxy, todos los ingresos compartirían un cupo), y el puerto interno de la API solo debe alcanzarlo la web y el proxy.
 - Nube, registro de imágenes, gestor de claves y almacenamiento de objetos; con ellos, despliegue real, respaldos programados y recogida de métricas y registros.
 - Mirar la aplicación en Firefox y Safari: las pruebas con navegador usan solo Chromium (en escritorio y en el ancho de un teléfono).
 - Un enlace directo a un comprobante no dice de qué empresa es: quien trabaja en varias y lo abre con otra empresa activa ve "No se encontró ese comprobante en esta empresa".
 - Los XSD oficiales de los demás comprobantes (nota de crédito, retención, guía): sin ellos el Plan 9 no puede empezar.
 - Confirmar en la ficha qué pasa con el secuencial de un comprobante rechazado: hoy se reemite con número nuevo y el rechazado no se reutiliza (doc 05).
 - Transferir la propiedad de una empresa.
-- Webhooks: decidir si se encienden, y con qué salida a internet para el worker. Falta un acceso de máquina a la API, para que el receptor consulte el detalle de un comprobante: necesita su propio diseño de credenciales. El aviso de prueba, la purga del historial y el reparto entre empresas están hechos (Plan 6c).
+- Webhooks: decidir si se encienden, y con qué salida a internet para el worker. El receptor ya puede consultar el detalle de un comprobante con una API key (Plan 11). El aviso de prueba, la purga del historial y el reparto entre empresas están hechos (Plan 6c).
