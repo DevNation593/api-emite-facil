@@ -1,4 +1,5 @@
 import { URLS, USERS } from "../support/env.ts";
+import { selectCatalog } from "../support/catalog.ts";
 import { expect, login, signIn, test } from "../support/fixtures.ts";
 import { seedCompany, seedCustomer, seedInvoice, seedProduct, useCompany, waitForState } from "../support/seed.ts";
 
@@ -14,8 +15,8 @@ test("la sesión se renueva sola: tras caducar la ficha de acceso se emite sin v
   const product = await seedProduct(page, company);
 
   await page.goto("/facturas/nueva");
-  await page.getByLabel("Cliente", { exact: true }).selectOption(customer.id);
-  await page.getByLabel("Producto de la línea 1").selectOption(product.id);
+  await selectCatalog(page, "Cliente", customer);
+  await selectCatalog(page, "Producto de la línea 1", product);
   await page.getByLabel("Cantidad de la línea 1").fill("3");
   await expect(page.getByLabel("Importe pagado")).toHaveValue("43.13");
 
