@@ -1,9 +1,12 @@
 package com.example.einvoice.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -11,9 +14,14 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import com.example.einvoice.support.AbstractIntegrationTest;
 import com.jayway.jsonpath.JsonPath;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.OptimisticLockException;
 
 class ProductApiIT extends AbstractIntegrationTest {
 
@@ -22,6 +30,9 @@ class ProductApiIT extends AbstractIntegrationTest {
 	String owner;
 
 	UUID tenant;
+
+	@Autowired
+	EntityManagerFactory entityManagers;
 
 	@BeforeEach
 	void newTenant() throws Exception {
@@ -145,6 +156,90 @@ class ProductApiIT extends AbstractIntegrationTest {
 			.andExpect(status().isNotFound())
 			.andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
 		mvc.perform(as(get(PRODUCTS), other)).andExpect(jsonPath("$.total").value(0));
+	}
+
+	@Test
+	void adminUpdatesProductAndBillerCannotChangeIt() throws Exception {
+		UUID id = createProduct(owner, "P-1", "10.00", "4");
+		String admin = memberToken(tenant, "ADMIN");
+		String update = productJson("P-2", "12.5", "0");
+		mvc.perform(json(put(PRODUCTS + "/" + id), admin, update))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.id").value(id.toString()))
+			.andExpect(jsonPath("$.sku").value("P-2"))
+			.andExpect(jsonPath("$.unitPrice").value("12.500000"))
+			.andExpect(jsonPath("$.ivaRateCode").value("0"));
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM audit_events WHERE action = 'PRODUCT_UPDATED' AND entity_id = ?", Integer.class,
+				id)).isEqualTo(1);
+		String biller = memberToken(tenant, "BILLER");
+		mvc.perform(json(put(PRODUCTS + "/" + id), biller, update)).andExpect(status().isForbidden());
+		mvc.perform(as(delete(PRODUCTS + "/" + id), biller)).andExpect(status().isForbidden());
+	}
+
+	@Test
+	void deletedProductDisappearsAndSkuCanBeReused() throws Exception {
+		UUID id = createProduct(owner, "P-1", "10.00", "4");
+		mvc.perform(as(delete(PRODUCTS + "/" + id), owner)).andExpect(status().isNoContent());
+		mvc.perform(as(get(PRODUCTS + "/" + id), owner)).andExpect(status().isNotFound());
+		mvc.perform(as(get(PRODUCTS), owner)).andExpect(jsonPath("$.total").value(0));
+		assertThat(jdbc.queryForObject("SELECT deleted_at IS NOT NULL FROM products WHERE id = ?", Boolean.class, id))
+			.isTrue();
+		mvc.perform(json(post(PRODUCTS), owner, productJson("P-1", "8.00", "4")))
+			.andExpect(status().isCreated());
+		mvc.perform(as(delete(PRODUCTS + "/" + id), owner)).andExpect(status().isNotFound());
+	}
+
+	@Test
+	void updateValidatesTaxRateAndSkuUniqueness() throws Exception {
+		UUID first = createProduct(owner, "P-1", "10.00", "4");
+		createProduct(owner, "P-2", "10.00", "4");
+		mvc.perform(json(put(PRODUCTS + "/" + first), owner, productJson("P-2", "10.00", "4")))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.errorCode").value("PRODUCT_SKU_TAKEN"));
+		mvc.perform(json(put(PRODUCTS + "/" + first), owner, productJson("P-3", "10.00", "9")))
+			.andExpect(status().isUnprocessableEntity())
+			.andExpect(jsonPath("$.errorCode").value("TAX_RATE_UNKNOWN"));
+		mvc.perform(as(get(PRODUCTS + "/" + first), owner))
+			.andExpect(jsonPath("$.sku").value("P-1"));
+	}
+
+	@Test
+	void otherTenantCannotUpdateOrDeleteProduct() throws Exception {
+		UUID id = createProduct(owner, "P-1", "10.00", "4");
+		String other = newUserToken();
+		createTenant(other);
+		mvc.perform(json(put(PRODUCTS + "/" + id), other,
+				productJson("P-2", "20.00", "0"))).andExpect(status().isNotFound());
+		mvc.perform(as(delete(PRODUCTS + "/" + id), other)).andExpect(status().isNotFound());
+		mvc.perform(as(get(PRODUCTS + "/" + id), owner)).andExpect(status().isOk());
+	}
+
+	@Test
+	void staleProductEditCannotRestoreADeletedProduct() throws Exception {
+		UUID id = createProduct(owner, "P-1", "10.00", "4");
+		EntityManager stale = entityManagers.createEntityManager();
+		EntityManager deleting = entityManagers.createEntityManager();
+		try {
+			stale.getTransaction().begin();
+			Product old = stale.find(Product.class, id);
+			deleting.getTransaction().begin();
+			deleting.find(Product.class, id).archive();
+			deleting.getTransaction().commit();
+			old.update("P-1", "Nombre anterior", new java.math.BigDecimal("10.00"), "4");
+			assertThatThrownBy(stale::flush).isInstanceOf(OptimisticLockException.class);
+		}
+		finally {
+			if (stale.getTransaction().isActive()) {
+				stale.getTransaction().rollback();
+			}
+			if (deleting.getTransaction().isActive()) {
+				deleting.getTransaction().rollback();
+			}
+			stale.close();
+			deleting.close();
+		}
+		mvc.perform(as(get(PRODUCTS + "/" + id), owner)).andExpect(status().isNotFound());
 	}
 
 }

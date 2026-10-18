@@ -1,4 +1,5 @@
 import { expect, test } from "../support/fixtures.ts";
+import { expectCatalogSelection } from "../support/catalog.ts";
 import {
   getDocument,
   seedCompany,
@@ -48,7 +49,7 @@ test("una factura devuelta por el SRI se corrige emitiendo otra, y quedan enlaza
     await page.getByRole("button", { name: "Corregir y emitir de nuevo" }).click();
     await expect(page).toHaveURL(/\/facturas\/nueva\?borrador=/);
     await expect(page.getByText("Esta factura reemplazará a un comprobante que el SRI rechazó")).toBeVisible();
-    await expect(page.getByLabel("Cliente", { exact: true })).toHaveValue(customer.id);
+    await expectCatalogSelection(page, "Cliente", customer);
     await expect(page.getByLabel("Cantidad de la línea 1")).toHaveValue("2");
     await expect(page.getByLabel("Importe pagado")).toHaveValue(rejected.total);
     await shot("factura-reemision");
