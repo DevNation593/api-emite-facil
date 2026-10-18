@@ -1,5 +1,6 @@
 package com.example.einvoice.catalog;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import jakarta.persistence.Entity;
@@ -7,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 /** Cliente (adquirente) de un tenant, identificado por tipo y número según la tabla 6 de la ficha. */
 @Entity
@@ -30,6 +32,11 @@ public class Customer {
 	private String address;
 
 	private String phone;
+
+	private Instant deletedAt;
+
+	@Version
+	private long version;
 
 	protected Customer() {
 	}
@@ -71,6 +78,19 @@ public class Customer {
 
 	public String getPhone() {
 		return phone;
+	}
+
+	public void update(String idType, String idNumber, String name, String email, String address, String phone) {
+		this.idType = idType;
+		this.idNumber = idNumber;
+		this.name = name;
+		this.email = email;
+		this.address = address;
+		this.phone = phone;
+	}
+
+	public void archive() {
+		this.deletedAt = Instant.now();
 	}
 
 }

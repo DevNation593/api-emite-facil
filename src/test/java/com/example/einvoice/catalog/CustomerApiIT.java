@@ -1,9 +1,12 @@
 package com.example.einvoice.catalog;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,9 +15,15 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import com.example.einvoice.support.AbstractIntegrationTest;
+import com.example.einvoice.support.BillingScenario;
 import com.jayway.jsonpath.JsonPath;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.OptimisticLockException;
 
 class CustomerApiIT extends AbstractIntegrationTest {
 
@@ -23,6 +32,9 @@ class CustomerApiIT extends AbstractIntegrationTest {
 	String owner;
 
 	UUID tenant;
+
+	@Autowired
+	EntityManagerFactory entityManagers;
 
 	@BeforeEach
 	void newTenant() throws Exception {
@@ -194,6 +206,110 @@ class CustomerApiIT extends AbstractIntegrationTest {
 				"SELECT metadata::text FROM audit_events WHERE action = 'CUSTOMER_CREATED' AND entity_id = ?",
 				String.class, customer);
 		assertThat(metadata).doesNotContain("1712345678", "María", "cliente@example.test");
+	}
+
+	@Test
+	void billerUpdatesCustomerAndAuditDoesNotExposePersonalData() throws Exception {
+		UUID id = createCustomer(owner, "05", "1712345678");
+		String biller = memberToken(tenant, "BILLER");
+		String update = customerJson("04", "1790012345001", "Empresa Actualizada");
+		mvc.perform(json(put(CUSTOMERS + "/" + id), biller, update))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.id").value(id.toString()))
+			.andExpect(jsonPath("$.idType").value("04"))
+			.andExpect(jsonPath("$.name").value("Empresa Actualizada"));
+		mvc.perform(as(get(CUSTOMERS + "/" + id), owner))
+			.andExpect(jsonPath("$.idNumber").value("1790012345001"));
+		String metadata = jdbc.queryForObject(
+				"SELECT metadata::text FROM audit_events WHERE action = 'CUSTOMER_UPDATED' AND entity_id = ?",
+				String.class, id);
+		assertThat(metadata).doesNotContain("1790012345001", "Empresa Actualizada", "cliente@example.test");
+		String auditor = memberToken(tenant, "AUDITOR");
+		mvc.perform(json(put(CUSTOMERS + "/" + id), auditor, update)).andExpect(status().isForbidden());
+		mvc.perform(as(delete(CUSTOMERS + "/" + id), auditor)).andExpect(status().isForbidden());
+	}
+
+	@Test
+	void deletedCustomerDisappearsAndIdentificationCanBeReused() throws Exception {
+		UUID id = createCustomer(owner, "05", "1712345678");
+		mvc.perform(as(delete(CUSTOMERS + "/" + id), owner)).andExpect(status().isNoContent());
+		mvc.perform(as(get(CUSTOMERS + "/" + id), owner)).andExpect(status().isNotFound());
+		mvc.perform(as(get(CUSTOMERS), owner)).andExpect(jsonPath("$.total").value(0));
+		assertThat(jdbc.queryForObject("SELECT deleted_at IS NOT NULL FROM customers WHERE id = ?", Boolean.class, id))
+			.isTrue();
+		mvc.perform(json(post(CUSTOMERS), owner, customerJson("05", "1712345678", "Nuevo cliente")))
+			.andExpect(status().isCreated());
+		mvc.perform(as(delete(CUSTOMERS + "/" + id), owner)).andExpect(status().isNotFound());
+	}
+
+	@Test
+	void updateValidatesIdentificationAndUniqueness() throws Exception {
+		UUID first = createCustomer(owner, "05", "1712345678");
+		createCustomer(owner, "05", "1700000001");
+		mvc.perform(json(put(CUSTOMERS + "/" + first), owner,
+				customerJson("05", "1700000001", "Duplicado")))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.errorCode").value("CUSTOMER_ALREADY_EXISTS"));
+		mvc.perform(json(put(CUSTOMERS + "/" + first), owner,
+				customerJson("05", "123", "Inválido")))
+			.andExpect(status().isUnprocessableEntity())
+			.andExpect(jsonPath("$.errorCode").value("IDENTIFICATION_INVALID"));
+		mvc.perform(as(get(CUSTOMERS + "/" + first), owner))
+			.andExpect(jsonPath("$.idNumber").value("1712345678"));
+	}
+
+	@Test
+	void otherTenantCannotUpdateOrDeleteCustomer() throws Exception {
+		UUID id = createCustomer(owner, "05", "1712345678");
+		String other = newUserToken();
+		createTenant(other);
+		mvc.perform(json(put(CUSTOMERS + "/" + id), other,
+				customerJson("05", "1712345678", "Otro"))).andExpect(status().isNotFound());
+		mvc.perform(as(delete(CUSTOMERS + "/" + id), other)).andExpect(status().isNotFound());
+		mvc.perform(as(get(CUSTOMERS + "/" + id), owner)).andExpect(status().isOk());
+	}
+
+	@Test
+	void removingCustomerAndProductPreservesIssuedInvoice() throws Exception {
+		BillingScenario scenario = newBillingScenario();
+		UUID document = issueInvoice(scenario.owner(), scenario.invoiceJson("1", "11.50"));
+		mvc.perform(as(delete(CUSTOMERS + "/" + scenario.customer()), scenario.owner()))
+			.andExpect(status().isNoContent());
+		mvc.perform(as(delete("/api/v1/products/" + scenario.product()), scenario.owner()))
+			.andExpect(status().isNoContent());
+		assertThat(jdbc.queryForObject("SELECT customer_name FROM fiscal_documents WHERE id = ?", String.class,
+				document)).isEqualTo("María Pérez");
+		assertThat(jdbc.queryForObject("SELECT description FROM fiscal_document_lines WHERE document_id = ?",
+				String.class, document)).isEqualTo("Servicio de consultoría");
+		mvc.perform(invoiceRequest(scenario.owner(), scenario.invoiceJson("1", "11.50")))
+			.andExpect(status().isNotFound());
+	}
+
+	@Test
+	void staleCustomerEditCannotRestoreADeletedCustomer() throws Exception {
+		UUID id = createCustomer(owner, "05", "1712345678");
+		EntityManager stale = entityManagers.createEntityManager();
+		EntityManager deleting = entityManagers.createEntityManager();
+		try {
+			stale.getTransaction().begin();
+			Customer old = stale.find(Customer.class, id);
+			deleting.getTransaction().begin();
+			deleting.find(Customer.class, id).archive();
+			deleting.getTransaction().commit();
+			old.update("05", "1712345678", "Nombre anterior", null, null, null);
+			assertThatThrownBy(stale::flush).isInstanceOf(OptimisticLockException.class);
+		}
+		finally {
+			if (stale.getTransaction().isActive()) {
+				stale.getTransaction().rollback();
+			}
+			if (deleting.getTransaction().isActive()) {
+				deleting.getTransaction().rollback();
+			}
+			stale.close();
+			deleting.close();
+		}
+		mvc.perform(as(get(CUSTOMERS + "/" + id), owner)).andExpect(status().isNotFound());
 	}
 
 }

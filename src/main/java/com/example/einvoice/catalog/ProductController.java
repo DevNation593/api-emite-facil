@@ -3,9 +3,11 @@ package com.example.einvoice.catalog;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -64,6 +66,19 @@ public class ProductController {
 	@GetMapping("/{id}")
 	ProductResponse get(TenantAccess access, @PathVariable UUID id) {
 		return ProductResponse.of(service.get(access, id));
+	}
+
+	@PutMapping("/{id}")
+	ProductResponse update(TenantAccess access, @PathVariable UUID id,
+			@Valid @RequestBody CreateProductRequest request) {
+		return ProductResponse.of(service.update(access, id, request.sku(), request.name(),
+				Decimals.parse(request.unitPrice(), 12, 6), request.ivaRateCode()));
+	}
+
+	@DeleteMapping("/{id}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	void delete(TenantAccess access, @PathVariable UUID id) {
+		service.delete(access, id);
 	}
 
 }
