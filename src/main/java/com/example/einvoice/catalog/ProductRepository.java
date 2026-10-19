@@ -10,12 +10,12 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface ProductRepository extends JpaRepository<Product, UUID> {
 
-	Optional<Product> findByIdAndTenantId(UUID id, UUID tenantId);
+	Optional<Product> findByIdAndTenantIdAndDeletedAtIsNull(UUID id, UUID tenantId);
 
 	/** Busca por nombre o código (contiene, sin distinguir mayúsculas). El término llega escapado para LIKE. */
 	@Query("""
 			SELECT p FROM Product p
-			WHERE p.tenantId = :tenantId
+			WHERE p.tenantId = :tenantId AND p.deletedAt IS NULL
 			  AND (:term = '' OR lower(p.name) LIKE lower(concat('%', :term, '%')) ESCAPE '\\'
 			       OR lower(p.sku) LIKE lower(concat('%', :term, '%')) ESCAPE '\\')
 			ORDER BY p.name, p.sku

@@ -10,7 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
-	Optional<Customer> findByIdAndTenantId(UUID id, UUID tenantId);
+	Optional<Customer> findByIdAndTenantIdAndDeletedAtIsNull(UUID id, UUID tenantId);
 
 	/**
 	 * Busca por nombre (contiene, sin distinguir mayúsculas) o por identificación (empieza por). El
@@ -18,7 +18,7 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 	 */
 	@Query("""
 			SELECT c FROM Customer c
-			WHERE c.tenantId = :tenantId
+			WHERE c.tenantId = :tenantId AND c.deletedAt IS NULL
 			  AND (:term = '' OR lower(c.name) LIKE lower(concat('%', :term, '%')) ESCAPE '\\'
 			       OR c.idNumber LIKE concat(:term, '%') ESCAPE '\\')
 			ORDER BY c.name, c.id
