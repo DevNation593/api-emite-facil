@@ -24,7 +24,7 @@ import com.example.einvoice.storage.ArtifactKind;
 import com.example.einvoice.storage.ArtifactStore;
 import com.example.einvoice.web.ApiException;
 import com.example.einvoice.xml.EnvelopeViolation;
-import com.example.einvoice.xml.InvoiceEnvelopeRules;
+import com.example.einvoice.xml.EnvelopeRules;
 import com.example.einvoice.xml.InvoiceXmlBuilder;
 import com.example.einvoice.xml.InvoiceXmlData;
 import com.example.einvoice.xml.ValidationResult;
@@ -152,7 +152,7 @@ public class DocumentProcessor {
 		if (!result.valid()) {
 			return String.join("; ", result.errors());
 		}
-		Set<EnvelopeViolation> violations = InvoiceEnvelopeRules.check(xml, InvoiceXmlBuilder.VERSION);
+		Set<EnvelopeViolation> violations = EnvelopeRules.check(xml, InvoiceXmlBuilder.VERSION.schema());
 		if (!violations.isEmpty()) {
 			return violations.stream().map(Enum::name).sorted().collect(Collectors.joining(", "));
 		}

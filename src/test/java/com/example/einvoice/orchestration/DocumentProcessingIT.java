@@ -30,7 +30,7 @@ import com.example.einvoice.support.AbstractIntegrationTest;
 import com.example.einvoice.support.BillingScenario;
 import com.example.einvoice.support.TestCertificates;
 import com.example.einvoice.web.ApiException;
-import com.example.einvoice.xml.InvoiceEnvelopeRules;
+import com.example.einvoice.xml.EnvelopeRules;
 import com.example.einvoice.xml.DocumentSchemas;
 import com.example.einvoice.xml.SchemaVersion;
 import com.example.einvoice.xml.XsdValidator;
@@ -91,7 +91,7 @@ class DocumentProcessingIT extends AbstractIntegrationTest {
 		byte[] signed = artifacts.find(s.tenant(), document, ArtifactKind.XML_SIGNED).orElseThrow().content();
 		assertThat(verifier.verify(signed).errors()).isEmpty();
 		assertThat(new XsdValidator(new DocumentSchemas()).validate(signed, SchemaVersion.V1_1_0).errors()).isEmpty();
-		assertThat(InvoiceEnvelopeRules.check(signed, SchemaVersion.V1_1_0)).isEmpty();
+		assertThat(EnvelopeRules.check(signed, SchemaVersion.V1_1_0.schema())).isEmpty();
 		String accessKey = jdbc.queryForObject("SELECT access_key FROM fiscal_documents WHERE id = ?", String.class,
 				document);
 		String xml = new String(signed, StandardCharsets.UTF_8);

@@ -111,7 +111,7 @@ Mantener [xsd-source-registry.csv](xsd-source-registry.csv). Estados: `PENDIENTE
 - **Versión 1.1.0.** Es la que la ficha (Anexo 3) define para cantidad y precio unitario con seis decimales. Las versiones 2.0.0 y 2.1.0 añaden rubros de terceros y la factura sustitutiva de guía de remisión, que no se usan. `InvoiceXmlBuilder` escribe el XML y un test lo compara byte a byte con el esperado y lo valida contra el XSD.
 - **RUC del emisor.** El tipo `numeroRuc` del XSD es `[0-9]{10}001`: el alta de emisores exige ese formato y la base lo impone con una restricción.
 - **Leyenda de negocio popular.** La ficha (Anexo 22) admite `CONTRIBUYENTE NEGOCIO POPULAR - RÉGIMEN RIMPE`, pero el `factura_V1.1.0.xsd` del repositorio solo acepta `CONTRIBUYENTE RÉGIMEN RIMPE`. Sus facturas quedarían en `XSD_INVALID` después de consumir un secuencial, así que el alta de un emisor con `rimpeRegime=NEGOCIO_POPULAR` se rechaza con `422 RIMPE_REGIME_UNSUPPORTED`. Se habilitará cuando se contraste el XSD con el paquete oficial del SRI (tarea N1).
-- **Clave de acceso.** `InvoiceEnvelopeRules` comprueba además que `claveAcceso` sea válida y coincida con fecha, tipo, RUC, ambiente, establecimiento, punto, secuencial y tipo de emisión del mismo XML.
+- **Clave de acceso.** `EnvelopeRules` comprueba además que `claveAcceso` sea válida y coincida con fecha, tipo, RUC, ambiente, establecimiento, punto, secuencial y tipo de emisión del mismo XML.
 - **Tamaño.** Un XML de más de 320 KB (límite de envío individual de la ficha) se rechaza al generarlo.
 
 ## Fuentes oficiales y control de cambios
