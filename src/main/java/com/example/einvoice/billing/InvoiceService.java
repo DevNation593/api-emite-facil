@@ -117,7 +117,7 @@ public class InvoiceService {
 			.stream()
 			.map(payment -> new NewPayment(payment.methodCode(), payment.amount()))
 			.toList();
-		return new Preparation<>(kind, customer,
+		return Preparation.forCustomer(kind, customer,
 				new DocumentEnvelope.Totals(totals.subtotal(), totals.totalDiscount(), totals.totalTax(),
 						totals.total()),
 				null, new InvoiceBody(lines, totals.taxes(), payments));

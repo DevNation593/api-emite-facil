@@ -1902,7 +1902,9 @@ components:
                   decimales.
                 type: [string, 'null']
               discount:
-                description: Por defecto, el de la línea de la factura (o 0.00, a mano). Hasta 2 decimales.
+                description: >
+                  Por defecto, el de la línea de la factura en proporción a la cantidad (descuento original ×
+                  cantidad / cantidad original, a dos decimales), o 0.00 a mano. Hasta 2 decimales.
                 type: [string, 'null']
     IssuedDocument:
       type: object

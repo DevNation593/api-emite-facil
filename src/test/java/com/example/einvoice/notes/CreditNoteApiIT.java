@@ -123,6 +123,53 @@ class CreditNoteApiIT extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void theBuyerIsTheOneFrozenInTheInvoice() throws Exception {
+		Map<String, Object> original = jdbc.queryForMap("""
+				SELECT customer_id_type, customer_id_number, customer_name, customer_address, customer_email
+				FROM fiscal_documents WHERE id = ?
+				""", invoice);
+		// Después de la factura el cliente se edita y se archiva (borrado lógico, V17).
+		jdbc.update("""
+				UPDATE customers SET name = 'Otro Nombre', id_number = '0912345678', email = 'otro@example.test',
+				 address = 'Otra dirección', deleted_at = now() WHERE id = ?
+				""", s.customer());
+
+		UUID note = issued(creditNote(s.creditNoteJson(invoice, creditLine(1, "1"))));
+
+		Map<String, Object> noteBuyer = jdbc.queryForMap("""
+				SELECT customer_id_type, customer_id_number, customer_name, customer_address, customer_email
+				FROM fiscal_documents WHERE id = ?
+				""", note);
+		assertThat(noteBuyer).isEqualTo(original).containsEntry("customer_name", "María Pérez");
+		assertThat(row(note)).containsEntry("customer_id", s.customer());
+	}
+
+	@Test
+	void anOmittedDiscountIsProratedFromTheInvoiceLine() throws Exception {
+		// 2 × 10.00 con 1.00 de descuento (19.00 + IVA = 21.85).
+		String discountedLine = "{\"productId\":\"" + s.product() + "\",\"quantity\":\"2\",\"discount\":\"1.00\"}";
+
+		// Devolver 1 sin descuento lleva la mitad: 0.50, y 9.50 + IVA 1.43 = 10.93.
+		UUID half = issued(creditNote(s.creditNoteJson(
+				authorized(issueInvoice(s.owner(), s.invoiceJson(s.customer(), discountedLine, "21.85"))),
+				creditLine(1, "1"))));
+		assertThat(lineDiscount(half)).isEqualTo("0.50");
+		assertThat(row(half).get("total").toString()).isEqualTo("10.93");
+
+		// Devolver toda la cantidad lleva el descuento original entero.
+		UUID whole = issued(creditNote(s.creditNoteJson(
+				authorized(issueInvoice(s.owner(), s.invoiceJson(s.customer(), discountedLine, "21.85"))),
+				creditLine(1, "2"))));
+		assertThat(lineDiscount(whole)).isEqualTo("1.00");
+		assertThat(row(whole).get("total").toString()).isEqualTo("21.85");
+	}
+
+	String lineDiscount(UUID note) {
+		return jdbc.queryForObject("SELECT content->'lines'->0->>'discount' FROM fiscal_documents WHERE id = ?",
+				String.class, note);
+	}
+
+	@Test
 	void lineAboveTheOriginalIsRejected() throws Exception {
 		rejected(creditNote(s.creditNoteJson(invoice, creditLine(1, "3"))), 422, "CREDIT_LINE_EXCEEDS_INVOICE");
 		rejected(creditNote(s.creditNoteJson(invoice, "{\"invoiceLineNo\":1,\"quantity\":\"1\",\"unitPrice\":\"10.01\"}")),

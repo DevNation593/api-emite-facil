@@ -127,7 +127,8 @@ class DocumentIssuerIT extends AbstractIntegrationTest {
 		DocumentIssuer.IssueRequest request = new DocumentIssuer.IssueRequest(s.taxpayer(), "001", "001", null, null,
 				null);
 		return issuer.issue(access, idempotencyKey, requestHash, request,
-				context -> new DocumentIssuer.Preparation<>(brokenKind(), customers.get(access, s.customer()),
+				context -> DocumentIssuer.Preparation.forCustomer(brokenKind(),
+						customers.get(access, s.customer()),
 						new DocumentEnvelope.Totals(null, null, null, BigDecimal.ONE), null, new Sample("x")));
 	}
 

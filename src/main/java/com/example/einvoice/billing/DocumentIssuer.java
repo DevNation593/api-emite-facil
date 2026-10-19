@@ -66,11 +66,25 @@ public class DocumentIssuer {
 	}
 
 	/**
-	 * La parte del tipo, ya validada: el receptor (del catálogo de clientes y proveedores), los totales (o
-	 * nulo), el documento modificado (o nulo) y su contenido propio.
+	 * La parte del tipo, ya validada: el receptor (su fila del catálogo de clientes y proveedores y los datos que
+	 * el comprobante congela de él), los totales (o nulo), el documento modificado (o nulo) y su contenido
+	 * propio. Los datos del receptor pueden no ser los del catálogo de hoy: una nota copia los de su factura.
 	 */
-	public record Preparation<C>(DocumentKind<C> kind, Customer recipient, DocumentEnvelope.Totals totals,
-			DocumentEnvelope.ModifiedDocument modified, C content) {
+	public record Preparation<C>(DocumentKind<C> kind, UUID customerId, DocumentEnvelope.Recipient recipient,
+			DocumentEnvelope.Totals totals, DocumentEnvelope.ModifiedDocument modified, C content) {
+
+		/** El receptor tal como está hoy en el catálogo. */
+		public static <C> Preparation<C> forCustomer(DocumentKind<C> kind, Customer customer,
+				DocumentEnvelope.Totals totals, DocumentEnvelope.ModifiedDocument modified, C content) {
+			return new Preparation<>(kind, customer.getId(), recipientOf(customer), totals, modified, content);
+		}
+
+		/** Los datos que el comprobante congela de un cliente del catálogo. */
+		public static DocumentEnvelope.Recipient recipientOf(Customer customer) {
+			return new DocumentEnvelope.Recipient(customer.getIdType(), customer.getIdNumber(), customer.getName(),
+					customer.getAddress(), customer.getEmail());
+		}
+
 	}
 
 	private record EmissionPointRef(UUID id, boolean enabled, String establishmentAddress) {
@@ -165,22 +179,19 @@ public class DocumentIssuer {
 				request.establishmentCode(), request.emissionPointCode(), sequence, numericCodes.next(),
 				NORMAL_EMISSION)
 			.toAccessKey();
-		Customer recipient = preparation.recipient();
 		DocumentEnvelope envelope = new DocumentEnvelope(kind.type(), environment,
 				new DocumentEnvelope.Issuer(taxpayer.getLegalName(), taxpayer.getTradeName(), taxpayer.getRuc(),
 						taxpayer.getHeadOfficeAddress(), point.establishmentAddress(), taxpayer.isAccountingRequired(),
 						taxpayer.getSpecialTaxpayerCode(), taxpayer.getWithholdingAgentCode(),
 						taxpayer.getRimpeRegime().name()),
 				accessKey, request.establishmentCode(), request.emissionPointCode(), sequence, issueDate,
-				new DocumentEnvelope.Recipient(recipient.getIdType(), recipient.getIdNumber(), recipient.getName(),
-						recipient.getAddress(), recipient.getEmail()),
-				preparation.totals(), preparation.modified(), providerRuc);
+				preparation.recipient(), preparation.totals(), preparation.modified(), providerRuc);
 		// Se valida el contenido como el worker lo leerá, no el objeto en memoria.
 		requireValidXml(kind, envelope, kind.contentJson(preparation.content()) == null ? preparation.content()
 				: kind.reloaded(preparation.content()));
 
 		UUID documentId = documents.insert(new NewDocument(access.tenantId(), taxpayer.getId(), point.id(),
-				recipient.getId(), STATE_RESERVED, access.userId(), envelope, kind.contentJson(preparation.content())));
+				preparation.customerId(), STATE_RESERVED, access.userId(), envelope, kind.contentJson(preparation.content())));
 		kind.saveDetails(access.tenantId(), documentId, preparation.content());
 		documents.recordStateChange(access.tenantId(), documentId, null, STATE_RESERVED, null);
 		audit.record(access, kind.auditReserved(), "FISCAL_DOCUMENT", documentId,

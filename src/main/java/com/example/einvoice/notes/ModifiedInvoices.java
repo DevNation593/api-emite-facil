@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 
 import com.example.einvoice.billing.DocumentEnvelope;
 import com.example.einvoice.billing.FiscalDocumentRepository;
-import com.example.einvoice.billing.FiscalDocumentRepository.DocumentRow;
 import com.example.einvoice.billing.FiscalDocumentRepository.LineRow;
 import com.example.einvoice.billing.FiscalDocumentRepository.ProcessingState;
 import com.example.einvoice.tenancy.TenantAccess;
@@ -25,11 +24,11 @@ public class ModifiedInvoices {
 	private static final String AUTHORIZED = "AUTHORIZED";
 
 	/**
-	 * Lo que la nota toma de la factura: su número (EEE-PPP-SSSSSSSSS), su fecha, su total, su comprador y
-	 * sus líneas en orden.
+	 * Lo que la nota toma de la factura: su número (EEE-PPP-SSSSSSSSS), su fecha, su total, su comprador (la
+	 * fila del catálogo y los datos tal como la factura los congeló) y sus líneas en orden.
 	 */
 	public record ModifiedInvoice(UUID id, String number, LocalDate issueDate, BigDecimal total, UUID customerId,
-			List<LineRow> lines) {
+			DocumentEnvelope.Recipient buyer, List<LineRow> lines) {
 
 		public ModifiedInvoice {
 			lines = List.copyOf(lines);
@@ -82,12 +81,12 @@ public class ModifiedInvoices {
 		if (!AUTHORIZED.equals(locked.state())) {
 			throw unprocessable("MODIFIED_INVOICE_NOT_AUTHORIZED", "Solo se modifica una factura autorizada por el SRI");
 		}
-		DocumentRow invoice = documents.find(access.tenantId(), invoiceId).orElseThrow(ApiException::notFound);
+		// El comprador es el que la factura congeló: si luego se editó o se archivó el cliente, la nota no cambia.
+		DocumentEnvelope invoice = documents.envelope(access.tenantId(), invoiceId)
+			.orElseThrow(ApiException::notFound);
 		UUID customerId = documents.links(access.tenantId(), invoiceId).customerId();
-		String number = invoice.establishmentCode() + "-" + invoice.emissionPointCode() + "-"
-				+ "%09d".formatted(invoice.sequence());
-		return new ModifiedInvoice(invoiceId, number, invoice.issueDate(), invoice.total(), customerId,
-				documents.lines(access.tenantId(), invoiceId));
+		return new ModifiedInvoice(invoiceId, invoice.number(), invoice.issueDate(), invoice.totals().total(),
+				customerId, invoice.recipient(), documents.lines(access.tenantId(), invoiceId));
 	}
 
 	/**

@@ -1,6 +1,7 @@
 package com.example.einvoice.notes;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -45,7 +46,8 @@ public class CreditNoteService {
 
 	/**
 	 * Una línea pedida: con factura de la plataforma, invoiceLineNo y sin productId; a mano, productId y sin
-	 * invoiceLineNo. Precio y descuento nulos toman los de la línea original (o del producto y cero, a mano).
+	 * invoiceLineNo. Precio nulo toma el de la línea original y descuento nulo, el original en proporción a la
+	 * cantidad (a mano, el precio del producto y cero).
 	 */
 	public record CreditLineCommand(Integer invoiceLineNo, UUID productId, BigDecimal quantity, BigDecimal unitPrice,
 			BigDecimal discount) {
@@ -138,8 +140,8 @@ public class CreditNoteService {
 			}
 			originals.add(original);
 			inputs.add(new InvoiceLineInput(line.quantity(), unitPrice,
-					line.discount() == null ? original.discount() : line.discount(), original.taxRateCode(),
-					original.taxRate()));
+					line.discount() == null ? proratedDiscount(original, line.quantity()) : line.discount(),
+					original.taxRateCode(), original.taxRate()));
 		}
 		InvoiceTotals totals = CatalogLines.calculate(inputs);
 		BigDecimal credited = documents.creditedTotal(access.tenantId(), invoice.id());
@@ -148,15 +150,14 @@ public class CreditNoteService {
 					"Las notas de crédito de la factura superarían su total; saldo disponible: "
 							+ invoice.total().subtract(credited).toPlainString());
 		}
-		Customer buyer = customers.get(access, invoice.customerId());
-
 		List<CreditNoteContent.Line> lines = new ArrayList<>();
 		for (int i = 0; i < inputs.size(); i++) {
 			LineRow original = originals.get(i);
 			lines.add(line(original.lineNo(), original.productId(), original.mainCode(), original.description(),
 					original.taxCode(), inputs.get(i), totals.lines().get(i)));
 		}
-		return preparation(buyer, totals, invoice.modifiedDocument(), command.reason(), lines);
+		return preparation(invoice.customerId(), invoice.buyer(), totals, invoice.modifiedDocument(),
+				command.reason(), lines);
 	}
 
 	/** Sobre una factura escrita a mano: el cliente y las líneas salen del catálogo, como en la factura. */
@@ -178,7 +179,8 @@ public class CreditNoteService {
 			lines.add(line(null, product.getId(), product.getSku(), product.getName(), CatalogRepository.IVA_TAX_CODE,
 					resolved.get(i).input(), totals.lines().get(i)));
 		}
-		return preparation(buyer, totals, written.modifiedDocument(), command.reason(), lines);
+		return preparation(buyer.getId(), Preparation.recipientOf(buyer), totals, written.modifiedDocument(),
+				command.reason(), lines);
 	}
 
 	private static CreditNoteContent.Line line(Integer invoiceLineNo, UUID productId, String mainCode,
@@ -188,11 +190,20 @@ public class CreditNoteService {
 				amounts.taxAmount());
 	}
 
+	/**
+	 * Descuento por omisión de una línea tomada de la factura: el original en proporción a la cantidad que se
+	 * devuelve, a dos decimales (el original entero si se devuelve toda la cantidad).
+	 */
+	static BigDecimal proratedDiscount(LineRow original, BigDecimal quantity) {
+		return original.discount().multiply(quantity).divide(original.quantity(), 2, RoundingMode.HALF_UP);
+	}
+
 	/** El total de la nota es su valorModificacion. */
-	private Preparation<CreditNoteContent> preparation(Customer buyer, InvoiceTotals totals,
-			DocumentEnvelope.ModifiedDocument modified, String reason, List<CreditNoteContent.Line> lines) {
+	private Preparation<CreditNoteContent> preparation(UUID customerId, DocumentEnvelope.Recipient buyer,
+			InvoiceTotals totals, DocumentEnvelope.ModifiedDocument modified, String reason,
+			List<CreditNoteContent.Line> lines) {
 		List<NoteTax> taxes = totals.taxes().stream().map(CreditNoteService::noteTax).toList();
-		return new Preparation<>(kind, buyer,
+		return new Preparation<>(kind, customerId, buyer,
 				new DocumentEnvelope.Totals(totals.subtotal(), totals.totalDiscount(), totals.totalTax(),
 						totals.total()),
 				modified, new CreditNoteContent(reason, lines, taxes));
