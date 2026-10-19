@@ -1,6 +1,7 @@
 package com.example.einvoice.billing;
 
 import java.math.BigDecimal;
+import java.sql.Types;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -19,14 +20,12 @@ import com.example.einvoice.xml.DocumentType;
 @Repository
 public class FiscalDocumentRepository {
 
-	public record NewDocument(UUID tenantId, UUID taxpayerId, UUID emissionPointId, UUID customerId,
-			String documentType, String environment, String issuerRuc, String establishmentCode,
-			String emissionPointCode, int sequence, String accessKey, String state, LocalDate issueDate,
-			String currency, String customerIdType, String customerIdNumber, String customerName,
-			String customerAddress, String customerEmail, InvoiceTotals totals, UUID createdBy,
-			String issuerLegalName, String issuerTradeName, String issuerHeadOfficeAddress,
-			String establishmentAddress, boolean issuerAccountingRequired, String issuerSpecialTaxpayerCode,
-			String issuerWithholdingAgentCode, String issuerRimpeRegime, String providerRuc) {
+	/**
+	 * Sobre de un comprobante nuevo, tal como se generó y validó su XML. contentJson es el contenido propio del
+	 * tipo para la columna content; nulo en la factura.
+	 */
+	public record NewDocument(UUID tenantId, UUID taxpayerId, UUID emissionPointId, UUID customerId, String state,
+			UUID createdBy, DocumentEnvelope envelope, String contentJson) {
 	}
 
 	public record NewLine(UUID productId, String mainCode, String description, BigDecimal quantity,
@@ -68,59 +67,72 @@ public class FiscalDocumentRepository {
 		this.jdbc = jdbc;
 	}
 
-	public UUID insert(NewDocument document, List<NewLine> lines, List<NewPayment> payments) {
-		UUID id = jdbc.sql("""
+	/**
+	 * Inserta el sobre y devuelve el id. La moneda es siempre USD: la emisión no admite otra. Las tablas
+	 * propias del tipo (las de la factura) se llenan después, con {@link DocumentKind#saveDetails}.
+	 */
+	public UUID insert(NewDocument document) {
+		DocumentEnvelope envelope = document.envelope();
+		DocumentEnvelope.Issuer issuer = envelope.issuer();
+		DocumentEnvelope.Recipient recipient = envelope.recipient();
+		DocumentEnvelope.Totals totals = envelope.totals();
+		DocumentEnvelope.ModifiedDocument modified = envelope.modified();
+		return jdbc.sql("""
 				INSERT INTO fiscal_documents (tenant_id, taxpayer_id, emission_point_id, customer_id, document_type,
 				 environment, issuer_ruc, establishment_code, emission_point_code, sequence, access_key, state,
 				 issue_date, currency, customer_id_type, customer_id_number, customer_name, customer_address,
 				 customer_email, subtotal, total_discount, total_tax, total, created_by, issuer_legal_name,
 				 issuer_trade_name, issuer_head_office_address, establishment_address, issuer_accounting_required,
-				 issuer_special_taxpayer_code, issuer_withholding_agent_code, issuer_rimpe_regime, provider_ruc)
+				 issuer_special_taxpayer_code, issuer_withholding_agent_code, issuer_rimpe_regime, provider_ruc,
+				 modified_document_id, modified_doc_code, modified_doc_number, modified_doc_date, content)
 				VALUES (:tenantId, :taxpayerId, :emissionPointId, :customerId, :documentType, :environment,
 				 :issuerRuc, :establishmentCode, :emissionPointCode, :sequence, :accessKey, :state, :issueDate,
-				 :currency, :customerIdType, :customerIdNumber, :customerName, :customerAddress, :customerEmail,
+				 'USD', :customerIdType, :customerIdNumber, :customerName, :customerAddress, :customerEmail,
 				 :subtotal, :totalDiscount, :totalTax, :total, :createdBy, :issuerLegalName, :issuerTradeName,
 				 :issuerHeadOfficeAddress, :establishmentAddress, :issuerAccountingRequired,
-				 :issuerSpecialTaxpayerCode, :issuerWithholdingAgentCode, :issuerRimpeRegime, :providerRuc)
+				 :issuerSpecialTaxpayerCode, :issuerWithholdingAgentCode, :issuerRimpeRegime, :providerRuc,
+				 :modifiedDocumentId, :modifiedDocCode, :modifiedDocNumber, :modifiedDocDate, CAST(:content AS jsonb))
 				RETURNING id
 				""")
 			.param("tenantId", document.tenantId())
 			.param("taxpayerId", document.taxpayerId())
 			.param("emissionPointId", document.emissionPointId())
 			.param("customerId", document.customerId())
-			.param("documentType", document.documentType())
-			.param("environment", document.environment())
-			.param("issuerRuc", document.issuerRuc())
-			.param("establishmentCode", document.establishmentCode())
-			.param("emissionPointCode", document.emissionPointCode())
-			.param("sequence", document.sequence())
-			.param("accessKey", document.accessKey())
+			.param("documentType", envelope.type().code())
+			.param("environment", envelope.environment())
+			.param("issuerRuc", issuer.ruc())
+			.param("establishmentCode", envelope.establishmentCode())
+			.param("emissionPointCode", envelope.emissionPointCode())
+			.param("sequence", envelope.sequence())
+			.param("accessKey", envelope.accessKey())
 			.param("state", document.state())
-			.param("issueDate", document.issueDate())
-			.param("currency", document.currency())
-			.param("customerIdType", document.customerIdType())
-			.param("customerIdNumber", document.customerIdNumber())
-			.param("customerName", document.customerName())
-			.param("customerAddress", document.customerAddress())
-			.param("customerEmail", document.customerEmail())
-			.param("subtotal", document.totals().subtotal())
-			.param("totalDiscount", document.totals().totalDiscount())
-			.param("totalTax", document.totals().totalTax())
-			.param("total", document.totals().total())
+			.param("issueDate", envelope.issueDate())
+			.param("customerIdType", recipient.idType())
+			.param("customerIdNumber", recipient.idNumber())
+			.param("customerName", recipient.name())
+			.param("customerAddress", recipient.address())
+			.param("customerEmail", recipient.email())
+			.param("subtotal", totals == null ? null : totals.subtotal(), Types.NUMERIC)
+			.param("totalDiscount", totals == null ? null : totals.totalDiscount(), Types.NUMERIC)
+			.param("totalTax", totals == null ? null : totals.totalTax(), Types.NUMERIC)
+			.param("total", totals == null ? null : totals.total(), Types.NUMERIC)
 			.param("createdBy", document.createdBy())
-			.param("issuerLegalName", document.issuerLegalName())
-			.param("issuerTradeName", document.issuerTradeName())
-			.param("issuerHeadOfficeAddress", document.issuerHeadOfficeAddress())
-			.param("establishmentAddress", document.establishmentAddress())
-			.param("issuerAccountingRequired", document.issuerAccountingRequired())
-			.param("issuerSpecialTaxpayerCode", document.issuerSpecialTaxpayerCode())
-			.param("issuerWithholdingAgentCode", document.issuerWithholdingAgentCode())
-			.param("issuerRimpeRegime", document.issuerRimpeRegime())
-			.param("providerRuc", document.providerRuc())
+			.param("issuerLegalName", issuer.legalName())
+			.param("issuerTradeName", issuer.tradeName())
+			.param("issuerHeadOfficeAddress", issuer.headOfficeAddress())
+			.param("establishmentAddress", issuer.establishmentAddress())
+			.param("issuerAccountingRequired", issuer.accountingRequired())
+			.param("issuerSpecialTaxpayerCode", issuer.specialTaxpayerCode())
+			.param("issuerWithholdingAgentCode", issuer.withholdingAgentCode())
+			.param("issuerRimpeRegime", issuer.rimpeRegime())
+			.param("providerRuc", envelope.providerRuc())
+			.param("modifiedDocumentId", modified == null ? null : modified.documentId(), Types.OTHER)
+			.param("modifiedDocCode", modified == null ? null : modified.code(), Types.VARCHAR)
+			.param("modifiedDocNumber", modified == null ? null : modified.number(), Types.VARCHAR)
+			.param("modifiedDocDate", modified == null ? null : modified.issueDate(), Types.DATE)
+			.param("content", document.contentJson(), Types.VARCHAR)
 			.query(UUID.class)
 			.single();
-		insertInvoiceBody(document.tenantId(), id, new InvoiceBody(lines, document.totals().taxes(), payments));
-		return id;
 	}
 
 	/** Líneas, impuestos por tarifa y pagos de una factura ya insertada; las líneas y los pagos se numeran desde 1. */
@@ -194,11 +206,12 @@ public class FiscalDocumentRepository {
 	}
 
 	/** Lo que el procesamiento necesita saber del documento. version cambia con cada transición. */
-	public record ProcessingState(String state, UUID taxpayerId, String environment, String accessKey,
-			int attemptCount, long version) {
+	public record ProcessingState(String state, UUID taxpayerId, String documentType, String environment,
+			String accessKey, int attemptCount, long version) {
 	}
 
-	private static final String PROCESSING_COLUMNS = "state, taxpayer_id, environment, access_key, attempt_count, version";
+	private static final String PROCESSING_COLUMNS = "state, taxpayer_id, document_type, environment, access_key,"
+			+ " attempt_count, version";
 
 	/**
 	 * Bloquea el documento hasta el final de la transacción en curso y devuelve su estado: dos

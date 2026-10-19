@@ -133,7 +133,7 @@ class InvoiceApiIT extends AbstractIntegrationTest {
 		var outbox = jdbc.queryForMap(
 				"SELECT event_type, payload::text AS payload, dispatched_at FROM outbox_events WHERE aggregate_id = ?",
 				id);
-		assertThat(outbox.get("event_type")).isEqualTo("INVOICE_RESERVED");
+		assertThat(outbox.get("event_type")).isEqualTo("DOCUMENT_RESERVED");
 		assertThat(outbox.get("dispatched_at")).isNull();
 		assertThat(JsonPath.<java.util.Map<String, Object>>read((String) outbox.get("payload"), "$"))
 			.containsOnlyKeys("documentId")
