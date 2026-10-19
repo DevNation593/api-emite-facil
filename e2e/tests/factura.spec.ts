@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { expect, test } from "../support/fixtures.ts";
+import { selectCatalog } from "../support/catalog.ts";
 import { waitForMail } from "../support/mail.ts";
 import { listDocuments, seedCompany, seedCustomer, seedProduct, type Company, type Customer, type Product } from "../support/seed.ts";
 
@@ -17,8 +18,8 @@ test.beforeEach(async ({ page }) => {
 /** Rellena el editor: el cliente y una línea con dos unidades del producto. */
 async function writeInvoice(page: import("@playwright/test").Page): Promise<void> {
   await page.goto("/facturas/nueva");
-  await page.getByLabel("Cliente", { exact: true }).selectOption(customer.id);
-  await page.getByLabel("Producto de la línea 1").selectOption(product.id);
+  await selectCatalog(page, "Cliente", customer);
+  await selectCatalog(page, "Producto de la línea 1", product);
   await page.getByLabel("Cantidad de la línea 1").fill("2");
 }
 
