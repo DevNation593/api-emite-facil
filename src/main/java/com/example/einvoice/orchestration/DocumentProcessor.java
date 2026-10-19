@@ -2,15 +2,18 @@ package com.example.einvoice.orchestration;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
+import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.einvoice.billing.DocumentEnvelope;
+import com.example.einvoice.billing.DocumentKind;
+import com.example.einvoice.billing.DocumentKinds;
+import com.example.einvoice.billing.DocumentXmlCheck;
 import com.example.einvoice.billing.FiscalDocumentRepository;
 import com.example.einvoice.billing.FiscalDocumentRepository.ProcessingState;
 import com.example.einvoice.certificate.CertificateRejectedException;
@@ -23,15 +26,13 @@ import com.example.einvoice.signature.XmlSigner;
 import com.example.einvoice.storage.ArtifactKind;
 import com.example.einvoice.storage.ArtifactStore;
 import com.example.einvoice.web.ApiException;
-import com.example.einvoice.xml.EnvelopeViolation;
-import com.example.einvoice.xml.EnvelopeRules;
-import com.example.einvoice.xml.InvoiceXmlBuilder;
-import com.example.einvoice.xml.InvoiceXmlData;
-import com.example.einvoice.xml.ValidationResult;
-import com.example.einvoice.xml.XsdValidator;
+import com.example.einvoice.xml.DocumentSchema;
+import com.example.einvoice.xml.DocumentType;
+
+import tools.jackson.core.JacksonException;
 
 /**
- * Lleva una factura de RESERVED a SIGNED: genera el XML desde los datos congelados, lo valida, lo
+ * Lleva un comprobante de RESERVED a SIGNED: genera el XML con la pieza de su tipo, lo valida, lo
  * firma y guarda ambos XML como artefactos. Es reentrante: se puede llamar de nuevo sobre el mismo
  * documento sin repetir trabajo ni duplicar artefactos, y reintenta la firma si antes no fue posible.
  */
@@ -50,14 +51,13 @@ public class DocumentProcessor {
 
 	public static final String SIGNATURE_FAILED = "SIGNATURE_FAILED";
 
-	/** Tamaño máximo de un comprobante en el envío individual al SRI (ficha técnica, sección 7). */
-	private static final int MAX_XML_BYTES = 320 * 1024;
-
 	private static final int MAX_REASON_LENGTH = 500;
 
 	private final FiscalDocumentRepository documents;
 
-	private final XsdValidator validator;
+	private final DocumentKinds kinds;
+
+	private final DocumentXmlCheck xmlCheck;
 
 	private final CertificateService certificates;
 
@@ -67,10 +67,11 @@ public class DocumentProcessor {
 
 	private final ArtifactStore artifacts;
 
-	public DocumentProcessor(FiscalDocumentRepository documents, XsdValidator validator,
+	public DocumentProcessor(FiscalDocumentRepository documents, DocumentKinds kinds, DocumentXmlCheck xmlCheck,
 			CertificateService certificates, XmlSigner signer, XadesVerifier verifier, ArtifactStore artifacts) {
 		this.documents = documents;
-		this.validator = validator;
+		this.kinds = kinds;
+		this.xmlCheck = xmlCheck;
 		this.certificates = certificates;
 		this.signer = signer;
 		this.verifier = verifier;
@@ -92,22 +93,51 @@ public class DocumentProcessor {
 	}
 
 	private String generate(UUID tenantId, UUID documentId) {
-		InvoiceXmlData data = documents.xmlData(tenantId, documentId).orElseThrow(ApiException::notFound);
+		DocumentEnvelope envelope = documents.envelope(tenantId, documentId).orElseThrow(ApiException::notFound);
+		Optional<DocumentKind<?>> found = kinds.find(envelope.type());
+		if (found.isEmpty()) {
+			return fail(tenantId, documentId, RESERVED, XSD_INVALID, "DOCUMENT_TYPE_NOT_SUPPORTED");
+		}
+		DocumentKind<?> kind = found.get();
 		byte[] xml;
 		try {
-			xml = InvoiceXmlBuilder.build(data);
+			xml = build(kind, tenantId, documentId, envelope);
+		}
+		catch (UnreadableContentException ex) {
+			log.error("El contenido del documento {} no se pudo leer", documentId, ex.getCause());
+			return fail(tenantId, documentId, RESERVED, XSD_INVALID, "CONTENT_UNREADABLE");
 		}
 		catch (IllegalArgumentException ex) {
 			return fail(tenantId, documentId, RESERVED, XSD_INVALID, ex.getMessage());
 		}
-		String problem = problemWith(xml);
-		if (problem != null) {
-			return fail(tenantId, documentId, RESERVED, XSD_INVALID, problem);
+		Optional<String> problem = xmlCheck.problem(xml, kind.schema());
+		if (problem.isPresent()) {
+			return fail(tenantId, documentId, RESERVED, XSD_INVALID, problem.get());
 		}
 		artifacts.save(tenantId, documentId, ArtifactKind.XML_UNSIGNED, xml);
-		documents.setSchemaVersion(tenantId, documentId, InvoiceXmlBuilder.VERSION.value());
+		documents.setSchemaVersion(tenantId, documentId, kind.schema().version());
 		documents.transition(tenantId, documentId, RESERVED, GENERATED, null);
 		return GENERATED;
+	}
+
+	private <C> byte[] build(DocumentKind<C> kind, UUID tenantId, UUID documentId, DocumentEnvelope envelope) {
+		C content;
+		try {
+			content = kind.loadContent(tenantId, documentId);
+		}
+		catch (JacksonException | IllegalStateException ex) {
+			throw new UnreadableContentException(ex);
+		}
+		return kind.buildXml(envelope, content);
+	}
+
+	/** El contenido propio del comprobante no existe o no encaja en el tipo. */
+	private static final class UnreadableContentException extends RuntimeException {
+
+		UnreadableContentException(Throwable cause) {
+			super(cause);
+		}
+
 	}
 
 	private String sign(UUID tenantId, UUID documentId, UUID taxpayerId, String from) {
@@ -135,7 +165,7 @@ public class DocumentProcessor {
 		}
 		// Nada se da por firmado sin comprobarlo: la firma debe verificar y el XML seguir siendo válido.
 		SignatureVerification verification = verifier.verify(signed);
-		if (!verification.valid() || problemWith(signed) != null) {
+		if (!verification.valid() || xmlCheck.problem(signed, schemaOf(tenantId, documentId)).isPresent()) {
 			return fail(tenantId, documentId, from, SIGNATURE_FAILED, "SIGNATURE_NOT_VERIFIABLE");
 		}
 		artifacts.save(tenantId, documentId, ArtifactKind.XML_SIGNED, signed);
@@ -143,20 +173,12 @@ public class DocumentProcessor {
 		return SIGNED;
 	}
 
-	/** Nulo si el XML cumple su XSD, las reglas que el XSD no cubre y el tamaño máximo de envío. */
-	private String problemWith(byte[] xml) {
-		if (xml.length > MAX_XML_BYTES) {
-			return "El XML supera el tamaño máximo de envío de 320 KB";
-		}
-		ValidationResult result = validator.validate(xml, InvoiceXmlBuilder.VERSION);
-		if (!result.valid()) {
-			return String.join("; ", result.errors());
-		}
-		Set<EnvelopeViolation> violations = EnvelopeRules.check(xml, InvoiceXmlBuilder.VERSION.schema());
-		if (!violations.isEmpty()) {
-			return violations.stream().map(Enum::name).sorted().collect(Collectors.joining(", "));
-		}
-		return null;
+	/** Esquema con que se generó el documento: su tipo y la versión guardada al generarlo. */
+	private DocumentSchema schemaOf(UUID tenantId, UUID documentId) {
+		DocumentType type = documents.envelope(tenantId, documentId).orElseThrow(ApiException::notFound).type();
+		String version = documents.schemaVersion(tenantId, documentId)
+			.orElseThrow(() -> new IllegalStateException("Documento generado sin versión de esquema: " + documentId));
+		return DocumentSchema.of(type, version);
 	}
 
 	/**

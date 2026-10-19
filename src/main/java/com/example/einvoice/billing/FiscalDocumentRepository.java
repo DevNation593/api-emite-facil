@@ -296,6 +296,15 @@ public class FiscalDocumentRepository {
 			.optional();
 	}
 
+	/** Versión del esquema con que se generó el documento; vacío si aún no se generó. */
+	public Optional<String> schemaVersion(UUID tenantId, UUID documentId) {
+		return jdbc.sql("SELECT schema_version FROM fiscal_documents WHERE id = :id AND tenant_id = :tenantId")
+			.param("id", documentId)
+			.param("tenantId", tenantId)
+			.query(String.class)
+			.optional();
+	}
+
 	public void setSchemaVersion(UUID tenantId, UUID documentId, String schemaVersion) {
 		jdbc.sql("UPDATE fiscal_documents SET schema_version = :version WHERE id = :id AND tenant_id = :tenantId")
 			.param("version", schemaVersion)
