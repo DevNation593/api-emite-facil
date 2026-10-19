@@ -11,11 +11,11 @@ sequenceDiagram
  participant S as SRI SOAP
  participant O as S3/MinIO
  U->>A: POST /invoices (Idempotency-Key)
- A->>D: Tx: validar, reservar secuencia, crear, outbox
+ A->>D: Tx: validar, reservar secuencia, generar y validar XML, crear, outbox (DOCUMENT_RESERVED)
  A-->>U: 202 Accepted + documentId
  D-->>Q: Outbox publisher
  Q->>W: Issue(documentId)
- W->>W: XML/XSD + XAdES
+ W->>W: XML/XSD (de nuevo) + XAdES
  W->>O: XML firmado
  W->>S: validarComprobante(xml)
  S-->>W: RECIBIDA / DEVUELTA
@@ -34,7 +34,7 @@ Camino normal: `RESERVED -> GENERATED -> SIGNED -> SENDING -> RECEIVED -> AUTHOR
 `DRAFT` es opcional y solo lo usa el editor del frontend: un borrador no tiene secuencial ni clave de acceso. Ambos se asignan en la misma transacción al pasar a `RESERVED` (doc 04). `POST /invoices` no pasa por `DRAFT`: valida y crea el documento directamente en `RESERVED`.
 
 ## Estado de implementación
-Está implementado el primer tramo del diagrama: `POST /invoices` valida, calcula, reserva el secuencial con bloqueo de fila, genera la clave de acceso y confirma en **una transacción** el documento en `RESERVED` con sus líneas, totales y pagos, el evento de estado (`NULL → RESERVED`), la auditoría, el registro de idempotencia y un evento `INVOICE_RESERVED` en `outbox_events`. Si cualquier validación falla no queda nada: ni documento, ni secuencial consumido, ni evento.
+Está implementado el primer tramo del diagrama: `POST /invoices` valida, calcula, reserva el secuencial con bloqueo de fila, genera la clave de acceso, **genera y valida el XML contra el XSD en la misma emisión** (la fila del secuencial sigue bloqueada mientras se construye y valida el XML, hasta confirmar; si no es válido responde `422 DOCUMENT_XML_INVALID` y no queda nada) y confirma en **una transacción** el documento en `RESERVED` con sus líneas, totales y pagos, el evento de estado (`NULL → RESERVED`), la auditoría, el registro de idempotencia y un evento `DOCUMENT_RESERVED` en `outbox_events` (el mismo para todos los tipos; la auditoría de la factura sigue llamándose `INVOICE_RESERVED`). El worker vuelve a validar el XML al generarlo. Si cualquier validación falla no queda nada: ni documento, ni secuencial consumido, ni evento.
 
 También está implementado el tramo siguiente, como servicio (`DocumentProcessor.generateAndSign`): genera el XML versión 1.1.0 desde los datos congelados, lo valida contra el XSD y las reglas adicionales, lo guarda (`XML_UNSIGNED`) y pasa a `GENERATED`; después lo firma en XAdES-BES con el certificado activo del emisor, verifica la firma, guarda el XML firmado (`XML_SIGNED`) y pasa a `SIGNED`. Si el XML no es válido el documento queda en `XSD_INVALID` con el motivo; si no hay certificado utilizable o la firma no verifica, en `SIGNATURE_FAILED`, desde donde se puede reintentar. Es reentrante y bloquea el documento, de modo que procesarlo dos veces o en paralelo produce un solo XML firmado.
 

@@ -913,7 +913,8 @@ paths:
             Regla fiscal incumplida. errorCode: UNSUPPORTED_CURRENCY, INVALID_ISSUE_DATE,
             EMISSION_POINT_DISABLED, INVALID_LINE, AMOUNT_TOO_LARGE, TAX_RATE_UNKNOWN,
             PAYMENT_METHOD_UNKNOWN, INVALID_PAYMENT, PAYMENTS_MISMATCH,
-            FINAL_CONSUMER_LIMIT_EXCEEDED o SEQUENCE_EXHAUSTED.
+            FINAL_CONSUMER_LIMIT_EXCEEDED, SEQUENCE_EXHAUSTED o DOCUMENT_XML_INVALID (el XML generado
+            no pasó el esquema del SRI; no se consume secuencial).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -929,6 +930,11 @@ paths:
         - $ref: '#/components/parameters/TenantId'
         - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
         - { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - name: documentType
+          in: query
+          required: false
+          description: Solo los comprobantes de este tipo; sin él salen todos. Un código desconocido responde 400.
+          schema: { $ref: '#/components/schemas/DocumentTypeCode' }
       responses:
         '200':
           description: Página de comprobantes.
@@ -1643,6 +1649,14 @@ components:
       type: string
       pattern: '^[0-9]+(\.[0-9]+)?$'
       description: Importe o cantidad como cadena decimal, para no perder precisión.
+    NullableDecimal:
+      type: [string, 'null']
+      pattern: '^[0-9]+(\.[0-9]+)?$'
+      description: Importe como cadena decimal; nulo en los comprobantes que no llevan totales (guía de remisión).
+    DocumentTypeCode:
+      type: string
+      enum: ['01', '03', '04', '05', '06', '07']
+      description: Código del SRI. 01 factura, 03 liquidación de compra, 04 nota de crédito, 05 nota de débito, 06 guía de remisión, 07 retención.
     TaxRate:
       type: object
       required: [taxCode, rateCode, description, rate]
@@ -1754,7 +1768,7 @@ components:
           description: >
             Comprobante de la misma empresa y del mismo emisor, en estado RETURNED, NOT_AUTHORIZED o
             XSD_INVALID, al que esta factura reemplaza. La nueva lleva su propio secuencial y su propia
-            clave; el reemplazado no cambia. 409 REPLACED_DOCUMENT_NOT_REJECTED si está en otro estado,
+            clave; el reemplazado no cambia. 409 REPLACED_DOCUMENT_OTHER_TYPE si es de otro tipo, 409 REPLACED_DOCUMENT_NOT_REJECTED si está en otro estado,
             409 REPLACED_DOCUMENT_OTHER_ISSUER si es de otro emisor y 409 DOCUMENT_ALREADY_REPLACED si
             ya tiene reemplazo.
     IssuedDocument:
@@ -1771,12 +1785,12 @@ components:
       required: [id, documentType, state, number, issueDate, customerName, total]
       properties:
         id: { type: string, format: uuid }
-        documentType: { type: string }
+        documentType: { $ref: '#/components/schemas/DocumentTypeCode' }
         state: { $ref: '#/components/schemas/DocumentState' }
         number: { type: string, description: 'establecimiento-punto-secuencial, por ejemplo 001-002-000000123.' }
         issueDate: { type: string, format: date }
         customerName: { type: string }
-        total: { $ref: '#/components/schemas/Decimal' }
+        total: { $ref: '#/components/schemas/NullableDecimal' }
     DocumentState:
       type: string
       description: >
@@ -1856,7 +1870,7 @@ components:
                  customer, subtotal, totalDiscount, taxes, totalTax, total, lines, payments]
       properties:
         id: { type: string, format: uuid }
-        documentType: { type: string }
+        documentType: { $ref: '#/components/schemas/DocumentTypeCode' }
         state: { $ref: '#/components/schemas/DocumentState' }
         environment: { type: string, enum: ['1', '2'] }
         taxpayerId: { type: string, format: uuid }
@@ -1891,8 +1905,8 @@ components:
             idType: { type: string }
             idNumber: { type: string }
             name: { type: string }
-        subtotal: { $ref: '#/components/schemas/Decimal' }
-        totalDiscount: { $ref: '#/components/schemas/Decimal' }
+        subtotal: { $ref: '#/components/schemas/NullableDecimal' }
+        totalDiscount: { $ref: '#/components/schemas/NullableDecimal' }
         taxes:
           type: array
           items:
@@ -1904,8 +1918,8 @@ components:
               rate: { $ref: '#/components/schemas/Decimal' }
               base: { $ref: '#/components/schemas/Decimal' }
               amount: { $ref: '#/components/schemas/Decimal' }
-        totalTax: { $ref: '#/components/schemas/Decimal' }
-        total: { $ref: '#/components/schemas/Decimal' }
+        totalTax: { $ref: '#/components/schemas/NullableDecimal' }
+        total: { $ref: '#/components/schemas/NullableDecimal' }
         lines:
           type: array
           items:

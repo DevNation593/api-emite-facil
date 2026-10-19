@@ -15,6 +15,8 @@ Los XSD y XML de ejemplo están físicamente en el repositorio. Todos fueron apo
 
 Hoy solo se emite la factura. Los demás tipos tienen el XSD empacado y compilando, pero todavía no se generan ni se envían al SRI.
 
+Versión que emitirá cada tipo: factura `1.1.0`, liquidación `1.1.0`, nota de crédito `1.1.0`, nota de débito `1.0.0`, guía de remisión `1.1.0` y retención `2.0.0`. Cada tipo se habilita con su propio PR.
+
 - Fuente oficial: los paquetes «XML y XSD» de cada comprobante en [SRI — Facturación electrónica](https://www.sri.gob.ec/facturacion-electronica); el de factura es [este ZIP](https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/05546998-6f29-4870-be3b-62650f312a6c/XML%20y%20XSD%20Factura.zip) (versiones `1.0.0` a `2.1.0`, actualizado a febrero 2022).
 - Fuente normativa: [Ficha técnica 2.34 (julio 2026)](https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/f8d9bb36-5632-4f96-b463-b9265b55338c/FICHA%20TE%CC%81CNICA%20COMPROBANTES%20ELECTRO%CC%81NICOS%20ESQUEMA%20OFFLINE%20Versio%CC%81n%202.34.pdf).
 - Dependencia: `xmldsig-core-schema.xsd` ([especificación W3C XML Signature](https://www.w3.org/TR/xmldsig-core/#sec-Schema)), cabecera `Revision 1.2, 2013/04/16`, `targetNamespace` `http://www.w3.org/2000/09/xmldsig#`.

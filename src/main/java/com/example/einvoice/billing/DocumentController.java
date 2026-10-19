@@ -1,11 +1,13 @@
 package com.example.einvoice.billing;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,6 +20,7 @@ import com.example.einvoice.tenancy.TenantAccess;
 import com.example.einvoice.web.ApiException;
 import com.example.einvoice.web.Decimals;
 import com.example.einvoice.web.PageResponse;
+import com.example.einvoice.xml.DocumentType;
 
 /** Consulta de comprobantes. Los importes salen como cadenas decimales. */
 @RestController
@@ -49,7 +52,7 @@ public class DocumentController {
 
 		static DocumentSummary of(DocumentRow row) {
 			return new DocumentSummary(row.id(), row.documentType(), row.state(), formatNumber(row), row.issueDate(),
-					row.customerName(), Decimals.format(row.total(), 2));
+					row.customerName(), money(row.total()));
 		}
 
 	}
@@ -85,8 +88,8 @@ public class DocumentController {
 		return new DocumentView(row.id(), row.documentType(), row.state(), row.environment(), row.taxpayerId(),
 				formatNumber(row), formatSequence(row), row.accessKey(), row.issueDate(), row.currency(),
 				new CustomerView(row.customerIdType(), row.customerIdNumber(), row.customerName()),
-				Decimals.format(row.subtotal(), 2), Decimals.format(row.totalDiscount(), 2), taxes,
-				Decimals.format(row.totalTax(), 2), Decimals.format(row.total(), 2), lines, payments,
+				money(row.subtotal()), money(row.totalDiscount()), taxes,
+				money(row.totalTax()), money(row.total()), lines, payments,
 				row.authorizationNumber(), row.authorizedAt() == null ? null : row.authorizedAt().toInstant(),
 				links.customerId(), links.replacesDocumentId(), links.replacedByDocumentId());
 	}
@@ -94,13 +97,31 @@ public class DocumentController {
 	@GetMapping
 	@Transactional(readOnly = true)
 	public PageResponse<DocumentSummary> list(TenantAccess access, @RequestParam(defaultValue = "0") int page,
-			@RequestParam(defaultValue = "20") int size) {
+			@RequestParam(defaultValue = "20") int size, @RequestParam(required = false) String documentType) {
 		PageResponse.request(page, size);
-		List<DocumentSummary> items = documents.page(access.tenantId(), page, size)
+		DocumentType type = parseType(documentType);
+		List<DocumentSummary> items = documents.page(access.tenantId(), type, page, size)
 			.stream()
 			.map(DocumentSummary::of)
 			.toList();
-		return new PageResponse<>(items, page, size, documents.count(access.tenantId()));
+		return new PageResponse<>(items, page, size, documents.count(access.tenantId(), type));
+	}
+
+	/** Los totales son opcionales (la guía de remisión no los lleva): nulo sale como nulo. */
+	private static String money(BigDecimal value) {
+		return value == null ? null : Decimals.format(value, 2);
+	}
+
+	private static DocumentType parseType(String code) {
+		if (code == null) {
+			return null;
+		}
+		try {
+			return DocumentType.of(code);
+		}
+		catch (IllegalArgumentException e) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "Tipo de comprobante desconocido");
+		}
 	}
 
 	private static String formatSequence(DocumentRow row) {

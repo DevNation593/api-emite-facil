@@ -2,11 +2,13 @@ package com.example.einvoice.billing;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -19,6 +21,7 @@ import com.example.einvoice.sequence.AccessKey;
 import com.example.einvoice.sequence.FiscalClock;
 import com.example.einvoice.support.AbstractIntegrationTest;
 import com.example.einvoice.support.BillingScenario;
+import com.example.einvoice.support.TestData;
 import com.jayway.jsonpath.JsonPath;
 
 class InvoiceApiIT extends AbstractIntegrationTest {
@@ -400,6 +403,47 @@ class InvoiceApiIT extends AbstractIntegrationTest {
 			.andExpect(jsonPath("$.items[0].state").value("RESERVED"))
 			.andExpect(jsonPath("$.items[0].lines").doesNotExist());
 		mvc.perform(as(get(DOCUMENTS + UUID.randomUUID()), s.owner())).andExpect(status().isNotFound());
+	}
+
+	@Test
+	void listFiltersByDocumentType() throws Exception {
+		issueInvoice(s.owner(), s.invoiceJson("1", "11.50"));
+		UUID credit = TestData.document(jdbc, s.tenant(), s.taxpayer(), s.point(), s.customer(), 50,
+				TestData.accessKey(), "04", new BigDecimal("5.00"), "{}");
+		mvc.perform(as(get("/api/v1/documents").param("documentType", "04"), s.owner()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items", hasSize(1)))
+			.andExpect(jsonPath("$.total").value(1))
+			.andExpect(jsonPath("$.items[0].id").value(credit.toString()))
+			.andExpect(jsonPath("$.items[0].documentType").value("04"));
+		mvc.perform(as(get("/api/v1/documents"), s.owner()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items", hasSize(2)))
+			.andExpect(jsonPath("$.total").value(2));
+	}
+
+	@Test
+	void unknownDocumentTypeIs400() throws Exception {
+		mvc.perform(as(get("/api/v1/documents").param("documentType", "02"), s.owner()))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.errorCode").value("MALFORMED_REQUEST"));
+	}
+
+	@Test
+	void remissionGuideHasNullTotal() throws Exception {
+		UUID guide = TestData.document(jdbc, s.tenant(), s.taxpayer(), s.point(), s.customer(), 60,
+				TestData.accessKey(), "06", null, "{}");
+		mvc.perform(as(get("/api/v1/documents").param("documentType", "06"), s.owner()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.items[0].id").value(guide.toString()))
+			.andExpect(jsonPath("$.items[0].total").value(nullValue()));
+		mvc.perform(as(get(DOCUMENTS + guide), s.owner()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.documentType").value("06"))
+			.andExpect(jsonPath("$.subtotal").value(nullValue()))
+			.andExpect(jsonPath("$.totalDiscount").value(nullValue()))
+			.andExpect(jsonPath("$.totalTax").value(nullValue()))
+			.andExpect(jsonPath("$.total").value(nullValue()));
 	}
 
 }

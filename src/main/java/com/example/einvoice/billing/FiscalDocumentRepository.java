@@ -431,22 +431,29 @@ public class FiscalDocumentRepository {
 		return new InvoiceBody(lines, taxes(tenantId, documentId), payments);
 	}
 
-	public List<DocumentRow> page(UUID tenantId, int page, int size) {
+	/** Página de comprobantes del tenant; {@code type} nulo trae todos los tipos. */
+	public List<DocumentRow> page(UUID tenantId, DocumentType type, int page, int size) {
 		return jdbc.sql("SELECT " + DOCUMENT_COLUMNS + """
-				FROM fiscal_documents WHERE tenant_id = :tenantId
+				FROM fiscal_documents
+				 WHERE tenant_id = :tenantId AND (CAST(:type AS varchar) IS NULL OR document_type = :type)
 				ORDER BY created_at DESC, sequence DESC, id
 				LIMIT :size OFFSET :offset
 				""")
 			.param("tenantId", tenantId)
+			.param("type", type == null ? null : type.code(), Types.VARCHAR)
 			.param("size", size)
 			.param("offset", (long) page * size)
 			.query(DocumentRow.class)
 			.list();
 	}
 
-	public long count(UUID tenantId) {
-		return jdbc.sql("SELECT count(*) FROM fiscal_documents WHERE tenant_id = :tenantId")
+	public long count(UUID tenantId, DocumentType type) {
+		return jdbc.sql("""
+				SELECT count(*) FROM fiscal_documents
+				 WHERE tenant_id = :tenantId AND (CAST(:type AS varchar) IS NULL OR document_type = :type)
+				""")
 			.param("tenantId", tenantId)
+			.param("type", type == null ? null : type.code(), Types.VARCHAR)
 			.query(Long.class)
 			.single();
 	}
