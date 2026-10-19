@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import com.example.einvoice.billing.CatalogLines.CatalogLine;
 import com.example.einvoice.billing.DocumentIssuer.IssueRequest;
 import com.example.einvoice.billing.DocumentIssuer.Preparation;
 import com.example.einvoice.billing.FiscalDocumentRepository.NewLine;
@@ -18,7 +19,6 @@ import com.example.einvoice.catalog.CatalogRepository;
 import com.example.einvoice.catalog.Customer;
 import com.example.einvoice.catalog.CustomerService;
 import com.example.einvoice.catalog.Product;
-import com.example.einvoice.catalog.ProductService;
 import com.example.einvoice.tenancy.TenantAccess;
 import com.example.einvoice.web.ApiException;
 
@@ -29,9 +29,6 @@ import com.example.einvoice.web.ApiException;
  */
 @Service
 public class InvoiceService {
-
-	/** Mayor importe que cabe en las columnas numeric(14,2) del documento. */
-	private static final BigDecimal MAX_AMOUNT = new BigDecimal("999999999999.99");
 
 	public record LineCommand(UUID productId, BigDecimal quantity, BigDecimal unitPrice, BigDecimal discount) {
 	}
@@ -50,19 +47,19 @@ public class InvoiceService {
 
 	private final CustomerService customers;
 
-	private final ProductService products;
+	private final CatalogLines catalogLines;
 
 	private final CatalogRepository catalogs;
 
 	private final BigDecimal finalConsumerLimit;
 
 	public InvoiceService(DocumentIssuer issuer, InvoiceKind kind, CustomerService customers,
-			ProductService products, CatalogRepository catalogs,
+			CatalogLines catalogLines, CatalogRepository catalogs,
 			@Value("${einvoice.invoice.final-consumer-limit}") BigDecimal finalConsumerLimit) {
 		this.issuer = issuer;
 		this.kind = kind;
 		this.customers = customers;
-		this.products = products;
+		this.catalogLines = catalogLines;
 		this.catalogs = catalogs;
 		this.finalConsumerLimit = finalConsumerLimit;
 	}
@@ -81,31 +78,8 @@ public class InvoiceService {
 	/** Valida y calcula la factura; corre dentro de la transacción de la emisión, antes de reservar el secuencial. */
 	private Preparation<InvoiceBody> prepare(TenantAccess access, IssueInvoiceCommand command, LocalDate issueDate) {
 		Customer customer = customers.get(access, command.customerId());
-		List<Product> lineProducts = new ArrayList<>();
-		List<InvoiceLineInput> inputs = new ArrayList<>();
-		for (LineCommand line : command.lines()) {
-			Product product = products.get(access, line.productId());
-			BigDecimal rate = catalogs.ivaRate(product.getIvaRateCode())
-				.orElseThrow(() -> unprocessable("TAX_RATE_UNKNOWN", "La tarifa de IVA del producto no existe"));
-			lineProducts.add(product);
-			inputs.add(new InvoiceLineInput(line.quantity(),
-					line.unitPrice() == null ? product.getUnitPrice() : line.unitPrice(),
-					line.discount() == null ? BigDecimal.ZERO : line.discount(), product.getIvaRateCode(), rate));
-		}
-		InvoiceTotals totals;
-		try {
-			totals = InvoiceCalculator.calculate(inputs);
-		}
-		catch (IllegalArgumentException ex) {
-			throw unprocessable("INVALID_LINE", ex.getMessage());
-		}
-
-		boolean storable = totals.lines().stream().allMatch(line -> line.subtotal().compareTo(MAX_AMOUNT) <= 0)
-				&& totals.subtotal().compareTo(MAX_AMOUNT) <= 0 && totals.totalDiscount().compareTo(MAX_AMOUNT) <= 0
-				&& totals.total().compareTo(MAX_AMOUNT) <= 0;
-		if (!storable) {
-			throw unprocessable("AMOUNT_TOO_LARGE", "Los importes del comprobante superan el máximo admitido");
-		}
+		List<CatalogLine> resolved = catalogLines.resolve(access, command.lines());
+		InvoiceTotals totals = CatalogLines.calculate(resolved.stream().map(CatalogLine::input).toList());
 
 		BigDecimal paid = BigDecimal.ZERO;
 		for (PaymentCommand payment : command.payments()) {
@@ -131,9 +105,9 @@ public class InvoiceService {
 		}
 
 		List<NewLine> lines = new ArrayList<>();
-		for (int i = 0; i < inputs.size(); i++) {
-			InvoiceLineInput input = inputs.get(i);
-			Product product = lineProducts.get(i);
+		for (int i = 0; i < resolved.size(); i++) {
+			InvoiceLineInput input = resolved.get(i).input();
+			Product product = resolved.get(i).product();
 			LineAmounts amounts = totals.lines().get(i);
 			lines.add(new NewLine(product.getId(), product.getSku(), product.getName(), input.quantity(),
 					input.unitPrice(), input.discount(), amounts.subtotal(), CatalogRepository.IVA_TAX_CODE,

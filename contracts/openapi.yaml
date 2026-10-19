@@ -29,6 +29,7 @@ tags:
   - name: customers
   - name: products
   - name: invoices
+  - name: credit-notes
   - name: documents
   - name: certificates
   - name: webhooks
@@ -918,6 +919,73 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+  /credit-notes:
+    post:
+      tags: [credit-notes]
+      operationId: issueCreditNote
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      summary: >
+        Emite una nota de crédito sobre una factura autorizada de la plataforma (invoiceId) o sobre una
+        factura escrita a mano (modifiedDocument con customerId): la calcula como la factura, le asigna
+        secuencial y clave de acceso y la deja en RESERVED. 202 significa aceptada para procesamiento, no
+        autorizada por el SRI. Requiere rol OWNER, ADMIN o BILLER.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >
+            Identifica el intento de emisión (hasta 100 caracteres: letras, dígitos y . _ : -).
+            Repetirlo con el mismo cuerpo devuelve el mismo documento; con otro cuerpo responde
+            409 IDEMPOTENCY_KEY_REUSED.
+          schema: { type: string, maxLength: 100 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IssueCreditNoteRequest' }
+      responses:
+        '202':
+          description: Nota de crédito aceptada y reservada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IssuedDocument' }
+        '400':
+          description: >
+            Petición inválida. errorCode: VALIDATION_FAILED (también si una línea no tiene la forma de su
+            caso o repite una línea de la factura), MODIFIED_DOCUMENT_REQUIRED (no viene invoiceId ni
+            modifiedDocument con customerId, o vienen los dos, o invoiceId con customerId),
+            IDEMPOTENCY_KEY_REQUIRED, IDEMPOTENCY_KEY_INVALID o MALFORMED_REQUEST.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404':
+          description: >
+            El emisor, el punto de emisión, la factura (invoiceId), el cliente o un producto no existen en
+            la empresa.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '422':
+          description: >
+            Regla fiscal incumplida. errorCode: MODIFIED_DOCUMENT_NOT_INVOICE (invoiceId no es una
+            factura), MODIFIED_INVOICE_OTHER_ISSUER (la factura es de otro emisor de la empresa),
+            MODIFIED_INVOICE_NOT_AUTHORIZED (la factura no está autorizada), INVALID_MODIFIED_DOCUMENT_DATE
+            (la factura es posterior a la nota), CREDIT_LINE_UNKNOWN (la factura no tiene esa línea),
+            CREDIT_LINE_EXCEEDS_INVOICE (cantidad o precio unitario mayor que el de la línea original),
+            CREDIT_EXCEEDS_INVOICE (con las notas de crédito vigentes de la factura se superaría su total),
+            UNSUPPORTED_CURRENCY, INVALID_ISSUE_DATE, EMISSION_POINT_DISABLED, INVALID_LINE,
+            AMOUNT_TOO_LARGE, TAX_RATE_UNKNOWN, SEQUENCE_EXHAUSTED o DOCUMENT_XML_INVALID (el XML generado
+            no pasó el esquema del SRI; no se consume secuencial).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   /documents:
     get:
       tags: [documents]
@@ -1771,6 +1839,71 @@ components:
             clave; el reemplazado no cambia. 409 REPLACED_DOCUMENT_OTHER_TYPE si es de otro tipo, 409 REPLACED_DOCUMENT_NOT_REJECTED si está en otro estado,
             409 REPLACED_DOCUMENT_OTHER_ISSUER si es de otro emisor y 409 DOCUMENT_ALREADY_REPLACED si
             ya tiene reemplazo.
+    IssueCreditNoteRequest:
+      type: object
+      description: >
+        Lleva invoiceId (factura autorizada de la plataforma, del mismo emisor; el comprador es el de la
+        factura y no se envía customerId) o modifiedDocument con customerId (factura escrita a mano y su
+        comprador del catálogo); nunca las dos cosas ni ninguna: 400 MODIFIED_DOCUMENT_REQUIRED.
+      required: [taxpayerId, establishmentCode, emissionPointCode, reason, lines]
+      properties:
+        taxpayerId: { type: string, format: uuid }
+        establishmentCode: { type: string, description: Tres dígitos. }
+        emissionPointCode: { type: string, description: Tres dígitos. }
+        issueDate:
+          type: [string, 'null']
+          format: date
+          description: >
+            Por defecto hoy en Ecuador. No puede ser futura, ni anterior al último comprobante del punto, ni
+            anterior a la fecha de la factura que se modifica.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: Razón de la modificación, sin saltos de línea ni otros caracteres de control.
+        invoiceId:
+          type: [string, 'null']
+          format: uuid
+          description: >
+            Factura de la plataforma que se modifica. Se toman de ella su número, su fecha, su comprador y
+            sus líneas. La suma de las notas de crédito vigentes de la factura (todas menos las RETURNED,
+            NOT_AUTHORIZED y XSD_INVALID) más esta no puede superar su total.
+        modifiedDocument:
+          type: [object, 'null']
+          description: Factura escrita a mano que se modifica.
+          required: [code, number, issueDate]
+          properties:
+            code: { type: string, enum: ['01'], description: 'Siempre 01: factura.' }
+            number: { type: string, description: 'establecimiento-punto-secuencial, por ejemplo 001-002-000000123.' }
+            issueDate: { type: string, format: date, description: No puede ser posterior a la de la nota. }
+        customerId:
+          type: [string, 'null']
+          format: uuid
+          description: Comprador del catálogo; solo con modifiedDocument.
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 200
+          description: >
+            Con invoiceId, cada línea lleva invoiceLineNo (sin repetirlo) y no productId: código,
+            descripción, producto y tarifa de IVA se copian de la línea de la factura, y la cantidad y el
+            precio unitario no pueden superar los originales. Con modifiedDocument, cada línea lleva
+            productId y no invoiceLineNo, como en la factura.
+          items:
+            type: object
+            required: [quantity]
+            properties:
+              invoiceLineNo: { type: [integer, 'null'], description: 'Número de la línea de la factura, desde 1.' }
+              productId: { type: [string, 'null'], format: uuid }
+              quantity: { $ref: '#/components/schemas/Decimal' }
+              unitPrice:
+                description: >
+                  Por defecto, el de la línea de la factura (o el precio del producto, a mano). Hasta 6
+                  decimales.
+                type: [string, 'null']
+              discount:
+                description: Por defecto, el de la línea de la factura (o 0.00, a mano). Hasta 2 decimales.
+                type: [string, 'null']
     IssuedDocument:
       type: object
       required: [id, state, statusUrl]

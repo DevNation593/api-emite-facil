@@ -485,6 +485,19 @@ public class FiscalDocumentRepository {
 			.update();
 	}
 
+	/**
+	 * Suma del total de las notas de crédito vigentes que modifican esa factura; cero si no hay. Vigente es todo
+	 * estado menos los fallos sin vuelta atrás (RETURNED, NOT_AUTHORIZED y XSD_INVALID): una nota en camino al SRI
+	 * ya cuenta.
+	 */
+	public BigDecimal creditedTotal(UUID tenantId, UUID invoiceId) {
+		return jdbc.sql("""
+				SELECT COALESCE(SUM(total), 0) FROM fiscal_documents
+				 WHERE tenant_id = :tenantId AND modified_document_id = :invoiceId AND document_type = '04'
+				   AND state NOT IN ('RETURNED', 'NOT_AUTHORIZED', 'XSD_INVALID')
+				""").param("tenantId", tenantId).param("invoiceId", invoiceId).query(BigDecimal.class).single();
+	}
+
 	public List<LineRow> lines(UUID tenantId, UUID documentId) {
 		return jdbc.sql("""
 				SELECT line_no, main_code, description, quantity, unit_price, discount, subtotal, tax_code,
