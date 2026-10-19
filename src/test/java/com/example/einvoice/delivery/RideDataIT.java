@@ -10,11 +10,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.example.einvoice.billing.FiscalDocumentRepository;
+import com.example.einvoice.billing.InvoiceBody;
+import com.example.einvoice.billing.InvoiceKind;
+import com.example.einvoice.billing.RideEnvelope;
 import com.example.einvoice.orchestration.DocumentPipeline;
 import com.example.einvoice.support.AbstractIntegrationTest;
 import com.example.einvoice.support.BillingScenario;
 import com.example.einvoice.support.SriSoapSamples;
 import com.example.einvoice.support.TestCertificates;
+import com.example.einvoice.xml.DocumentType;
+import com.example.einvoice.xml.InvoiceXmlBuilder;
 
 /** Datos del RIDE leídos del comprobante autorizado. */
 class RideDataIT extends AbstractIntegrationTest {
@@ -24,6 +29,9 @@ class RideDataIT extends AbstractIntegrationTest {
 
 	@Autowired
 	FiscalDocumentRepository documents;
+
+	@Autowired
+	InvoiceKind invoiceKind;
 
 	BillingScenario s;
 
@@ -56,14 +64,39 @@ class RideDataIT extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void rideEnvelopeAndInvoiceBodyRebuildTheSameInvoice() {
+		pipeline.advance(s.tenant(), document);
+		RideData data = documents.rideData(s.tenant(), document).orElseThrow();
+
+		RideEnvelope ride = documents.rideEnvelope(s.tenant(), document).orElseThrow();
+		InvoiceBody body = invoiceKind.loadContent(s.tenant(), document);
+
+		assertThat(ride.authorizationNumber()).isEqualTo(data.authorizationNumber());
+		assertThat(ride.authorizedAt()).isEqualTo(data.authorizedAt());
+		assertThat(ride.envelope().type()).isEqualTo(DocumentType.INVOICE);
+		assertThat(ride.envelope().recipient().email()).isEqualTo(data.customerEmail());
+		assertThat(ride.envelope().totals().totalTax()).isNotNull();
+		assertThat(ride.envelope().modified()).isNull();
+		assertThat(body.lines()).hasSize(1);
+		assertThat(documents.paymentMethodNames()).isEqualTo(data.paymentMethodNames());
+		// El sobre y el cuerpo dan el mismo XML que los datos de siempre, y el RIDE se genera.
+		assertThat(invoiceKind.buildXml(ride.envelope(), body)).isEqualTo(InvoiceXmlBuilder.build(data.invoice()));
+		assertThat(invoiceKind.buildRide(ride, body)).isNotEmpty();
+	}
+
+	@Test
 	void unauthorizedOrForeignDocumentHasNone() throws Exception {
 		assertThat(documents.rideData(s.tenant(), document)).isEmpty();
+		assertThat(documents.rideEnvelope(s.tenant(), document)).isEmpty();
+		assertThat(documents.envelope(s.tenant(), document)).isPresent();
 
 		pipeline.advance(s.tenant(), document);
 		UUID otherTenant = createTenant(newUserToken());
 
 		assertThat(documents.rideData(otherTenant, document)).isEmpty();
 		assertThat(documents.rideData(s.tenant(), UUID.randomUUID())).isEmpty();
+		assertThat(documents.rideEnvelope(otherTenant, document)).isEmpty();
+		assertThat(documents.envelope(otherTenant, document)).isEmpty();
 	}
 
 }

@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import com.example.einvoice.delivery.RideData;
+import com.example.einvoice.xml.DocumentType;
 import com.example.einvoice.xml.InvoiceXmlData;
 
 /** Lectura y escritura de documentos fiscales. Toda lectura filtra por tenant. */
@@ -120,7 +121,13 @@ public class FiscalDocumentRepository {
 			.param("providerRuc", document.providerRuc())
 			.query(UUID.class)
 			.single();
-		UUID tenantId = document.tenantId();
+		insertInvoiceBody(document.tenantId(), id, new InvoiceBody(lines, document.totals().taxes(), payments));
+		return id;
+	}
+
+	/** Líneas, impuestos por tarifa y pagos de una factura ya insertada; las líneas y los pagos se numeran desde 1. */
+	public void insertInvoiceBody(UUID tenantId, UUID documentId, InvoiceBody body) {
+		List<NewLine> lines = body.lines();
 		for (int i = 0; i < lines.size(); i++) {
 			NewLine line = lines.get(i);
 			jdbc.sql("""
@@ -130,7 +137,7 @@ public class FiscalDocumentRepository {
 					 :unitPrice, :discount, :subtotal, :taxCode, :taxRateCode, :taxRate, :taxAmount)
 					""")
 				.param("tenantId", tenantId)
-				.param("documentId", id)
+				.param("documentId", documentId)
 				.param("lineNo", i + 1)
 				.param("productId", line.productId())
 				.param("mainCode", line.mainCode())
@@ -145,13 +152,13 @@ public class FiscalDocumentRepository {
 				.param("taxAmount", line.taxAmount())
 				.update();
 		}
-		for (TaxTotal tax : document.totals().taxes()) {
+		for (TaxTotal tax : body.taxes()) {
 			jdbc.sql("""
 					INSERT INTO fiscal_document_taxes (tenant_id, document_id, tax_code, rate_code, rate, base, amount)
 					VALUES (:tenantId, :documentId, :taxCode, :rateCode, :rate, :base, :amount)
 					""")
 				.param("tenantId", tenantId)
-				.param("documentId", id)
+				.param("documentId", documentId)
 				.param("taxCode", tax.taxCode())
 				.param("rateCode", tax.rateCode())
 				.param("rate", tax.rate())
@@ -159,19 +166,19 @@ public class FiscalDocumentRepository {
 				.param("amount", tax.amount())
 				.update();
 		}
+		List<NewPayment> payments = body.payments();
 		for (int i = 0; i < payments.size(); i++) {
 			jdbc.sql("""
 					INSERT INTO fiscal_document_payments (tenant_id, document_id, line_no, method_code, amount)
 					VALUES (:tenantId, :documentId, :lineNo, :methodCode, :amount)
 					""")
 				.param("tenantId", tenantId)
-				.param("documentId", id)
+				.param("documentId", documentId)
 				.param("lineNo", i + 1)
 				.param("methodCode", payments.get(i).methodCode())
 				.param("amount", payments.get(i).amount())
 				.update();
 		}
-		return id;
 	}
 
 	public void recordStateChange(UUID tenantId, UUID documentId, String previousState, String newState,
@@ -372,12 +379,97 @@ public class FiscalDocumentRepository {
 			return Optional.empty();
 		}
 		InvoiceXmlData invoice = xmlData(tenantId, documentId).orElseThrow();
+		RideExtras e = extras.get();
+		return Optional.of(new RideData(invoice, e.authorizationNumber(), e.authorizedAt(), e.customerEmail(),
+				paymentMethodNames()));
+	}
+
+	/** Nombre de cada forma de pago del catálogo del SRI, por código. */
+	public Map<String, String> paymentMethodNames() {
 		Map<String, String> names = new HashMap<>();
 		jdbc.sql("SELECT code, name FROM payment_methods").query(PaymentMethodName.class).list()
 			.forEach(method -> names.put(method.code(), method.name()));
-		RideExtras e = extras.get();
-		return Optional.of(new RideData(invoice, e.authorizationNumber(), e.authorizedAt(), e.customerEmail(),
-				Map.copyOf(names)));
+		return Map.copyOf(names);
+	}
+
+	private record EnvelopeRow(String documentType, String environment, String issuerLegalName,
+			String issuerTradeName, String issuerRuc, String issuerHeadOfficeAddress, String establishmentAddress,
+			boolean issuerAccountingRequired, String issuerSpecialTaxpayerCode, String issuerWithholdingAgentCode,
+			String issuerRimpeRegime, String accessKey, String establishmentCode, String emissionPointCode,
+			int sequence, LocalDate issueDate, String customerIdType, String customerIdNumber, String customerName,
+			String customerAddress, String customerEmail, BigDecimal subtotal, BigDecimal totalDiscount,
+			BigDecimal totalTax, BigDecimal total, UUID modifiedDocumentId, String modifiedDocCode,
+			String modifiedDocNumber, LocalDate modifiedDocDate, String providerRuc) {
+
+		DocumentEnvelope envelope() {
+			return new DocumentEnvelope(DocumentType.of(documentType), environment,
+					new DocumentEnvelope.Issuer(issuerLegalName, issuerTradeName, issuerRuc, issuerHeadOfficeAddress,
+							establishmentAddress, issuerAccountingRequired, issuerSpecialTaxpayerCode,
+							issuerWithholdingAgentCode, issuerRimpeRegime),
+					accessKey, establishmentCode, emissionPointCode, sequence, issueDate,
+					new DocumentEnvelope.Recipient(customerIdType, customerIdNumber, customerName, customerAddress,
+							customerEmail),
+					total == null ? null : new DocumentEnvelope.Totals(subtotal, totalDiscount, totalTax, total),
+					modifiedDocCode == null ? null
+							: new DocumentEnvelope.ModifiedDocument(modifiedDocumentId, modifiedDocCode,
+									modifiedDocNumber, modifiedDocDate),
+					providerRuc);
+		}
+
+	}
+
+	private static final String ENVELOPE_COLUMNS = """
+			document_type, environment, issuer_legal_name, issuer_trade_name, issuer_ruc,
+			 issuer_head_office_address, establishment_address, issuer_accounting_required,
+			 issuer_special_taxpayer_code, issuer_withholding_agent_code, issuer_rimpe_regime, access_key,
+			 establishment_code, emission_point_code, sequence, issue_date, customer_id_type, customer_id_number,
+			 customer_name, customer_address, customer_email, subtotal, total_discount, total_tax, total,
+			 modified_document_id, modified_doc_code, modified_doc_number, modified_doc_date, provider_ruc
+			""";
+
+	/** Sobre congelado del comprobante, de cualquier tipo; vacío si no existe en esa empresa. */
+	public Optional<DocumentEnvelope> envelope(UUID tenantId, UUID documentId) {
+		return jdbc.sql("SELECT " + ENVELOPE_COLUMNS + " FROM fiscal_documents WHERE id = :id AND tenant_id = :tenantId")
+			.param("id", documentId)
+			.param("tenantId", tenantId)
+			.query(EnvelopeRow.class)
+			.optional()
+			.map(EnvelopeRow::envelope);
+	}
+
+	private record AuthorizationRow(String authorizationNumber, OffsetDateTime authorizedAt) {
+	}
+
+	/** Sobre y autorización para el RIDE; vacío si el comprobante no existe en esa empresa o no está autorizado. */
+	public Optional<RideEnvelope> rideEnvelope(UUID tenantId, UUID documentId) {
+		Optional<AuthorizationRow> authorization = jdbc.sql("""
+				SELECT authorization_number, authorized_at FROM fiscal_documents
+				WHERE id = :id AND tenant_id = :tenantId AND state = 'AUTHORIZED'
+				 AND authorization_number IS NOT NULL AND authorized_at IS NOT NULL
+				""").param("id", documentId).param("tenantId", tenantId).query(AuthorizationRow.class).optional();
+		return authorization.flatMap(a -> envelope(tenantId, documentId)
+			.map(envelope -> new RideEnvelope(envelope, a.authorizationNumber(), a.authorizedAt())));
+	}
+
+	/** JSON del contenido propio del comprobante; vacío si no existe en esa empresa o no tiene (la factura). */
+	public Optional<String> content(UUID tenantId, UUID documentId) {
+		return jdbc.sql("""
+				SELECT content::text FROM fiscal_documents
+				WHERE id = :id AND tenant_id = :tenantId AND content IS NOT NULL
+				""").param("id", documentId).param("tenantId", tenantId).query(String.class).optional();
+	}
+
+	/** Cuerpo de la factura: sus líneas, los impuestos por tarifa y los pagos, en su orden. */
+	public InvoiceBody invoiceBody(UUID tenantId, UUID documentId) {
+		List<NewLine> lines = lines(tenantId, documentId).stream()
+			.map(line -> new NewLine(line.productId(), line.mainCode(), line.description(), line.quantity(),
+					line.unitPrice(), line.discount(), line.subtotal(), line.taxCode(), line.taxRateCode(),
+					line.taxRate(), line.taxAmount()))
+			.toList();
+		List<NewPayment> payments = payments(tenantId, documentId).stream()
+			.map(payment -> new NewPayment(payment.methodCode(), payment.amount()))
+			.toList();
+		return new InvoiceBody(lines, taxes(tenantId, documentId), payments);
 	}
 
 	public List<DocumentRow> page(UUID tenantId, int page, int size) {
