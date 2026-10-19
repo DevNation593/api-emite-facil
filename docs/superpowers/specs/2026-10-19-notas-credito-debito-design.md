@@ -16,7 +16,7 @@ mano.
 | Tema | Decisión |
 |---|---|
 | Documento modificado | Una factura de la plataforma (`invoiceId`) o una escrita a mano (código `01`, número y fecha); nunca las dos |
-| Factura de la plataforma | Autorizada, del mismo emisor y de la misma empresa; el comprador es el de la factura |
+| Factura de la plataforma | Autorizada, del mismo emisor y de la misma empresa; la nota copia el comprador congelado en la factura (no el del catálogo actual) |
 | Saldo | La suma de las notas de crédito vigentes de una factura no supera su total |
 | Líneas de la nota de crédito | Con factura de la plataforma, salen de sus líneas y solo bajan (cantidad y precio no superan los originales); a mano, salen del catálogo |
 | Nota de débito | Motivos (razón, valor, tarifa de IVA cada uno) y una forma de pago por el total |
@@ -47,7 +47,7 @@ factura. Cuerpo:
 - Viene `invoiceId` **o** `modifiedDocument` + `customerId`. Ninguno, o los dos, responde `400
   MODIFIED_DOCUMENT_REQUIRED`.
 - **Con `invoiceId`:** cada línea es `{ "invoiceLineNo": 1, "quantity": "1", "unitPrice": "10.00",
-  "discount": "0" }` (precio y descuento opcionales: por omisión, los de la línea original). Código,
+  "discount": "0" }` (precio y descuento opcionales: por omisión, el precio de la línea original y su descuento **prorrateado**: descuento original × cantidad / cantidad original, 2 decimales HALF_UP). Código,
   descripción, producto y tarifa de IVA se copian de la línea de la factura. Las líneas no se repiten.
 - **A mano:** cada línea es `{ "productId", "quantity", "unitPrice"?, "discount"? }`, como en la factura.
 - El cálculo de importes e IVA es el de la factura (`InvoiceCalculator`), con el mismo redondeo.

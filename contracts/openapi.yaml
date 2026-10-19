@@ -2190,6 +2190,9 @@ components:
                        taxRate, taxAmount]
             properties:
               lineNo: { type: integer }
+              invoiceLineNo:
+                type: [integer, 'null']
+                description: Línea de la factura que corrige (solo en las líneas de una nota de crédito sobre una factura de la plataforma).
               productId:
                 type: [string, 'null']
                 format: uuid
@@ -2212,6 +2215,37 @@ components:
             properties:
               methodCode: { type: string }
               amount: { $ref: '#/components/schemas/Decimal' }
+        modifiedDocument:
+          type: [object, 'null']
+          description: Factura que modifica la nota; nulo en los demás comprobantes.
+          required: [code, number, issueDate]
+          properties:
+            code: { type: string, enum: ['01'], description: 'Siempre 01: factura.' }
+            number: { type: string, description: 'Número de la factura, EEE-PPP-SSSSSSSSS.' }
+            issueDate: { type: string, format: date }
+            documentId:
+              type: [string, 'null']
+              format: uuid
+              description: Factura de la plataforma; nulo si se escribió a mano.
+        reason:
+          type: [string, 'null']
+          description: Razón de modificación; solo en la nota de crédito.
+        reasons:
+          type: [array, 'null']
+          description: Motivos de la nota de débito, con su IVA; nulo en los demás comprobantes.
+          items:
+            type: object
+            required: [reason, value, taxRateCode, taxRate, taxAmount]
+            properties:
+              reason: { type: string }
+              value: { $ref: '#/components/schemas/Decimal' }
+              taxRateCode: { type: string }
+              taxRate: { $ref: '#/components/schemas/Decimal' }
+              taxAmount: { $ref: '#/components/schemas/Decimal' }
+        creditedTotal:
+          allOf:
+            - { $ref: '#/components/schemas/NullableDecimal' }
+          description: Solo en facturas. Suma de las notas de crédito vigentes que la modifican (0.00 si no hay).
     UploadCertificateRequest:
       type: object
       required: [taxpayerId, p12, password]
