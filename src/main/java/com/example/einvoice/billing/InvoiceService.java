@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -51,11 +50,11 @@ public class InvoiceService {
 
 	private final CatalogRepository catalogs;
 
-	private final BigDecimal finalConsumerLimit;
+	private final FinalConsumerLimit finalConsumerLimit;
 
 	public InvoiceService(DocumentIssuer issuer, InvoiceKind kind, CustomerService customers,
 			CatalogLines catalogLines, CatalogRepository catalogs,
-			@Value("${einvoice.invoice.final-consumer-limit}") BigDecimal finalConsumerLimit) {
+			FinalConsumerLimit finalConsumerLimit) {
 		this.issuer = issuer;
 		this.kind = kind;
 		this.customers = customers;
@@ -96,13 +95,7 @@ public class InvoiceService {
 		if (paid.compareTo(totals.total()) != 0) {
 			throw unprocessable("PAYMENTS_MISMATCH", "La suma de los pagos no coincide con el total del comprobante");
 		}
-		boolean finalConsumer = catalogs.identificationType(customer.getIdType())
-			.map(CatalogRepository.IdentificationType::finalConsumer)
-			.orElse(false);
-		if (finalConsumer && totals.total().compareTo(finalConsumerLimit) > 0) {
-			throw unprocessable("FINAL_CONSUMER_LIMIT_EXCEEDED",
-					"Una venta a consumidor final no puede superar el monto máximo; identifique al adquirente");
-		}
+		finalConsumerLimit.check(customer.getIdType(), totals.total());
 
 		List<NewLine> lines = new ArrayList<>();
 		for (int i = 0; i < resolved.size(); i++) {
