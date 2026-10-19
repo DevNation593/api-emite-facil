@@ -46,16 +46,18 @@ public interface DocumentKind<C> {
 	String displayName();                      // «Factura», «Nota de crédito»… (correo, PDF, descarga)
 	String fileStem();                         // «factura», «nota-credito»… (nombre del archivo)
 	String auditReserved();                    // INVOICE_RESERVED, CREDIT_NOTE_RESERVED…
-	void saveContent(UUID tenantId, UUID documentId, C content);   // por omisión: columna content
-	C loadContent(UUID tenantId, UUID documentId);                 // por omisión: columna content
+	String contentJson(C content);                                 // va en el mismo INSERT del sobre
+	default void saveDetails(UUID tenantId, UUID documentId, C content) {}  // tablas propias del tipo
+	C loadContent(UUID tenantId, UUID documentId);
 	byte[] buildXml(DocumentEnvelope envelope, C content);
 	byte[] buildRide(RideEnvelope ride, C content);
 }
 ```
 
-`saveContent` y `loadContent` tienen una implementación por omisión que escribe y lee la columna
-`content` con Jackson. La factura la sustituye: su contenido es `InvoiceBody` (líneas, impuestos por
-tarifa y pagos) y lo guarda y lee de sus tablas de siempre.
+La clase base `JsonContentKind<C>` implementa `contentJson` y `loadContent` con Jackson sobre la
+columna `content` (el `CHECK` exige que llegue en el mismo `INSERT` del sobre). La factura no la usa: su
+contenido es `InvoiceBody` (líneas, impuestos por tarifa y pagos), `contentJson` devuelve nulo y
+`saveDetails`/`loadContent` usan sus tablas de siempre.
 
 - `DocumentEnvelope` es el sobre congelado común: ambiente, emisor (razón social, nombre comercial, RUC,
   dirección matriz y de establecimiento, contabilidad, contribuyente especial, agente de retención,
@@ -190,6 +192,7 @@ raíz lo da `DocumentType`.
 | Documento de un tipo sin `DocumentKind` | `XSD_INVALID` con motivo `DOCUMENT_TYPE_NOT_SUPPORTED` |
 | `content` que no se puede leer | Error en el registro y `XSD_INVALID` con motivo `CONTENT_UNREADABLE` |
 | `documentType` desconocido en el filtro | 400 |
+| Reemitir un comprobante con otro de distinto tipo | 409 `REPLACED_DOCUMENT_OTHER_TYPE` |
 
 ## 5. Pruebas
 
