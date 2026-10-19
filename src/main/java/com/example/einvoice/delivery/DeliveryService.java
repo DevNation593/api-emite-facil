@@ -13,7 +13,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.example.einvoice.billing.DocumentKind;
+import com.example.einvoice.billing.DocumentKinds;
 import com.example.einvoice.billing.FiscalDocumentRepository;
+import com.example.einvoice.billing.RideEnvelope;
 import com.example.einvoice.delivery.DeliveryRepository.Claim;
 import com.example.einvoice.orchestration.RetryPolicy;
 import com.example.einvoice.storage.ArtifactKind;
@@ -52,10 +55,13 @@ public class DeliveryService {
 
 	private final TransactionTemplate tx;
 
+	private final DocumentKinds kinds;
+
 	public DeliveryService(DocumentArchiver archiver, FiscalDocumentRepository documents,
 			DeliveryRepository deliveries, ArtifactStore artifacts, DeliveryProperties properties,
 			ObjectProvider<DeliveryMailer> mailer, WebhookRecorder webhooks,
-			PlatformTransactionManager transactionManager) {
+			PlatformTransactionManager transactionManager, DocumentKinds kinds) {
+		this.kinds = kinds;
 		this.webhooks = webhooks;
 		this.tx = new TransactionTemplate(transactionManager);
 		this.archiver = archiver;
@@ -76,13 +82,14 @@ public class DeliveryService {
 		if (!archiver.archive(tenantId, documentId) || !properties.email().enabled()) {
 			return 0;
 		}
-		Optional<RideData> found = documents.rideData(tenantId, documentId);
+		Optional<RideEnvelope> found = documents.rideEnvelope(tenantId, documentId);
 		if (found.isEmpty()) {
 			return 0;
 		}
-		RideData data = found.get();
-		if (data.customerEmail() != null && !data.customerEmail().isBlank()) {
-			deliveries.ensureAutomatic(tenantId, documentId, data.customerEmail());
+		RideEnvelope data = found.get();
+		String customerEmail = data.envelope().recipient().email();
+		if (customerEmail != null && !customerEmail.isBlank()) {
+			deliveries.ensureAutomatic(tenantId, documentId, customerEmail);
 		}
 		int sent = 0;
 		for (UUID deliveryId : deliveries.pending(tenantId, documentId, properties.sendLease())) {
@@ -94,7 +101,7 @@ public class DeliveryService {
 		return sent;
 	}
 
-	private boolean send(UUID tenantId, UUID documentId, UUID deliveryId, Claim claim, RideData data) {
+	private boolean send(UUID tenantId, UUID documentId, UUID deliveryId, Claim claim, RideEnvelope data) {
 		if (claim.attemptCount() > properties.retryMaxAttempts()) {
 			deliveries.markFailed(deliveryId, claim.attemptCount(), "Se agotaron los intentos de envío");
 			return false;
@@ -108,8 +115,11 @@ public class DeliveryService {
 		try {
 			byte[] ride = artifacts.find(tenantId, documentId, ArtifactKind.RIDE_PDF).orElseThrow().content();
 			byte[] xml = artifacts.find(tenantId, documentId, ArtifactKind.XML_AUTHORIZED).orElseThrow().content();
-			DeliveryEmail email = DeliveryEmailFactory.build(properties.email().from(), data, claim.recipient(), ride,
-					xml);
+			DocumentKind<?> kind = kinds.find(data.envelope().type())
+				.orElseThrow(() -> new IllegalStateException(
+						"Comprobante autorizado de un tipo sin implementación: " + documentId));
+			DeliveryEmail email = DeliveryEmailFactory.build(properties.email().from(), data, kind.displayName(),
+					kind.fileStem(), claim.recipient(), ride, xml);
 			result = mailer.getObject().send(email);
 		}
 		catch (RuntimeException ex) {

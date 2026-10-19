@@ -13,9 +13,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import com.example.einvoice.delivery.RideData;
 import com.example.einvoice.xml.DocumentType;
-import com.example.einvoice.xml.InvoiceXmlData;
 
 /** Lectura y escritura de documentos fiscales. Toda lectura filtra por tenant. */
 @Repository
@@ -321,48 +319,6 @@ public class FiscalDocumentRepository {
 			.optional();
 	}
 
-	private record XmlHeader(String environment, String issuerLegalName, String issuerTradeName, String issuerRuc,
-			String accessKey, String documentType, String establishmentCode, String emissionPointCode, int sequence,
-			String issuerHeadOfficeAddress, String issuerWithholdingAgentCode, String issuerRimpeRegime,
-			LocalDate issueDate, String establishmentAddress, String issuerSpecialTaxpayerCode,
-			boolean issuerAccountingRequired, String customerIdType, String customerName, String customerIdNumber,
-			String customerAddress, BigDecimal subtotal, BigDecimal totalDiscount, BigDecimal total,
-			String providerRuc) {
-	}
-
-	/** Datos congelados del documento, en la forma que consume el generador del XML. */
-	public Optional<InvoiceXmlData> xmlData(UUID tenantId, UUID documentId) {
-		Optional<XmlHeader> found = jdbc.sql("""
-				SELECT environment, issuer_legal_name, issuer_trade_name, issuer_ruc, access_key, document_type,
-				 establishment_code, emission_point_code, sequence, issuer_head_office_address,
-				 issuer_withholding_agent_code, issuer_rimpe_regime, issue_date, establishment_address,
-				 issuer_special_taxpayer_code, issuer_accounting_required, customer_id_type, customer_name,
-				 customer_id_number, customer_address, subtotal, total_discount, total, provider_ruc
-				FROM fiscal_documents WHERE id = :id AND tenant_id = :tenantId
-				""").param("id", documentId).param("tenantId", tenantId).query(XmlHeader.class).optional();
-		if (found.isEmpty()) {
-			return Optional.empty();
-		}
-		XmlHeader h = found.get();
-		List<InvoiceXmlData.Tax> taxes = taxes(tenantId, documentId).stream()
-			.map(tax -> new InvoiceXmlData.Tax(tax.taxCode(), tax.rateCode(), tax.rate(), tax.base(), tax.amount()))
-			.toList();
-		List<InvoiceXmlData.Line> lines = lines(tenantId, documentId).stream()
-			.map(line -> new InvoiceXmlData.Line(line.mainCode(), line.description(), line.quantity(),
-					line.unitPrice(), line.discount(), line.subtotal(), line.taxCode(), line.taxRateCode(),
-					line.taxRate(), line.taxAmount()))
-			.toList();
-		List<InvoiceXmlData.Payment> payments = payments(tenantId, documentId).stream()
-			.map(payment -> new InvoiceXmlData.Payment(payment.methodCode(), payment.amount()))
-			.toList();
-		return Optional.of(new InvoiceXmlData(h.environment(), h.issuerLegalName(), h.issuerTradeName(),
-				h.issuerRuc(), h.accessKey(), h.documentType(), h.establishmentCode(), h.emissionPointCode(),
-				h.sequence(), h.issuerHeadOfficeAddress(), h.issuerWithholdingAgentCode(), h.issuerRimpeRegime(),
-				h.issueDate(), h.establishmentAddress(), h.issuerSpecialTaxpayerCode(), h.issuerAccountingRequired(),
-				h.customerIdType(), h.customerName(), h.customerIdNumber(), h.customerAddress(), h.subtotal(),
-				h.totalDiscount(), taxes, h.total(), lines, payments, h.providerRuc()));
-	}
-
 	/** Correo del cliente congelado en el comprobante; vacío si no lo tiene o el documento no existe. */
 	public Optional<String> customerEmail(UUID tenantId, UUID documentId) {
 		return jdbc.sql("""
@@ -371,26 +327,7 @@ public class FiscalDocumentRepository {
 				""").param("id", documentId).param("tenantId", tenantId).query(String.class).optional();
 	}
 
-	private record RideExtras(String authorizationNumber, OffsetDateTime authorizedAt, String customerEmail) {
-	}
-
 	private record PaymentMethodName(String code, String name) {
-	}
-
-	/** Datos para el RIDE; vacío si el documento no existe en esa empresa o todavía no está autorizado. */
-	public Optional<RideData> rideData(UUID tenantId, UUID documentId) {
-		Optional<RideExtras> extras = jdbc.sql("""
-				SELECT authorization_number, authorized_at, customer_email FROM fiscal_documents
-				WHERE id = :id AND tenant_id = :tenantId AND state = 'AUTHORIZED'
-				 AND authorization_number IS NOT NULL AND authorized_at IS NOT NULL
-				""").param("id", documentId).param("tenantId", tenantId).query(RideExtras.class).optional();
-		if (extras.isEmpty()) {
-			return Optional.empty();
-		}
-		InvoiceXmlData invoice = xmlData(tenantId, documentId).orElseThrow();
-		RideExtras e = extras.get();
-		return Optional.of(new RideData(invoice, e.authorizationNumber(), e.authorizedAt(), e.customerEmail(),
-				paymentMethodNames()));
 	}
 
 	/** Nombre de cada forma de pago del catálogo del SRI, por código. */

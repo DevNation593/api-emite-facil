@@ -8,8 +8,9 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Base de los tipos cuyo contenido propio viaja como JSON en la columna content del sobre. Los importes
- * se escriben como cadena para que vuelvan con la misma escala con que se emitieron.
+ * Base de los tipos cuyo contenido propio viaja como JSON en la columna content del sobre. Todo
+ * {@code BigDecimal} de un record de contenido, también los anidados, se escribe como cadena JSON para que
+ * vuelva con la misma escala con que se emitió.
  *
  * @param <C> record del contenido del tipo
  */

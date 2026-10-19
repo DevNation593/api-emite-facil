@@ -12,9 +12,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.einvoice.billing.DocumentKind;
+import com.example.einvoice.billing.DocumentKinds;
 import com.example.einvoice.storage.ArtifactStore.Download;
 import com.example.einvoice.tenancy.TenantAccess;
 import com.example.einvoice.web.ApiException;
+import com.example.einvoice.xml.DocumentType;
 
 /** Descarga de los artefactos de un comprobante de la empresa activa. */
 @RestController
@@ -23,8 +26,11 @@ public class ArtifactController {
 
 	private final ArtifactStore artifacts;
 
-	public ArtifactController(ArtifactStore artifacts) {
+	private final DocumentKinds kinds;
+
+	public ArtifactController(ArtifactStore artifacts, DocumentKinds kinds) {
 		this.artifacts = artifacts;
+		this.kinds = kinds;
 	}
 
 	@GetMapping("/{kind}")
@@ -37,8 +43,8 @@ public class ArtifactController {
 			.orElseThrow(ApiException::notFound);
 		// Con nombre propio y como adjunto: el navegador lo guarda, no lo abre dentro del sitio.
 		String extension = MediaType.APPLICATION_PDF.equals(artifactKind.mediaType()) ? ".pdf" : ".xml";
-		String name = ("01".equals(artifact.documentType()) ? "factura-" : "comprobante-") + artifact.number() + "-"
-				+ artifactKind.pathName() + extension;
+		String stem = kinds.find(DocumentType.of(artifact.documentType())).map(DocumentKind::fileStem).orElse("comprobante");
+		String name = stem + "-" + artifact.number() + "-" + artifactKind.pathName() + extension;
 		return ResponseEntity.ok()
 			.contentType(artifactKind.mediaType())
 			.eTag(artifact.sha256())
