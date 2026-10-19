@@ -389,6 +389,19 @@ class InvoiceApiIT extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void invoiceWithInvalidXmlIs422AndLeavesNoTrace() throws Exception {
+		// La API de clientes no admite saltos de línea, pero la base sí: el XSD de la factura no los acepta.
+		jdbc.update("UPDATE customers SET name = E'Mar\u00eda\nP\u00e9rez' WHERE tenant_id = ?", s.tenant());
+		long before = documentCount();
+		Long sequenceBefore = nextValue();
+		mvc.perform(invoiceRequest(s.owner(), s.invoiceJson("1", "11.50")))
+			.andExpect(status().isUnprocessableEntity())
+			.andExpect(jsonPath("$.errorCode").value("DOCUMENT_XML_INVALID"));
+		assertThat(documentCount()).isEqualTo(before);
+		assertThat(nextValue()).isEqualTo(sequenceBefore);
+	}
+
+	@Test
 	void listsDocumentsOfTheTenant() throws Exception {
 		issueInvoice(s.owner(), s.invoiceJson("1", "11.50"));
 		issueInvoice(s.owner(), s.invoiceJson("2", "23.00"));

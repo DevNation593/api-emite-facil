@@ -45,7 +45,6 @@ import com.example.einvoice.xml.DocumentSchemas;
 import com.example.einvoice.xml.SchemaVersion;
 import com.example.einvoice.xml.XsdValidator;
 
-import tools.jackson.databind.json.JsonMapper;
 
 class DocumentProcessingIT extends AbstractIntegrationTest {
 
@@ -58,8 +57,8 @@ class DocumentProcessingIT extends AbstractIntegrationTest {
 	static class DebitNoteKindConfig {
 
 		@Bean
-		DocumentKind<DebitNoteStub> debitNoteStubKind(FiscalDocumentRepository documents, JsonMapper json) {
-			return new JsonContentKind<>(DebitNoteStub.class, documents, json) {
+		DocumentKind<DebitNoteStub> debitNoteStubKind(FiscalDocumentRepository documents) {
+			return new JsonContentKind<>(DebitNoteStub.class, documents) {
 
 				@Override
 				public DocumentType type() {

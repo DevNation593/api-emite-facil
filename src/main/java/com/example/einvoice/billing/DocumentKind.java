@@ -32,6 +32,14 @@ public interface DocumentKind<C> {
 	/** JSON para la columna content, que va en el mismo INSERT del sobre; nulo para la factura. */
 	String contentJson(C content);
 
+	/**
+	 * El contenido tal como el worker lo leerá después de guardarlo. Los tipos que guardan JSON lo pasan por
+	 * su ida y vuelta; la factura, que no usa JSON, lo devuelve igual.
+	 */
+	default C reloaded(C content) {
+		return content;
+	}
+
 	/** Lo que el tipo guarda en tablas propias tras insertar el sobre; la factura, su cuerpo. */
 	default void saveDetails(UUID tenantId, UUID documentId, C content) {
 	}

@@ -30,8 +30,9 @@ import com.example.einvoice.web.ApiException;
 /**
  * Emisión de un comprobante de cualquier tipo hasta el estado RESERVED: lo que no depende del tipo. Todo
  * ocurre en una transacción: si algo falla, incluido el XML, no queda documento, ni secuencial consumido, ni
- * evento por publicar, y la clave de idempotencia queda libre. Las validaciones van antes de reservar el
- * secuencial para no retener el contador más de lo necesario.
+ * evento por publicar, y la clave de idempotencia queda libre. Las validaciones de la petición van antes de
+ * reservar el secuencial; el XML solo puede armarse con el secuencial real, así que se genera y valida
+ * después de reservarlo, con la fila del contador bloqueada hasta confirmar o revertir.
  */
 @Service
 public class DocumentIssuer {
@@ -174,7 +175,9 @@ public class DocumentIssuer {
 				new DocumentEnvelope.Recipient(recipient.getIdType(), recipient.getIdNumber(), recipient.getName(),
 						recipient.getAddress(), recipient.getEmail()),
 				preparation.totals(), preparation.modified(), providerRuc);
-		requireValidXml(kind, envelope, preparation.content());
+		// Se valida el contenido como el worker lo leerá, no el objeto en memoria.
+		requireValidXml(kind, envelope, kind.contentJson(preparation.content()) == null ? preparation.content()
+				: kind.reloaded(preparation.content()));
 
 		UUID documentId = documents.insert(new NewDocument(access.tenantId(), taxpayer.getId(), point.id(),
 				recipient.getId(), STATE_RESERVED, access.userId(), envelope, kind.contentJson(preparation.content())));

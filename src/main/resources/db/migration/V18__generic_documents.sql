@@ -17,6 +17,8 @@ ALTER TABLE fiscal_documents
  ADD COLUMN modified_doc_number varchar(17) CHECK (modified_doc_number ~ '^[0-9]{3}-[0-9]{3}-[0-9]{9}$'),
  ADD COLUMN modified_doc_date date,
  ADD CONSTRAINT fiscal_documents_total_by_type CHECK ((document_type = '06') = (total IS NULL)),
+ ADD CONSTRAINT fiscal_documents_invoice_totals CHECK (document_type <> '01'
+  OR (subtotal IS NOT NULL AND total_discount IS NOT NULL AND total_tax IS NOT NULL)),
  ADD CONSTRAINT fiscal_documents_content_by_type CHECK ((document_type = '01') = (content IS NULL)),
  ADD CONSTRAINT fiscal_documents_modified_complete CHECK (
   (modified_doc_code IS NULL) = (modified_doc_number IS NULL)

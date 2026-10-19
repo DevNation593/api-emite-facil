@@ -52,6 +52,18 @@ class GenericDocumentsMigrationIT extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void invoiceKeepsItsTotals() {
+		Scenario s = Scenario.create(jdbc);
+		UUID invoice = insert(s, 1, "01", BigDecimal.ONE, null);
+		assertThatThrownBy(() -> jdbc.update("UPDATE fiscal_documents SET subtotal = NULL WHERE id = ?", invoice))
+			.isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.update("UPDATE fiscal_documents SET total_tax = NULL WHERE id = ?", invoice))
+			.isInstanceOf(DataIntegrityViolationException.class);
+		UUID liquidation = insert(s, 2, "03", BigDecimal.ONE, CONTENT);
+		jdbc.update("UPDATE fiscal_documents SET subtotal = NULL WHERE id = ?", liquidation);
+	}
+
+	@Test
 	void modifiedDocumentIsCompleteOrAbsent() {
 		Scenario s = Scenario.create(jdbc);
 		UUID invoice = insert(s, 1, "01", BigDecimal.ONE, null);

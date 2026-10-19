@@ -37,7 +37,6 @@ import com.example.einvoice.web.ApiException;
 import com.example.einvoice.xml.DocumentSchema;
 import com.example.einvoice.xml.DocumentType;
 
-import tools.jackson.databind.json.JsonMapper;
 
 /** La emisión común: el XML se valida antes de confirmar, y lo emitido es lo que el worker genera después. */
 class DocumentIssuerIT extends AbstractIntegrationTest {
@@ -51,8 +50,8 @@ class DocumentIssuerIT extends AbstractIntegrationTest {
 	static class BrokenLiquidationConfig {
 
 		@Bean
-		DocumentKind<Sample> brokenLiquidationKind(FiscalDocumentRepository documents, JsonMapper json) {
-			return new JsonContentKind<>(Sample.class, documents, json) {
+		DocumentKind<Sample> brokenLiquidationKind(FiscalDocumentRepository documents) {
+			return new JsonContentKind<>(Sample.class, documents) {
 
 				@Override
 				public DocumentType type() {
