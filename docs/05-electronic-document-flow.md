@@ -56,7 +56,7 @@ También está implementado el tramo siguiente, como servicio (`DocumentProcesso
 ### Lo que no hace todavía
 - **Corregir y reenviar con la misma clave** un comprobante `RETURNED` o `NOT_AUTHORIZED` (ficha, 5.10): no está implementado, porque los artefactos guardados son inmutables. Lo que sí existe desde el Plan 8b es **reemitir**: una factura nueva, con su propio secuencial y su propia clave, que reemplaza a la rechazada y queda enlazada con ella (`replacesDocumentId`). También se reemite un comprobante `XSD_INVALID`: no llegó al SRI y no admite reintento, porque con los mismos datos saldría igual. La factura nueva debe ser del mismo emisor que la reemplazada. El secuencial del comprobante rechazado no se reutiliza. Si la ficha exige otra cosa para el secuencial de un rechazado, hay que revisarlo antes de producción.
 - Anulación, envío por lotes y consulta de validez.
-- RIDE y entrega de otros tipos de comprobante (solo factura).
+- RIDE y entrega de los demás tipos de comprobante (hoy cubren la factura y las notas de crédito y de débito).
 
 ## Notas de crédito y de débito
 Las notas (`04` y `05`) recorren los mismos estados y el mismo pipeline que la factura; solo cambia cómo se emiten.
