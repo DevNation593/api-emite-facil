@@ -1,5 +1,6 @@
 package com.example.einvoice.support;
 
+import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -80,6 +81,29 @@ public final class TestData {
 				 'Quito', false, 'NONE')
 				RETURNING id
 				""", UUID.class, tenantId, taxpayerId, emissionPointId, customerId, sequence, accessKey, user);
+	}
+
+	/**
+	 * Comprobante de cualquier tipo. El total puede ser nulo (guía de remisión) y {@code contentJson} es el
+	 * contenido propio del tipo; para la factura ('01') va nulo.
+	 */
+	public static UUID document(JdbcTemplate jdbc, UUID tenantId, UUID taxpayerId, UUID emissionPointId,
+			UUID customerId, int sequence, String accessKey, String documentType, BigDecimal total,
+			String contentJson) {
+		UUID user = user(jdbc);
+		BigDecimal zero = total == null ? null : BigDecimal.ZERO;
+		return jdbc.queryForObject("""
+				INSERT INTO fiscal_documents (tenant_id, taxpayer_id, emission_point_id, customer_id, document_type,
+				 environment, issuer_ruc, establishment_code, emission_point_code, sequence, access_key, state,
+				 issue_date, currency, customer_id_type, customer_id_number, customer_name, subtotal, total_discount,
+				 total_tax, total, created_by, issuer_legal_name, issuer_head_office_address, establishment_address,
+				 issuer_accounting_required, issuer_rimpe_regime, content)
+				VALUES (?, ?, ?, ?, ?, '1', '1790012345001', '001', '001', ?, ?, 'RESERVED', DATE '2026-10-10',
+				 'USD', '05', '1712345678', 'Cliente de prueba', ?, ?, ?, ?, ?, 'Emisor de prueba', 'Quito',
+				 'Quito', false, 'NONE', CAST(? AS jsonb))
+				RETURNING id
+				""", UUID.class, tenantId, taxpayerId, emissionPointId, customerId, documentType, sequence, accessKey,
+				total, zero, zero, total, user, contentJson);
 	}
 
 }
