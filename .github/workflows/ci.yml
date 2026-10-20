@@ -98,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: python3 scripts/verify_xsd_assets.py src/main/resources/xsd/invoice
+      - run: python3 scripts/verify_xsd_assets.py src/main/resources/xsd
 
   # La imagen se construye para comprobar que sigue construyéndose y que no corre como root.
   # No se publica: el registro de imágenes aún no está elegido (docs/15-produccion.md).

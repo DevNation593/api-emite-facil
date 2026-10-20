@@ -14,7 +14,9 @@ import org.w3c.dom.ls.LSResourceResolver;
 
 /**
  * Allowlist cerrada para compilar los XSD sin acceso externo (docs/14-xsd-integration.md): solo
- * resuelve el import de XMLDSig empacado junto al esquema y el DTD que ese archivo declara.
+ * resuelve el import de XMLDSig, con la única copia compartida de {@code xsd/common/}, y el DTD que ese
+ * archivo declara. Los XSD del SRI se conservan sin editar: importan {@code xmldsig-core-schema.xsd} con
+ * ruta relativa y es este resolver el que lo encuentra, cualquiera sea el tipo o la versión.
  */
 public final class ClasspathSchemaResolver implements LSResourceResolver {
 
@@ -22,19 +24,15 @@ public final class ClasspathSchemaResolver implements LSResourceResolver {
 
 	private static final String XMLDSIG_SCHEMA = "xmldsig-core-schema.xsd";
 
+	static final String XMLDSIG_RESOURCE = "xsd/common/" + XMLDSIG_SCHEMA;
+
 	private static final String XML_SCHEMA_DTD_PUBLIC_ID = "-//W3C//DTD XMLSchema 200102//EN";
-
-	private final String resourceDir;
-
-	public ClasspathSchemaResolver(String resourceDir) {
-		this.resourceDir = resourceDir;
-	}
 
 	@Override
 	public LSInput resolveResource(String type, String namespaceURI, String publicId, String systemId,
 			String baseURI) {
 		if (XMLConstants.W3C_XML_SCHEMA_NS_URI.equals(type) && XMLDSIG_SCHEMA.equals(systemId)) {
-			return packaged(resourceDir + systemId);
+			return packaged(XMLDSIG_RESOURCE);
 		}
 		if (DTD_TYPE.equals(type) && XML_SCHEMA_DTD_PUBLIC_ID.equals(publicId)) {
 			// El subconjunto interno de xmldsig-core-schema.xsd ya declara lo que necesita.

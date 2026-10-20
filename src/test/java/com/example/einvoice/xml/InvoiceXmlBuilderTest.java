@@ -52,7 +52,7 @@ class InvoiceXmlBuilderTest {
 			+ "<codigoPorcentaje>0</codigoPorcentaje><tarifa>0.00</tarifa><baseImponible>14.00</baseImponible>"
 			+ "<valor>0.00</valor></impuesto></impuestos></detalle>" + "</detalles></factura>";
 
-	final XsdValidator validator = new XsdValidator(new InvoiceSchemas());
+	final XsdValidator validator = new XsdValidator(new DocumentSchemas());
 
 	static String xml(InvoiceXmlData data) {
 		return new String(InvoiceXmlBuilder.build(data), StandardCharsets.UTF_8);

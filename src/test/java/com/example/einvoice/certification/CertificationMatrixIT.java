@@ -21,7 +21,7 @@ import com.example.einvoice.storage.ArtifactKind;
 import com.example.einvoice.storage.ArtifactStore;
 import com.example.einvoice.support.TestCertificates;
 import com.example.einvoice.support.TestData;
-import com.example.einvoice.xml.InvoiceSchemas;
+import com.example.einvoice.xml.DocumentSchemas;
 import com.example.einvoice.xml.SchemaVersion;
 import com.jayway.jsonpath.JsonPath;
 
@@ -42,7 +42,7 @@ class CertificationMatrixIT extends AbstractCertificationIT {
 	ArtifactStore artifacts;
 
 	@Autowired
-	InvoiceSchemas schemas;
+	DocumentSchemas schemas;
 
 	@Autowired
 	XadesVerifier verifier;

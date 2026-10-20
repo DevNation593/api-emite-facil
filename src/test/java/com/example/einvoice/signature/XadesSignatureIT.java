@@ -22,7 +22,7 @@ import org.w3c.dom.NodeList;
 import com.example.einvoice.certificate.Pkcs12Inspector;
 import com.example.einvoice.certificate.SigningMaterial;
 import com.example.einvoice.support.TestCertificates;
-import com.example.einvoice.xml.InvoiceSchemas;
+import com.example.einvoice.xml.DocumentSchemas;
 import com.example.einvoice.xml.InvoiceXmlBuilder;
 import com.example.einvoice.xml.InvoiceXmlData;
 import com.example.einvoice.xml.InvoiceXmlFixtures;
@@ -151,7 +151,7 @@ class XadesSignatureIT {
 
 	@Test
 	void signedInvoiceIsStillValidAgainstXsd() {
-		assertThat(new XsdValidator(new InvoiceSchemas()).validate(signed(), InvoiceXmlBuilder.VERSION).errors())
+		assertThat(new XsdValidator(new DocumentSchemas()).validate(signed(), InvoiceXmlBuilder.VERSION).errors())
 			.isEmpty();
 	}
 

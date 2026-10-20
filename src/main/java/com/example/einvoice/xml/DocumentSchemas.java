@@ -14,14 +14,18 @@ import javax.xml.validation.SchemaFactory;
 import org.springframework.stereotype.Component;
 import org.xml.sax.SAXException;
 
-/** Compila una vez cada XSD de factura empacado, sin acceso a red ni a archivos externos. */
+/** Compila una vez cada XSD de comprobante empacado, sin acceso a red ni a archivos externos. */
 @Component
-public class InvoiceSchemas {
+public class DocumentSchemas {
 
-	private final Map<SchemaVersion, Schema> schemas = new ConcurrentHashMap<>();
+	private final Map<DocumentSchema, Schema> schemas = new ConcurrentHashMap<>();
+
+	public Schema get(DocumentSchema schema) {
+		return schemas.computeIfAbsent(schema, DocumentSchemas::compile);
+	}
 
 	public Schema get(SchemaVersion version) {
-		return schemas.computeIfAbsent(version, InvoiceSchemas::compile);
+		return get(version.schema());
 	}
 
 	static SchemaFactory newSecureFactory() {
@@ -37,18 +41,18 @@ public class InvoiceSchemas {
 		}
 	}
 
-	private static Schema compile(SchemaVersion version) {
-		URL url = InvoiceSchemas.class.getClassLoader().getResource(version.xsdResource());
+	private static Schema compile(DocumentSchema schema) {
+		URL url = DocumentSchemas.class.getClassLoader().getResource(schema.xsdResource());
 		if (url == null) {
-			throw new IllegalStateException("XSD no empacado: " + version.xsdResource());
+			throw new IllegalStateException("XSD no empacado: " + schema.xsdResource());
 		}
 		SchemaFactory factory = newSecureFactory();
-		factory.setResourceResolver(new ClasspathSchemaResolver(version.resourceDir()));
+		factory.setResourceResolver(new ClasspathSchemaResolver());
 		try (InputStream in = url.openStream()) {
 			return factory.newSchema(new StreamSource(in, url.toExternalForm()));
 		}
 		catch (IOException | SAXException ex) {
-			throw new IllegalStateException("No se pudo compilar el XSD de factura " + version.value(), ex);
+			throw new IllegalStateException("No se pudo compilar el XSD " + schema.xsdResource(), ex);
 		}
 	}
 
