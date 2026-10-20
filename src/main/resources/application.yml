@@ -1,6 +1,13 @@
+server:
+  # Cloud Run y otras plataformas dicen el puerto en PORT. SERVER_PORT, si se define, gana.
+  port: ${PORT:8080}
 spring:
   application:
     name: einvoice
+  lifecycle:
+    # Al recibir SIGTERM se dejan de aceptar peticiones y se espera a las que están en curso. Cloud
+    # Run mata el contenedor 10 s después del aviso (Docker también): el cierre debe caber antes.
+    timeout-per-shutdown-phase: 8s
   data:
     redis:
       # Conexión en una sola variable: redis://:contraseña@host:puerto (rediss:// para TLS). Las de
@@ -180,6 +187,11 @@ logging:
   pattern:
     # Cada línea de log lleva el X-Correlation-ID de la petición que la produjo.
     correlation: "[%X{correlationId:-}] "
+  structured:
+    json:
+      # Con los registros en JSON (LOGGING_STRUCTURED_FORMAT_CONSOLE; la imagen trae logstash), cada
+      # línea lleva "severity" para que Google Cloud Logging distinga avisos y errores.
+      customizer: com.example.einvoice.observability.CloudLoggingSeverity
 management:
   health:
     mail:
