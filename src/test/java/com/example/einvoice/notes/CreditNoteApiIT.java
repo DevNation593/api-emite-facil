@@ -164,6 +164,27 @@ class CreditNoteApiIT extends AbstractIntegrationTest {
 		assertThat(row(whole).get("total").toString()).isEqualTo("21.85");
 	}
 
+	@Test
+	void theDiscountCannotGoBelowTheProratedOne() throws Exception {
+		// 2 × 10.00 con 1.00 de descuento (19.00 + IVA = 21.85): por 1 unidad, el descuento mínimo es 0.50.
+		String discountedLine = "{\"productId\":\"" + s.product() + "\",\"quantity\":\"2\",\"discount\":\"1.00\"}";
+		UUID discounted = authorized(issueInvoice(s.owner(), s.invoiceJson(s.customer(), discountedLine, "21.85")));
+
+		// Sin descuento, la línea acreditaría 10.00 contra los 9.50 facturados.
+		rejected(creditNote(s.creditNoteJson(discounted,
+				"{\"invoiceLineNo\":1,\"quantity\":\"1\",\"discount\":\"0\"}")), 422, "CREDIT_LINE_EXCEEDS_INVOICE");
+		rejected(creditNote(s.creditNoteJson(discounted,
+				"{\"invoiceLineNo\":1,\"quantity\":\"1\",\"discount\":\"0.49\"}")), 422, "CREDIT_LINE_EXCEEDS_INVOICE");
+		assertThat(notes()).isZero();
+
+		UUID prorated = issued(creditNote(s.creditNoteJson(discounted,
+				"{\"invoiceLineNo\":1,\"quantity\":\"1\",\"discount\":\"0.50\"}")));
+		assertThat(lineDiscount(prorated)).isEqualTo("0.50");
+		UUID higher = issued(creditNote(s.creditNoteJson(discounted,
+				"{\"invoiceLineNo\":1,\"quantity\":\"1\",\"discount\":\"0.75\"}")));
+		assertThat(lineDiscount(higher)).isEqualTo("0.75");
+	}
+
 	String lineDiscount(UUID note) {
 		return jdbc.queryForObject("SELECT content->'lines'->0->>'discount' FROM fiscal_documents WHERE id = ?",
 				String.class, note);

@@ -138,10 +138,16 @@ public class CreditNoteService {
 				throw unprocessable("CREDIT_LINE_EXCEEDS_INVOICE", "La línea " + line.invoiceLineNo()
 						+ " supera la cantidad o el precio unitario de la factura");
 			}
+			BigDecimal minimumDiscount = proratedDiscount(original, line.quantity());
+			if (line.discount() != null && line.discount().compareTo(minimumDiscount) < 0) {
+				throw unprocessable("CREDIT_LINE_EXCEEDS_INVOICE", "La línea " + line.invoiceLineNo()
+						+ " no puede llevar un descuento menor que el de la factura en proporción a la cantidad: "
+						+ minimumDiscount.toPlainString());
+			}
 			originals.add(original);
 			inputs.add(new InvoiceLineInput(line.quantity(), unitPrice,
-					line.discount() == null ? proratedDiscount(original, line.quantity()) : line.discount(),
-					original.taxRateCode(), original.taxRate()));
+					line.discount() == null ? minimumDiscount : line.discount(), original.taxRateCode(),
+					original.taxRate()));
 		}
 		InvoiceTotals totals = CatalogLines.calculate(inputs);
 		BigDecimal credited = documents.creditedTotal(access.tenantId(), invoice.id());
@@ -191,8 +197,9 @@ public class CreditNoteService {
 	}
 
 	/**
-	 * Descuento por omisión de una línea tomada de la factura: el original en proporción a la cantidad que se
-	 * devuelve, a dos decimales (el original entero si se devuelve toda la cantidad).
+	 * Descuento por omisión de una línea tomada de la factura, y el mínimo que admite: el original en proporción a
+	 * la cantidad que se devuelve, a dos decimales (el original entero si se devuelve toda la cantidad). Con menos
+	 * descuento, la línea acreditaría más que lo facturado.
 	 */
 	static BigDecimal proratedDiscount(LineRow original, BigDecimal quantity) {
 		return original.discount().multiply(quantity).divide(original.quantity(), 2, RoundingMode.HALF_UP);

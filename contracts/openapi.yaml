@@ -979,7 +979,8 @@ paths:
             factura), MODIFIED_INVOICE_OTHER_ISSUER (la factura es de otro emisor de la empresa),
             MODIFIED_INVOICE_NOT_AUTHORIZED (la factura no está autorizada), INVALID_MODIFIED_DOCUMENT_DATE
             (la factura es posterior a la nota), CREDIT_LINE_UNKNOWN (la factura no tiene esa línea),
-            CREDIT_LINE_EXCEEDS_INVOICE (cantidad o precio unitario mayor que el de la línea original),
+            CREDIT_LINE_EXCEEDS_INVOICE (cantidad o precio unitario mayor que el de la línea original, o
+            descuento menor que el original prorrateado por la cantidad),
             CREDIT_EXCEEDS_INVOICE (con las notas de crédito vigentes de la factura se superaría su total),
             UNSUPPORTED_CURRENCY, INVALID_ISSUE_DATE, EMISSION_POINT_DISABLED, INVALID_LINE,
             AMOUNT_TOO_LARGE, TAX_RATE_UNKNOWN, SEQUENCE_EXHAUSTED o DOCUMENT_XML_INVALID (el XML generado
@@ -1782,6 +1783,10 @@ components:
       type: string
       pattern: '^[0-9]+(\.[0-9]+)?$'
       description: Importe o cantidad como cadena decimal, para no perder precisión.
+    Amount:
+      type: string
+      pattern: '^[0-9]{1,12}(\.[0-9]{1,2})?$'
+      description: Importe como cadena decimal, con hasta 12 enteros y 2 decimales.
     NullableDecimal:
       type: [string, 'null']
       pattern: '^[0-9]+(\.[0-9]+)?$'
@@ -1951,8 +1956,9 @@ components:
           maxItems: 200
           description: >
             Con invoiceId, cada línea lleva invoiceLineNo (sin repetirlo) y no productId: código,
-            descripción, producto y tarifa de IVA se copian de la línea de la factura, y la cantidad y el
-            precio unitario no pueden superar los originales. Con modifiedDocument, cada línea lleva
+            descripción, producto y tarifa de IVA se copian de la línea de la factura; la cantidad y el
+            precio unitario no pueden superar los originales, ni el descuento bajar del original prorrateado
+            por la cantidad (422 CREDIT_LINE_EXCEEDS_INVOICE). Con modifiedDocument, cada línea lleva
             productId y no invoiceLineNo, como en la factura.
           items:
             type: object
@@ -1969,8 +1975,11 @@ components:
               discount:
                 description: >
                   Por defecto, el de la línea de la factura en proporción a la cantidad (descuento original ×
-                  cantidad / cantidad original, a dos decimales), o 0.00 a mano. Hasta 2 decimales.
+                  cantidad / cantidad original, a dos decimales), o 0.00 a mano. Con invoiceId, ese prorrateo
+                  es también el mínimo: un descuento menor da 422 CREDIT_LINE_EXCEEDS_INVOICE. Hasta 12 enteros
+                  y 2 decimales.
                 type: [string, 'null']
+                pattern: '^[0-9]{1,12}(\.[0-9]{1,2})?$'
     IssueDebitNoteRequest:
       type: object
       description: >
@@ -2020,7 +2029,7 @@ components:
                 minLength: 1
                 maxLength: 300
                 description: Razón del cobro, sin saltos de línea ni otros caracteres de control.
-              value: { $ref: '#/components/schemas/Decimal' }
+              value: { $ref: '#/components/schemas/Amount' }
               ivaRateCode: { type: string, description: 'Código de la tarifa de IVA del catálogo (tabla 17), por ejemplo 4 para el 15 %.' }
         payments:
           type: array
@@ -2032,7 +2041,7 @@ components:
             required: [methodCode, amount]
             properties:
               methodCode: { type: string, description: 'Forma de pago del catálogo (ficha, tabla 24).' }
-              amount: { $ref: '#/components/schemas/Decimal' }
+              amount: { $ref: '#/components/schemas/Amount' }
     IssuedDocument:
       type: object
       required: [id, state, statusUrl]

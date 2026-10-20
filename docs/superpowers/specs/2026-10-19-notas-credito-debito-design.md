@@ -47,7 +47,7 @@ factura. Cuerpo:
 - Viene `invoiceId` **o** `modifiedDocument` + `customerId`. Ninguno, o los dos, responde `400
   MODIFIED_DOCUMENT_REQUIRED`.
 - **Con `invoiceId`:** cada línea es `{ "invoiceLineNo": 1, "quantity": "1", "unitPrice": "10.00",
-  "discount": "0" }` (precio y descuento opcionales: por omisión, el precio de la línea original y su descuento **prorrateado**: descuento original × cantidad / cantidad original, 2 decimales HALF_UP). Código,
+  "discount": "0" }` (precio y descuento opcionales: por omisión, el precio de la línea original y su descuento **prorrateado**: descuento original × cantidad / cantidad original, 2 decimales HALF_UP, que es también el mínimo que se admite). Código,
   descripción, producto y tarifa de IVA se copian de la línea de la factura. Las líneas no se repiten.
 - **A mano:** cada línea es `{ "productId", "quantity", "unitPrice"?, "discount"? }`, como en la factura.
 - El cálculo de importes e IVA es el de la factura (`InvoiceCalculator`), con el mismo redondeo.
@@ -86,8 +86,12 @@ Mismos campos de emisor, punto, fecha, `invoiceId` o `modifiedDocument` + `custo
   `modified_document_id` en estados vigentes (todos menos `RETURNED`, `NOT_AUTHORIZED` y
   `XSD_INVALID`) + el total de la nueva ≤ total de la factura; si no, `422 CREDIT_EXCEEDS_INVOICE`.
 - **Líneas de la nota de crédito con `invoiceId`:** `invoiceLineNo` inexistente → `422
-  CREDIT_LINE_UNKNOWN`; cantidad mayor que la original o precio unitario mayor que el original → `422
-  CREDIT_LINE_EXCEEDS_INVOICE`. No se lleva el acumulado por línea: el tope global es el saldo.
+  CREDIT_LINE_UNKNOWN`; cantidad mayor que la original, precio unitario mayor que el original o
+  descuento menor que el original prorrateado por la cantidad (el mismo cálculo del descuento por
+  omisión) → `422 CREDIT_LINE_EXCEEDS_INVOICE`. Así el subtotal de la línea nunca supera el de la línea
+  original en proporción a la cantidad: con precio 50, descuento 40 y cantidad 1, un descuento 0
+  acreditaría 50 contra los 10 facturados. No se lleva el acumulado por línea: el tope global es el
+  saldo.
 - Lo demás es lo de la factura y la parte 2: punto deshabilitado, moneda USD, fecha futura, importes
   máximos, `DOCUMENT_XML_INVALID`, idempotencia.
 - La reemisión (`replacesDocumentId`) no se ofrece en las notas.
