@@ -45,7 +45,9 @@ El contrato vigente es [`contracts/openapi.yaml`](../contracts/openapi.yaml); un
 | POST | `/products` | `OWNER`, `ADMIN` o API key | 201; `409 PRODUCT_SKU_TAKEN`; `422 TAX_RATE_UNKNOWN` |
 | GET | `/products?page=&size=&q=`, `/products/{id}` | miembro o API key | página; `q` busca en nombre o código |
 | POST | `/invoices` | `OWNER`, `ADMIN`, `BILLER`, API key | 202 `{id, state, statusUrl}` con el documento en `RESERVED` |
-| GET | `/documents?page=&size=`, `/documents/{id}` | miembro o API key | resumen paginado; documento completo con totales, líneas y pagos |
+| POST | `/credit-notes` | `OWNER`, `ADMIN`, `BILLER`, API key | 202 `{id, state, statusUrl}`; reglas en [Notas de crédito y de débito](#notas-de-crédito-y-de-débito) |
+| POST | `/debit-notes` | `OWNER`, `ADMIN`, `BILLER`, API key | 202 `{id, state, statusUrl}`; reglas en [Notas de crédito y de débito](#notas-de-crédito-y-de-débito) |
+| GET | `/documents?page=&size=&documentType=`, `/documents/{id}` | miembro o API key | resumen paginado, con filtro opcional por tipo (`01`, `03`, `04`, `05`, `06`, `07`; otro código, `400 MALFORMED_REQUEST`); documento completo con totales, líneas y pagos (ver los campos de las notas en la sección siguiente). En la guía de remisión `subtotal`, `totalDiscount`, `totalTax` y `total` salen `null` |
 | GET | `/documents/{id}/artifacts/{kind}` | miembro o API key | `xml-unsigned`, `xml-signed`, `sri-authorization` (respuesta del SRI), `xml-authorized` (XML autorizado que se entrega) o `ride` (PDF), con su SHA-256 en `ETag`; 404 si aún no existe |
 | POST | `/documents/{id}/retry` | `OWNER`, `ADMIN`, `BILLER`, API key | 202 `{id, state}`: devuelve el comprobante a la cola sin cambiar su estado; `409 DOCUMENT_NOT_RETRYABLE` fuera de `RESERVED`, `GENERATED`, `SIGNATURE_FAILED`, `SIGNED`, `SENDING` y `RECEIVED` |
 | GET | `/documents/{id}/sri-attempts` | miembro o API key | llamadas al SRI del comprobante, la más reciente primero, con estado literal, resultado y mensajes; nunca la respuesta cruda |
@@ -64,13 +66,24 @@ El contrato vigente es [`contracts/openapi.yaml`](../contracts/openapi.yaml); un
 - **Pagos:** al menos uno, con forma de pago vigente del catálogo; su suma debe ser igual al total (`422 PAYMENTS_MISMATCH`). Un pago en cero solo se admite si el comprobante entero vale cero (`422 INVALID_PAYMENT`).
 - **Fecha de emisión:** por defecto hoy en Ecuador. No puede ser futura ni anterior a la del último comprobante del punto de emisión (`422 INVALID_ISSUE_DATE`).
 - **Consumidor final:** una factura a identificación tipo `07` no puede superar 50.00 USD (`422 FINAL_CONSUMER_LIMIT_EXCEEDED`); el monto es configurable.
-- **Otros 422:** `UNSUPPORTED_CURRENCY` (solo USD), `EMISSION_POINT_DISABLED`, `INVALID_LINE`, `AMOUNT_TOO_LARGE` (ningún importe del comprobante puede pasar de 999999999999.99), `PAYMENT_METHOD_UNKNOWN`, `SEQUENCE_EXHAUSTED`. Emisor, establecimiento, punto, cliente o producto inexistente o de otra empresa: `404`.
+- **Otros 422:** `UNSUPPORTED_CURRENCY` (solo USD), `EMISSION_POINT_DISABLED`, `INVALID_LINE`, `AMOUNT_TOO_LARGE` (ningún importe del comprobante puede pasar de 999999999999.99), `PAYMENT_METHOD_UNKNOWN`, `SEQUENCE_EXHAUSTED`, `DOCUMENT_XML_INVALID` (el XML generado no pasa el esquema del SRI; el detalle se trunca a 500 caracteres y no se consume secuencial). Emisor, establecimiento, punto, cliente o producto inexistente o de otra empresa: `404`. Si una petición tiene varios problemas, se comprueban antes el emisor, el punto de emisión, la moneda y la fecha que el cliente: un cliente desconocido junto con un punto deshabilitado responde `422` por el punto.
 - **Clientes:** la identificación `9999999999999` solo se admite con el tipo `07`; registrarla como RUC u otro tipo responde `422 IDENTIFICATION_INVALID`.
 - **Listados:** `size` de 1 a 100, `page` de 0 a 100000 y `q` de hasta 100 caracteres sin caracteres de control; fuera de eso, `400 MALFORMED_REQUEST`.
 - **Emisores:** el RUC debe ser de diez dígitos seguidos de `001`. Al darlo de alta se pueden indicar `accountingRequired`, `specialTaxpayerCode`, `withholdingAgentCode` y `rimpeRegime` (`NONE`, `EMPRENDEDOR`, `NEGOCIO_POPULAR`), que el comprobante lleva como leyendas. `NEGOCIO_POPULAR` se rechaza por ahora con `422 RIMPE_REGIME_UNSUPPORTED` (doc 14).
 - **Certificados:** el `.p12` viaja en Base64 (hasta 64 KB) con su contraseña, por HTTPS; se guarda cifrado y no se puede volver a descargar.
 - **Estados de un comprobante:** `RESERVED`, `GENERATED`, `SIGNED`, `SENDING`, `RECEIVED`, `AUTHORIZED`, y los de fallo `XSD_INVALID`, `SIGNATURE_FAILED`, `RETURNED` y `NOT_AUTHORIZED` (doc 05). `POST /invoices` solo confirma la aceptación para procesar; la autorización fiscal existe cuando el estado es `AUTHORIZED`, y entonces el comprobante trae `authorizationNumber` y `authorizedAt` (UTC).
-- **Alcance actual:** solo factura (`01`) con IVA; sin ICE, IRBPNR, propina, reembolsos ni exportación.
+- **Reemisión:** el comprobante reemplazado debe ser del mismo tipo que el nuevo; si no, `409 REPLACED_DOCUMENT_OTHER_TYPE`.
+- **Alcance actual:** factura (`01`), nota de crédito (`04`) y nota de débito (`05`) con IVA; sin ICE, IRBPNR, propina, reembolsos ni exportación.
+
+### Notas de crédito y de débito
+Las dos exigen `Idempotency-Key` y responden `202` como la factura; la reemisión (`replacesDocumentId`) no se ofrece. Los campos de emisor, punto y `issueDate` son los de la factura.
+
+- **`POST /credit-notes`:** `{taxpayerId, establishmentCode, emissionPointCode, issueDate?, reason, invoiceId | (modifiedDocument + customerId), lines}`. `reason` de 1 a 300 caracteres sin saltos de línea; `lines` de 1 a 200.
+  - Con `invoiceId`, cada línea es `{invoiceLineNo, quantity, unitPrice?, discount?}`: el código, la descripción, el producto y el IVA salen de la línea de la factura; sin `unitPrice` se usa el original y, sin `discount`, el descuento original **prorrateado** (descuento × cantidad devuelta / cantidad original, 2 decimales HALF_UP). La cantidad y el precio unitario no pueden superar los originales, ni el descuento bajar de ese prorrateado: si no, `422 CREDIT_LINE_EXCEEDS_INVOICE`. El comprador es el congelado en la factura: un `customerId` en el cuerpo responde `400 MODIFIED_DOCUMENT_REQUIRED`.
+  - A mano, `modifiedDocument` es `{code: "01", number: "EEE-PPP-SSSSSSSSS", issueDate}` y cada línea `{productId, quantity, unitPrice?, discount?}`, como en la factura.
+- **`POST /debit-notes`:** los mismos campos de documento modificado, más `reasons` (1 a 20, cada una `{reason, value, ivaRateCode}`) y `payments` (exactamente uno, que suma el total).
+- **Errores:** `400 MODIFIED_DOCUMENT_REQUIRED` (ni `invoiceId` ni documento a mano, o los dos, o `customerId` con `invoiceId`); `404` si la factura es de otra empresa; `422`: `INVALID_MODIFIED_DOCUMENT_DATE`, `MODIFIED_INVOICE_NOT_AUTHORIZED`, `MODIFIED_INVOICE_OTHER_ISSUER`, `MODIFIED_DOCUMENT_NOT_INVOICE`, `CREDIT_EXCEEDS_INVOICE`, `CREDIT_LINE_UNKNOWN`, `CREDIT_LINE_EXCEEDS_INVOICE`; en la de débito además `PAYMENTS_MISMATCH`, `PAYMENT_METHOD_UNKNOWN`, `TAX_RATE_UNKNOWN` y `FINAL_CONSUMER_LIMIT_EXCEEDED`. El resto es lo de la factura.
+- **`GET /documents/{id}`** añade, cuando aplica y `null` si no: `modifiedDocument {code, number, issueDate, documentId}` (notas; `documentId` es nulo si la factura se escribió a mano); `reason` (nota de crédito); `reasons [{reason, value, taxRateCode, taxRate, taxAmount}]` (nota de débito, cuyo pago sale en `payments` y su IVA en `taxes`); `creditedTotal` (solo facturas: suma de las notas de crédito vigentes, `"0.00"` sin notas). Las líneas de una nota de crédito salen en `lines` con `invoiceLineNo`, que es `null` en las demás.
 
 ## Endpoints propuestos (pendientes)
 | Método | Ruta | Alcance | Resultado |
@@ -79,7 +92,6 @@ El contrato vigente es [`contracts/openapi.yaml`](../contracts/openapi.yaml); un
 | GET | `/documents/{id}/events` | document.audit | trazabilidad |
 | GET | `/documents/{id}/ride?format=` | document.read | otros formatos del RIDE (el PDF ya se descarga como artefacto) |
 | POST | `/documents/{id}/resend` | document.reconcile | 202: corregir y reenviar un comprobante devuelto o no autorizado con su misma clave (el reintento sin corrección ya existe como `/retry`) |
-| POST | `/credit-notes` | credit.issue | 202 (fase 2) |
 
 ## Crear factura
 ```http

@@ -9,7 +9,7 @@ Crear SaaS multiempresa de facturación electrónica Ecuador, priorizando **fact
 El desglose ejecutable de estas etapas está en el [plan maestro](superpowers/plans/2026-10-10-plan-maestro.md).
 
 ## 3. Orden exacto de trabajo
-- **Etapa 0 (conformidad)**: verificar ficha v2.34, resolución de proveedores y anexos desde el SRI; contrastar con el paquete oficial los XSD/XML de factura y `xmldsig-core-schema.xsd` ya incorporados en `src/main/resources/xsd/invoice/`, y registrar URL, hash, fecha y texto normativo. Ver [anexo de integración de XSD](14-xsd-integration.md). Crear tabla `schema_registry`/catálogos. Confirmar aplicación de `RUC Proveedor` y habilitación del emisor.
+- **Etapa 0 (conformidad)**: verificar ficha v2.34, resolución de proveedores y anexos desde el SRI; contrastar con el paquete oficial los XSD/XML de comprobantes y `xmldsig-core-schema.xsd` ya incorporados en `src/main/resources/xsd/`, y registrar URL, hash, fecha y texto normativo. Ver [anexo de integración de XSD](14-xsd-integration.md). Crear tabla `schema_registry`/catálogos. Confirmar aplicación de `RUC Proveedor` y habilitación del emisor.
 - **Etapa 1 (infra)**: repositorio con Maven, Docker Compose, PostgreSQL/Flyway, RabbitMQ, Redis; CI, healthchecks y Testcontainers. Next.js llega en el Plan 7 y el almacenamiento S3 local queda pendiente de elegir (doc 13).
 - **Etapa 2 (seguridad)**: identidad (hoy, cuentas propias de la API: Plan 10), tenants, memberships/RBAC, taxpayers, sucursales/puntos; tenant isolation tests.
 - **Etapa 3 (datos)**: clientes/productos, tasas efectivas por fecha, validaciones, BigDecimal, persistencia secuenciales, outbox transaccional, idempotencia.

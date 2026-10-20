@@ -12,14 +12,14 @@ class ClasspathSchemaResolverTest {
 
 	static final String DTD = "http://www.w3.org/TR/REC-xml";
 
-	final ClasspathSchemaResolver resolver = new ClasspathSchemaResolver("xsd/invoice/2.1.0/");
+	final ClasspathSchemaResolver resolver = new ClasspathSchemaResolver();
 
 	@Test
-	void resolvesPackagedXmldsig() throws Exception {
+	void resolvesTheSharedXmldsig() throws Exception {
 		LSInput in = resolver.resolveResource(XSD, "http://www.w3.org/2000/09/xmldsig#", null,
-				"xmldsig-core-schema.xsd", null);
+				"xmldsig-core-schema.xsd", "jar:file:/app.jar!/xsd/credit-note/1.0.0/NotaCredito_V1.0.0.xsd");
 		assertThat(in.getByteStream().readAllBytes()).hasSize(10292);
-		assertThat(in.getSystemId()).endsWith("xsd/invoice/2.1.0/xmldsig-core-schema.xsd");
+		assertThat(in.getSystemId()).endsWith("xsd/common/xmldsig-core-schema.xsd");
 	}
 
 	@Test
@@ -34,7 +34,7 @@ class ClasspathSchemaResolverTest {
 		assertThatThrownBy(() -> resolver.resolveResource(XSD, null, null, "http://example.com/evil.xsd", null))
 				.isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(
-				() -> resolver.resolveResource(XSD, null, null, "../2.0.0/xmldsig-core-schema.xsd", null))
+				() -> resolver.resolveResource(XSD, null, null, "../common/xmldsig-core-schema.xsd", null))
 				.isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(
 				() -> resolver.resolveResource(DTD, null, "-//OTRO//DTD X//EN", "http://example.com/x.dtd", null))

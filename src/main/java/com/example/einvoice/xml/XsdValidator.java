@@ -19,7 +19,7 @@ import org.xml.sax.SAXParseException;
 import org.xml.sax.XMLReader;
 
 /**
- * Valida un XML contra el XSD de factura de una versión. Nunca lanza por contenido inválido y
+ * Valida un XML contra el XSD de un comprobante en una versión. Nunca lanza por contenido inválido y
  * rechaza cualquier DOCTYPE antes de resolver entidades (docs/10-security.md).
  */
 @Component
@@ -27,16 +27,20 @@ public class XsdValidator {
 
 	private static final String DISALLOW_DOCTYPE = "http://apache.org/xml/features/disallow-doctype-decl";
 
-	private final InvoiceSchemas schemas;
+	private final DocumentSchemas schemas;
 
-	public XsdValidator(InvoiceSchemas schemas) {
+	public XsdValidator(DocumentSchemas schemas) {
 		this.schemas = schemas;
 	}
 
 	public ValidationResult validate(byte[] xml, SchemaVersion version) {
+		return validate(xml, version.schema());
+	}
+
+	public ValidationResult validate(byte[] xml, DocumentSchema schema) {
 		List<String> errors = new ArrayList<>();
 		try {
-			Validator validator = schemas.get(version).newValidator();
+			Validator validator = schemas.get(schema).newValidator();
 			validator.setErrorHandler(new CollectingErrorHandler(errors));
 			validator.validate(new SAXSource(newSecureReader(), new InputSource(new ByteArrayInputStream(xml))));
 		}

@@ -11,11 +11,11 @@ sequenceDiagram
  participant S as SRI SOAP
  participant O as S3/MinIO
  U->>A: POST /invoices (Idempotency-Key)
- A->>D: Tx: validar, reservar secuencia, crear, outbox
+ A->>D: Tx: validar, reservar secuencia, generar y validar XML, crear, outbox (DOCUMENT_RESERVED)
  A-->>U: 202 Accepted + documentId
  D-->>Q: Outbox publisher
  Q->>W: Issue(documentId)
- W->>W: XML/XSD + XAdES
+ W->>W: XML/XSD (de nuevo) + XAdES
  W->>O: XML firmado
  W->>S: validarComprobante(xml)
  S-->>W: RECIBIDA / DEVUELTA
@@ -34,7 +34,7 @@ Camino normal: `RESERVED -> GENERATED -> SIGNED -> SENDING -> RECEIVED -> AUTHOR
 `DRAFT` es opcional y solo lo usa el editor del frontend: un borrador no tiene secuencial ni clave de acceso. Ambos se asignan en la misma transacción al pasar a `RESERVED` (doc 04). `POST /invoices` no pasa por `DRAFT`: valida y crea el documento directamente en `RESERVED`.
 
 ## Estado de implementación
-Está implementado el primer tramo del diagrama: `POST /invoices` valida, calcula, reserva el secuencial con bloqueo de fila, genera la clave de acceso y confirma en **una transacción** el documento en `RESERVED` con sus líneas, totales y pagos, el evento de estado (`NULL → RESERVED`), la auditoría, el registro de idempotencia y un evento `INVOICE_RESERVED` en `outbox_events`. Si cualquier validación falla no queda nada: ni documento, ni secuencial consumido, ni evento.
+Está implementado el primer tramo del diagrama: `POST /invoices` valida, calcula, reserva el secuencial con bloqueo de fila, genera la clave de acceso, **genera y valida el XML contra el XSD en la misma emisión** (la fila del secuencial sigue bloqueada mientras se construye y valida el XML, hasta confirmar; si no es válido responde `422 DOCUMENT_XML_INVALID` y no queda nada) y confirma en **una transacción** el documento en `RESERVED` con sus líneas, totales y pagos, el evento de estado (`NULL → RESERVED`), la auditoría, el registro de idempotencia y un evento `DOCUMENT_RESERVED` en `outbox_events` (el mismo para todos los tipos; la auditoría de la factura sigue llamándose `INVOICE_RESERVED`). El worker vuelve a validar el XML al generarlo. Si cualquier validación falla no queda nada: ni documento, ni secuencial consumido, ni evento.
 
 También está implementado el tramo siguiente, como servicio (`DocumentProcessor.generateAndSign`): genera el XML versión 1.1.0 desde los datos congelados, lo valida contra el XSD y las reglas adicionales, lo guarda (`XML_UNSIGNED`) y pasa a `GENERATED`; después lo firma en XAdES-BES con el certificado activo del emisor, verifica la firma, guarda el XML firmado (`XML_SIGNED`) y pasa a `SIGNED`. Si el XML no es válido el documento queda en `XSD_INVALID` con el motivo; si no hay certificado utilizable o la firma no verifica, en `SIGNATURE_FAILED`, desde donde se puede reintentar. Es reentrante y bloquea el documento, de modo que procesarlo dos veces o en paralelo produce un solo XML firmado.
 
@@ -56,7 +56,17 @@ También está implementado el tramo siguiente, como servicio (`DocumentProcesso
 ### Lo que no hace todavía
 - **Corregir y reenviar con la misma clave** un comprobante `RETURNED` o `NOT_AUTHORIZED` (ficha, 5.10): no está implementado, porque los artefactos guardados son inmutables. Lo que sí existe desde el Plan 8b es **reemitir**: una factura nueva, con su propio secuencial y su propia clave, que reemplaza a la rechazada y queda enlazada con ella (`replacesDocumentId`). También se reemite un comprobante `XSD_INVALID`: no llegó al SRI y no admite reintento, porque con los mismos datos saldría igual. La factura nueva debe ser del mismo emisor que la reemplazada. El secuencial del comprobante rechazado no se reutiliza. Si la ficha exige otra cosa para el secuencial de un rechazado, hay que revisarlo antes de producción.
 - Anulación, envío por lotes y consulta de validez.
-- RIDE y entrega de otros tipos de comprobante (solo factura).
+- RIDE y entrega de los demás tipos de comprobante (hoy cubren la factura y las notas de crédito y de débito).
+
+## Notas de crédito y de débito
+Las notas (`04` y `05`) recorren los mismos estados y el mismo pipeline que la factura; solo cambia cómo se emiten.
+
+- **Documento modificado.** Toda nota apunta a una factura: una de la plataforma (`invoiceId`) o una escrita a mano (código `01`, número y fecha; con su `customerId`). Con `invoiceId` la nota copia el comprador congelado en la factura (no el del catálogo de hoy), guarda su número y su fecha y enlaza `modified_document_id`. La fecha de la factura no puede ser posterior a la de la nota (`422 INVALID_MODIFIED_DOCUMENT_DATE`).
+- **Bloqueo.** Con `invoiceId` la factura se busca dentro de la empresa (ajena: 404) y se bloquea con `FOR UPDATE` antes de reservar el secuencial: dos notas sobre la misma factura se deciden una tras otra. Debe estar `AUTHORIZED` (`422 MODIFIED_INVOICE_NOT_AUTHORIZED`), ser del mismo emisor (`MODIFIED_INVOICE_OTHER_ISSUER`) y ser una factura (`MODIFIED_DOCUMENT_NOT_INVOICE`).
+- **Saldo (nota de crédito sobre factura de la plataforma).** La suma de las notas de crédito vigentes de una factura no puede superar su total (`422 CREDIT_EXCEEDS_INVOICE`). Vigente es todo estado menos `RETURNED`, `NOT_AUTHORIZED` y `XSD_INVALID`: una nota aún en camino al SRI ya cuenta, y una rechazada libera su saldo. `GET /documents/{id}` de la factura lo muestra en `creditedTotal`.
+- **Líneas de la nota de crédito.** Cada línea corrige una línea de la factura (`invoiceLineNo`): código, descripción, producto y tarifa se copian; cantidad y precio unitario no superan los originales (`CREDIT_LINE_UNKNOWN`, `CREDIT_LINE_EXCEEDS_INVOICE`). Si no se indica el descuento, se **prorratea**: descuento original × cantidad devuelta / cantidad original, redondeado a 2 decimales (HALF_UP).
+- **Nota de débito.** Motivos (razón, valor y tarifa de IVA cada uno) y exactamente un pago por el total.
+- **Entrega.** El RIDE de cada nota lleva su título y el cuadro «Comprobante que se modifica»; el correo sale con el asunto «Nota de crédito …» o «Nota de débito …» y el adjunto `nota-credito-….pdf` o `nota-debito-….pdf`. La factura modificada no cambia: su XML y su RIDE son los de siempre.
 
 ## Matriz de transición crítica
 | Situación | Respuesta del sistema |
@@ -80,7 +90,7 @@ El RIDE es una representación visual: **no sustituye al XML firmado**.
 ### Lo implementado
 - **Archivo.** Al autorizarse un comprobante se guardan dos artefactos más: el **XML autorizado** (`xml-authorized`: los datos de la autorización del SRI y, dentro de una sección CDATA, el comprobante firmado byte a byte como se envió, de modo que su firma sigue verificando) y el **RIDE en PDF** (`ride`). Se descargan por `GET /documents/{id}/artifacts/{kind}` bajo el mismo control de acceso que el resto. La respuesta cruda del SRI sigue aparte (`sri-authorization`) como evidencia.
 - **Inmutabilidad.** `document_artifacts` es de solo inserción: un disparador de la base rechaza `UPDATE`, `DELETE` y `TRUNCATE`. Protege frente a la aplicación y a errores, no frente a quien sea dueño de la tabla, que puede retirarlo (doc 10).
-- **RIDE.** Tiene la disposición habitual de estos documentos —**pendiente de cotejar campo a campo con el modelo del Anexo 2 de la ficha, que es una imagen y no se pudo leer**—: emisor; RUC, número, número y fecha de autorización, ambiente, emisión y clave de acceso con código de barras (Code 128); adquirente; detalle; información adicional, formas de pago y totales por tarifa. Solo de factura.
+- **RIDE.** Tiene la disposición habitual de estos documentos —**pendiente de cotejar campo a campo con el modelo del Anexo 2 de la ficha, que es una imagen y no se pudo leer**—: emisor; RUC, número, número y fecha de autorización, ambiente, emisión y clave de acceso con código de barras (Code 128); adquirente; detalle; información adicional, formas de pago y totales por tarifa. De factura, nota de crédito y nota de débito (los tres comparten cabecera y pie; cada nota añade el cuadro del documento que modifica y su detalle o motivos).
 - **Entrega por correo** (ficha, 4.7). Si el comprobante tiene correo del cliente, se crea una entrega automática y se envía un mensaje con el RIDE y el XML autorizado adjuntos. El remitente es la dirección de la plataforma con el nombre del emisor. Cada entrega queda registrada con destinatario, estado, intentos, último error y fecha de envío (`GET /documents/{id}/deliveries`), y se puede pedir otra a la misma o a otra dirección (`POST /documents/{id}/deliveries`).
 - **La entrega no toca el estado fiscal.** Tiene su propio estado (`PENDING`, `SENDING`, `SENT`, `FAILED`); el comprobante sigue `AUTHORIZED` aunque el correo falle. `DELIVERY_PENDING`, `DELIVERED` y `DELIVERY_FAILED` no existen como estados del comprobante.
 - **Reintentos.** Un fallo temporal (respuesta 4xx, conexión caída, tiempo de espera o un error imprevisto) se reintenta con espera creciente: 1 minuto que se duplica hasta 6 horas, 12 intentos (entre 16 y 25 horas). La espera se respeta aunque lleguen otros eventos del mismo comprobante. Un rechazo del servidor con código 5xx, o una dirección que no es una sola dirección válida, es definitivo. Agotados los intentos la entrega acaba en `FAILED` y se puede pedir otra.

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Inventory XML schema assets; intentionally fails if any imports cannot be resolved.
-Usage: python scripts/verify_xsd_assets.py src/main/resources/xsd/invoice
+Usage: python scripts/verify_xsd_assets.py src/main/resources/xsd
+El import de xmldsig-core-schema.xsd se busca en <directorio>/common/, la única copia compartida
+(así lo resuelve ClasspathSchemaResolver); cualquier otro import, junto al XSD que lo declara.
 """
 import hashlib
 import pathlib
@@ -38,7 +40,7 @@ for f in xsds:
         if '://' in loc or loc.startswith('/') or '..' in pathlib.PurePosixPath(loc).parts:
             errors.append(f'{f}: import no local seguro: {loc}')
             continue
-        dependency = f.parent / loc
+        dependency = root / 'common' / loc if loc == 'xmldsig-core-schema.xsd' else f.parent / loc
         if not dependency.is_file():
             errors.append(f'{f}: falta dependencia {loc} (esperada en {dependency})')
         elif dependency.name == 'xmldsig-core-schema.xsd':
@@ -53,4 +55,4 @@ if errors:
     for err in errors:
         print('ERROR:', err)
     sys.exit(1)
-print('Imports locales presentes. La compilación real la cubre InvoiceSchemasTest (./mvnw verify).')
+print('Imports locales presentes. La compilación real la cubre DocumentSchemasTest (./mvnw verify).')

@@ -1,6 +1,13 @@
+server:
+  # Cloud Run y otras plataformas dicen el puerto en PORT. SERVER_PORT, si se define, gana.
+  port: ${PORT:8080}
 spring:
   application:
     name: einvoice
+  lifecycle:
+    # Al recibir SIGTERM se dejan de aceptar peticiones y se espera a las que están en curso. Cloud
+    # Run mata el contenedor 10 s después del aviso (Docker también): el cierre debe caber antes.
+    timeout-per-shutdown-phase: 8s
   data:
     redis:
       # Conexión en una sola variable: redis://:contraseña@host:puerto (rediss:// para TLS). Las de
@@ -103,6 +110,11 @@ einvoice:
     lockout: 15m
     # Peticiones por minuto de una IP a los endpoints públicos de /api/v1/auth.
     public-requests-per-minute: 20
+    # La IP de ese límite sale de X-Forwarded-For: es la entrada que queda en esta posición contando
+    # desde la derecha, porque las de la izquierda las escribe quien llama. 1 cuando la web llama
+    # directo a la API o un proxy reemplaza la cabecera (el compose); 2 en Cloud Run, donde la web
+    # pone la IP del navegador y el frente de Google añade la de la web (doc 13).
+    trusted-proxy-hops: ${EINVOICE_TRUSTED_PROXY_HOPS:1}
   webhooks:
     # Avisos a los sistemas de cada empresa. Apagado por defecto: encenderlo es aceptar que la
     # aplicación llame a direcciones que eligen los clientes (solo https y solo direcciones públicas).
@@ -180,6 +192,11 @@ logging:
   pattern:
     # Cada línea de log lleva el X-Correlation-ID de la petición que la produjo.
     correlation: "[%X{correlationId:-}] "
+  structured:
+    json:
+      # Con los registros en JSON (LOGGING_STRUCTURED_FORMAT_CONSOLE; la imagen trae logstash), cada
+      # línea lleva "severity" para que Google Cloud Logging distinga avisos y errores.
+      customizer: com.example.einvoice.observability.CloudLoggingSeverity
 management:
   health:
     mail:

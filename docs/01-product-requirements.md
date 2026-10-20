@@ -18,7 +18,7 @@ Emisores necesitan emitir, firmar, transmitir, verificar, entregar y conservar c
 | PR-08 | Entrega | XML firmado/validado y RIDE por correo con trazabilidad | P0 |
 | PR-09 | Descarga y consulta | Ver comprobante, XML, RIDE, eventos y mensajes | P0 |
 | PR-10 | API externa | OAuth2/client credentials o tokens con scopes + idempotencia | P1 |
-| PR-11 | Notas crédito/débito | Referencia al comprobante base, reglas específicas | P1 |
+| PR-11 | Notas crédito/débito | Referencia al comprobante base, reglas específicas. **Implementado:** `POST /credit-notes` y `POST /debit-notes` sobre una factura de la plataforma (autorizada, del mismo emisor; con el comprador congelado de la factura) o sobre una factura escrita a mano; las de crédito no superan el saldo de la factura; ambas recorren firma, SRI, RIDE y correo como la factura | P1 |
 | PR-12 | Retenciones, guías y liquidaciones | Motores y versiones de XML independientes | P2 |
 | PR-13 | Suscripciones SaaS | Planes, cuotas, límites por tenant, facturación propia separada | P1 |
 
@@ -33,7 +33,7 @@ Emisores necesitan emitir, firmar, transmitir, verificar, entregar y conservar c
 Contabilidad general, nómina, conciliación bancaria, inventario avanzado, POS sin conexión, retenciones y guías completas, salvo planificación posterior.
 
 ## Roadmap
-F0 normativa, catálogos, ambientes, fixtures y matriz XSD; F1 autenticación/multiempresa/catálogos; F2 factura/firma/SRI/RIDE/email; F3 robustez operativa y certificación; F4 notas y anulaciones; F5 retenciones/guías/liquidaciones; F6 ERP, API partner, planes.
+F0 normativa, catálogos, ambientes, fixtures y matriz XSD; F1 autenticación/multiempresa/catálogos; F2 factura/firma/SRI/RIDE/email; F3 robustez operativa y certificación; F4 notas (crédito y débito: hechas en la API) y anulaciones; F5 retenciones/guías/liquidaciones; F6 ERP, API partner, planes.
 
 ## Indicadores
 % autorizados, ratio devueltos, tiempo de autorización, duplicados evitados, entrega XML exitosa, reintentos, expiraciones de certificados, fallos por tenant, costo por documento.
