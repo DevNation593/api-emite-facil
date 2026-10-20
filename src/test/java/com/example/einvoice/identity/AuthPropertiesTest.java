@@ -15,7 +15,7 @@ class AuthPropertiesTest {
 
 	static AuthProperties properties(String secret, String webUrl) {
 		return new AuthProperties(secret, webUrl == null ? null : URI.create(webUrl), Duration.ofMinutes(15),
-				Duration.ofHours(12), Duration.ofHours(24), Duration.ofHours(1), 5, Duration.ofMinutes(15), 20);
+				Duration.ofHours(12), Duration.ofHours(24), Duration.ofHours(1), 5, Duration.ofMinutes(15), 20, 1);
 	}
 
 	@Test

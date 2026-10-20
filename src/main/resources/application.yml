@@ -110,6 +110,11 @@ einvoice:
     lockout: 15m
     # Peticiones por minuto de una IP a los endpoints públicos de /api/v1/auth.
     public-requests-per-minute: 20
+    # La IP de ese límite sale de X-Forwarded-For: es la entrada que queda en esta posición contando
+    # desde la derecha, porque las de la izquierda las escribe quien llama. 1 cuando la web llama
+    # directo a la API o un proxy reemplaza la cabecera (el compose); 2 en Cloud Run, donde la web
+    # pone la IP del navegador y el frente de Google añade la de la web (doc 13).
+    trusted-proxy-hops: ${EINVOICE_TRUSTED_PROXY_HOPS:1}
   webhooks:
     # Avisos a los sistemas de cada empresa. Apagado por defecto: encenderlo es aceptar que la
     # aplicación llame a direcciones que eligen los clientes (solo https y solo direcciones públicas).

@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Cuentas y sesiones. Todo es público salvo /me, /email-verification/resend y /password, que necesitan
  * un token de acceso. La API no está expuesta al navegador: la IP del usuario la pasa la web en
- * X-Forwarded-For.
+ * X-Forwarded-For, y se lee como explica {@link ClientAddress}.
  */
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -33,8 +33,11 @@ public class AuthController {
 
 	private final AuthService service;
 
-	public AuthController(AuthService service) {
+	private final int trustedProxyHops;
+
+	public AuthController(AuthService service, AuthProperties properties) {
 		this.service = service;
+		this.trustedProxyHops = properties.trustedProxyHops();
 	}
 
 	record Credentials(@NotBlank @Email @Size(max = 254) String email, @NotNull @Size(max = MAX_PASSWORD) String password) {
@@ -117,16 +120,8 @@ public class AuthController {
 		return new Me(user.userId(), user.email(), user.emailVerified());
 	}
 
-	/** La primera dirección de X-Forwarded-For, que pone la web; sin ella, la del que llama. */
-	static String clientIp(HttpServletRequest request) {
-		String forwarded = request.getHeader("X-Forwarded-For");
-		if (forwarded != null && !forwarded.isBlank()) {
-			String first = forwarded.split(",", 2)[0].strip();
-			if (!first.isEmpty() && first.length() <= 64) {
-				return first;
-			}
-		}
-		return request.getRemoteAddr();
+	private String clientIp(HttpServletRequest request) {
+		return ClientAddress.of(request, trustedProxyHops);
 	}
 
 }
