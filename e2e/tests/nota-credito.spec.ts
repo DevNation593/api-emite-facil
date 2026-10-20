@@ -67,8 +67,7 @@ test("una nota de crédito desde una factura autorizada llega a Autorizada", asy
 
   await test.step("la factura muestra lo acreditado", async () => {
     await page.goto(invoiceUrl);
-    await expect(page.getByText(/^Acreditado \$/)).toBeVisible();
-    await expect(page.getByText("Acreditado $0.00 de $28.75")).toHaveCount(0);
+    await expect(page.getByText("Acreditado $14.38 de $28.75")).toBeVisible();
 
     const documents = await listDocuments(page, company);
     expect(documents).toHaveLength(2);
