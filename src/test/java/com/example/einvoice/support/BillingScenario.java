@@ -21,4 +21,27 @@ public record BillingScenario(String owner, UUID tenant, UUID taxpayer, String r
 				+ "\"payments\":[{\"methodCode\":\"20\",\"amount\":\"" + paymentAmount + "\"}]}";
 	}
 
+	/** Cuerpo de POST /credit-notes sobre una factura de la plataforma; linesJson son las líneas ya escritas. */
+	public String creditNoteJson(UUID invoiceId, String linesJson) {
+		return "{\"taxpayerId\":\"" + taxpayer + "\",\"establishmentCode\":\"001\",\"emissionPointCode\":\"001\","
+				+ "\"reason\":\"Devolución de mercadería\",\"invoiceId\":\"" + invoiceId + "\",\"lines\":["
+				+ linesJson + "]}";
+	}
+
+	/** Línea de una nota de crédito sobre una factura: el número de línea y la cantidad devuelta. */
+	public static String creditLine(int invoiceLineNo, String quantity) {
+		return "{\"invoiceLineNo\":" + invoiceLineNo + ",\"quantity\":\"" + quantity + "\"}";
+	}
+
+	/**
+	 * Cuerpo de POST /credit-notes sobre una factura escrita a mano, al cliente del escenario, con una línea del
+	 * producto del escenario.
+	 */
+	public String manualCreditNoteJson(String invoiceNumber, String invoiceDate, String quantity) {
+		return "{\"taxpayerId\":\"" + taxpayer + "\",\"establishmentCode\":\"001\",\"emissionPointCode\":\"001\","
+				+ "\"reason\":\"Devolución de mercadería\",\"modifiedDocument\":{\"code\":\"01\",\"number\":\""
+				+ invoiceNumber + "\",\"issueDate\":\"" + invoiceDate + "\"},\"customerId\":\"" + customer
+				+ "\",\"lines\":[{\"productId\":\"" + product + "\",\"quantity\":\"" + quantity + "\"}]}";
+	}
+
 }

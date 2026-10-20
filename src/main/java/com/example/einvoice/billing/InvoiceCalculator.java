@@ -1,7 +1,9 @@
 package com.example.einvoice.billing;
 
+import static com.example.einvoice.billing.TaxMath.money;
+import static com.example.einvoice.billing.TaxMath.percentage;
+
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -16,8 +18,6 @@ import com.example.einvoice.catalog.CatalogRepository;
  * línea (9.16, tabla 21), así que ambos pueden diferir en centavos.
  */
 public final class InvoiceCalculator {
-
-	private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
 
 	private InvoiceCalculator() {
 	}
@@ -70,14 +70,6 @@ public final class InvoiceCalculator {
 			throw new IllegalArgumentException("El descuento no puede superar el importe de la línea");
 		}
 		return gross;
-	}
-
-	private static BigDecimal percentage(BigDecimal base, BigDecimal rate) {
-		return money(base.multiply(rate).divide(HUNDRED));
-	}
-
-	private static BigDecimal money(BigDecimal value) {
-		return value.setScale(2, RoundingMode.HALF_UP);
 	}
 
 }

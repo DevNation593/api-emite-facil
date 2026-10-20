@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.example.einvoice.billing.DocumentKinds;
 import com.example.einvoice.billing.FiscalDocumentRepository;
 import com.example.einvoice.storage.ArtifactKind;
 import com.example.einvoice.support.BillingScenario;
@@ -31,6 +32,9 @@ import com.example.einvoice.webhook.WebhookRecorder;
 
 /** Entrega por correo del comprobante autorizado, contra un servidor SMTP simulado. */
 class DeliveryIT extends AbstractDeliveryIT {
+
+	@Autowired
+	DocumentKinds kinds;
 
 	@Autowired
 	WebhookRecorder webhookRecorder;
@@ -149,7 +153,7 @@ class DeliveryIT extends AbstractDeliveryIT {
 				throw new AssertionError("Con el correo desactivado no se debe intentar ningún envío");
 			}
 		};
-		DeliveryService offline = new DeliveryService(archiver, documents, repository, artifacts, disabled, noMailer, webhookRecorder, transactionManager);
+		DeliveryService offline = new DeliveryService(archiver, documents, repository, artifacts, disabled, noMailer, webhookRecorder, transactionManager, kinds);
 
 		assertThat(offline.process(s.tenant(), document)).isZero();
 
@@ -170,7 +174,7 @@ class DeliveryIT extends AbstractDeliveryIT {
 		};
 
 		// Sin remitente real, cada envío fallaría en silencio: mejor no arrancar.
-		assertThatThrownBy(() -> new DeliveryService(archiver, documents, repository, artifacts, enabled, none, webhookRecorder, transactionManager))
+		assertThatThrownBy(() -> new DeliveryService(archiver, documents, repository, artifacts, enabled, none, webhookRecorder, transactionManager, kinds))
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessageContaining("einvoice.delivery.email.enabled");
 	}

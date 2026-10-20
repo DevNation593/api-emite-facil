@@ -1,10 +1,19 @@
+# Solo entran en el contexto de construcción .mvn, mvnw, pom.xml y src (ver Dockerfile).
 target
 *.log
 Dockerfile
+.dockerignore
 .git
+.gitignore
+.gitattributes
+.github
+.idea
+.vscode
+# Los .env tienen secretos: nunca deben llegar a la construcción ni a la imagen.
+.env*
+*.md
 docs
 e2e
 infra
 contracts
 scripts
-.github

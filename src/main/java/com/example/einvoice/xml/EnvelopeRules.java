@@ -20,21 +20,20 @@ import org.xml.sax.helpers.DefaultHandler;
 import com.example.einvoice.sequence.AccessKey;
 
 /**
- * Comprueba en una factura lo que su XSD no restringe: código de documento, versión, id, ausencia
+ * Comprueba en cualquier comprobante (factura, liquidación, notas, guía o retención) lo que su XSD no restringe: código de documento, versión, id, ausencia
  * de schemaLocation y que la clave de acceso sea válida y corresponda a los datos del comprobante.
  * Se aplica a un XML que ya pasó {@link XsdValidator}.
  */
-public final class InvoiceEnvelopeRules {
-
-	private static final String INVOICE_DOCUMENT_CODE = "01";
+public final class EnvelopeRules {
 
 	private static final String ROOT_ID = "comprobante";
 
-	private InvoiceEnvelopeRules() {
+	private EnvelopeRules() {
 	}
 
-	public static Set<EnvelopeViolation> check(byte[] xml, SchemaVersion version) {
-		EnvelopeHandler handler = new EnvelopeHandler();
+	public static Set<EnvelopeViolation> check(byte[] xml, DocumentSchema schema) {
+		DocumentType type = schema.type();
+		EnvelopeHandler handler = new EnvelopeHandler(type.infoElement());
 		XMLReader reader = XsdValidator.newSecureReader();
 		reader.setContentHandler(handler);
 		reader.setErrorHandler(handler);
@@ -42,13 +41,16 @@ public final class InvoiceEnvelopeRules {
 			reader.parse(new InputSource(new ByteArrayInputStream(xml)));
 		}
 		catch (SAXException | IOException ex) {
-			throw new IllegalArgumentException("XML de factura ilegible: " + ex.getMessage(), ex);
+			throw new IllegalArgumentException("XML de comprobante ilegible: " + ex.getMessage(), ex);
 		}
 		Set<EnvelopeViolation> violations = EnumSet.noneOf(EnvelopeViolation.class);
-		if (!INVOICE_DOCUMENT_CODE.equals(handler.header("infoTributaria/codDoc"))) {
+		if (!type.rootElement().equals(handler.root)) {
+			violations.add(EnvelopeViolation.ROOT_MISMATCH);
+		}
+		if (!type.code().equals(handler.header("infoTributaria/codDoc"))) {
 			violations.add(EnvelopeViolation.COD_DOC_MISMATCH);
 		}
-		if (!version.value().equals(handler.version)) {
+		if (!schema.version().equals(handler.version)) {
 			violations.add(EnvelopeViolation.VERSION_MISMATCH);
 		}
 		if (!ROOT_ID.equals(handler.id)) {
@@ -61,7 +63,7 @@ public final class InvoiceEnvelopeRules {
 		if (!AccessKey.valid(accessKey)) {
 			violations.add(EnvelopeViolation.ACCESS_KEY_INVALID);
 		}
-		else if (!accessKey.equals(expectedAccessKey(handler, accessKey))) {
+		else if (!accessKey.equals(expectedAccessKey(handler, type, accessKey))) {
 			violations.add(EnvelopeViolation.ACCESS_KEY_MISMATCH);
 		}
 		return violations;
@@ -69,10 +71,15 @@ public final class InvoiceEnvelopeRules {
 
 	/**
 	 * Reconstruye la clave con los datos del comprobante y el código numérico de la clave declarada
-	 * (doc 06). Devuelve nulo si falta algún dato o la fecha no tiene el formato dd/mm/aaaa.
+	 * (doc 06). Devuelve nulo si falta algún dato o la fecha no tiene el formato dd/mm/aaaa. La guía de
+	 * remisión no declara fecha de emisión en su XML: para ella se toman las 8 primeras cifras de la clave
+	 * declarada, de modo que solo se comprueba el resto de los componentes.
 	 */
-	private static String expectedAccessKey(EnvelopeHandler handler, String declared) {
-		String date = handler.header("infoFactura/fechaEmision");
+	private static String expectedAccessKey(EnvelopeHandler handler, DocumentType type, String declared) {
+		String date = handler.header(type.infoElement() + "/fechaEmision");
+		if (date == null && type == DocumentType.REMISSION_GUIDE) {
+			date = declared.substring(0, 2) + "/" + declared.substring(2, 4) + "/" + declared.substring(4, 8);
+		}
 		String[] parts = { handler.header("infoTributaria/codDoc"), handler.header("infoTributaria/ruc"),
 				handler.header("infoTributaria/ambiente"), handler.header("infoTributaria/estab"),
 				handler.header("infoTributaria/ptoEmi"), handler.header("infoTributaria/secuencial") };
@@ -94,9 +101,7 @@ public final class InvoiceEnvelopeRules {
 	/** Recoge los atributos de la raíz y el texto de los elementos de cabecera, solo en su lugar exacto. */
 	private static final class EnvelopeHandler extends DefaultHandler {
 
-		private static final Set<String> HEADER_PATHS = Set.of("infoTributaria/codDoc", "infoTributaria/claveAcceso",
-				"infoTributaria/ruc", "infoTributaria/ambiente", "infoTributaria/estab", "infoTributaria/ptoEmi",
-				"infoTributaria/secuencial", "infoTributaria/tipoEmision", "infoFactura/fechaEmision");
+		private final Set<String> headerPaths;
 
 		private final Deque<String> path = new ArrayDeque<>();
 
@@ -106,11 +111,19 @@ public final class InvoiceEnvelopeRules {
 
 		private StringBuilder text;
 
+		String root;
+
 		String version;
 
 		String id;
 
 		boolean schemaLocationPresent;
+
+		EnvelopeHandler(String infoElement) {
+			headerPaths = Set.of("infoTributaria/codDoc", "infoTributaria/claveAcceso", "infoTributaria/ruc",
+					"infoTributaria/ambiente", "infoTributaria/estab", "infoTributaria/ptoEmi",
+					"infoTributaria/secuencial", "infoTributaria/tipoEmision", infoElement + "/fechaEmision");
+		}
 
 		String header(String headerPath) {
 			return headers.get(headerPath);
@@ -125,12 +138,13 @@ public final class InvoiceEnvelopeRules {
 				schemaLocationPresent = true;
 			}
 			if (path.isEmpty()) {
+				root = localName;
 				version = attributes.getValue("", "version");
 				id = attributes.getValue("", "id");
 			}
 			else if (path.size() == 2 && uri.isEmpty()) {
 				String candidate = path.peek() + "/" + localName;
-				if (HEADER_PATHS.contains(candidate) && !headers.containsKey(candidate)) {
+				if (headerPaths.contains(candidate) && !headers.containsKey(candidate)) {
 					capturing = candidate;
 					text = new StringBuilder();
 				}

@@ -22,6 +22,11 @@ class IssuerSnapshotIT extends AbstractIntegrationTest {
 	@Autowired
 	FiscalDocumentRepository documents;
 
+	/** Sobre y cuerpo congelados, juntos como los consume el generador del XML de la factura. */
+	private InvoiceXmlData frozen(UUID tenant, UUID id) {
+		return InvoiceKind.xmlData(documents.envelope(tenant, id).orElseThrow(), documents.invoiceBody(tenant, id));
+	}
+
 	@Test
 	void documentFreezesIssuerData() throws Exception {
 		BillingScenario s = newBillingScenario();
@@ -32,7 +37,7 @@ class IssuerSnapshotIT extends AbstractIntegrationTest {
 				+ " rimpe_regime = 'EMPRENDEDOR' WHERE id = ?", s.taxpayer());
 		jdbc.update("UPDATE establishments SET address = 'Loja' WHERE id = ?", s.establishment());
 
-		InvoiceXmlData data = documents.xmlData(s.tenant(), id).orElseThrow();
+		InvoiceXmlData data = frozen(s.tenant(), id);
 		assertThat(data.issuerLegalName()).isEqualTo("Comercial Andina S.A.");
 		assertThat(data.issuerTradeName()).isEqualTo("Andina");
 		assertThat(data.headOfficeAddress()).isEqualTo("Av. Amazonas N34-12, Quito");
@@ -57,7 +62,7 @@ class IssuerSnapshotIT extends AbstractIntegrationTest {
 		assertThat(data.lines()).hasSize(1);
 		assertThat(data.lines().get(0).quantity()).isEqualByComparingTo(new BigDecimal("2"));
 		assertThat(data.payments()).hasSize(1);
-		assertThat(documents.xmlData(UUID.randomUUID(), id)).isEmpty();
+		assertThat(documents.envelope(UUID.randomUUID(), id)).isEmpty();
 	}
 
 	@Test
@@ -81,7 +86,7 @@ class IssuerSnapshotIT extends AbstractIntegrationTest {
 
 		UUID id = issueInvoice(owner, s.invoiceJson("1", "11.50"));
 
-		InvoiceXmlData data = documents.xmlData(tenant, id).orElseThrow();
+		InvoiceXmlData data = frozen(tenant, id);
 		assertThat(data.accountingRequired()).isTrue();
 		assertThat(data.specialTaxpayerCode()).isEqualTo("5368");
 		assertThat(data.withholdingAgentCode()).isEqualTo("1");

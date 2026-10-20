@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.example.einvoice.billing.DocumentKinds;
 import com.example.einvoice.billing.FiscalDocumentRepository;
 import com.example.einvoice.support.SmtpStub.Reply;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -18,6 +19,9 @@ import com.example.einvoice.webhook.WebhookRecorder;
 
 /** Fallos del correo: reintentos con espera creciente, rechazo definitivo y envíos que se quedaron a medias. */
 class DeliveryRetryIT extends AbstractDeliveryIT {
+
+	@Autowired
+	DocumentKinds kinds;
 
 	@Autowired
 	WebhookRecorder webhookRecorder;
@@ -145,7 +149,7 @@ class DeliveryRetryIT extends AbstractDeliveryIT {
 			}
 		};
 		DeliveryService service = new DeliveryService(archiver, documents, repository, artifacts, properties, mailers, failing,
-				transactionManager);
+				transactionManager, kinds);
 
 		assertThat(service.process(s.tenant(), document)).isEqualTo(1);
 
@@ -170,7 +174,7 @@ class DeliveryRetryIT extends AbstractDeliveryIT {
 				return broken;
 			}
 		};
-		DeliveryService service = new DeliveryService(archiver, documents, repository, artifacts, properties, provider, webhookRecorder, transactionManager);
+		DeliveryService service = new DeliveryService(archiver, documents, repository, artifacts, properties, provider, webhookRecorder, transactionManager, kinds);
 
 		assertThat(service.process(s.tenant(), document)).isZero();
 

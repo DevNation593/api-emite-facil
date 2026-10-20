@@ -1,0 +1,91 @@
+package com.example.einvoice.notes;
+
+import java.io.ByteArrayOutputStream;
+
+import org.openpdf.text.Document;
+import org.openpdf.text.DocumentException;
+import org.openpdf.text.pdf.PdfPTable;
+import org.openpdf.text.pdf.PdfWriter;
+
+import com.example.einvoice.billing.DocumentEnvelope;
+import com.example.einvoice.billing.RideEnvelope;
+import com.example.einvoice.delivery.RideLayout;
+
+/**
+ * Armazón común del RIDE de las notas: cabecera, receptor y cuadro de la factura que se modifica; el
+ * detalle y el pie los aporta cada nota.
+ */
+final class NoteRideSupport {
+
+	private NoteRideSupport() {
+	}
+
+	/** title va en mayúsculas en el RIDE; reason es nulo en la nota de débito. */
+	static byte[] build(RideEnvelope ride, String title, String reason, PdfPTable detail, PdfPTable footer) {
+		DocumentEnvelope envelope = ride.envelope();
+		if (ride.authorizationNumber() == null || ride.authorizationNumber().isBlank()
+				|| ride.authorizedAt() == null) {
+			throw new IllegalArgumentException("Solo un comprobante autorizado tiene RIDE");
+		}
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		Document document = RideLayout.newDocument();
+		try {
+			PdfWriter writer = PdfWriter.getInstance(document, out);
+			document.addTitle(title + " " + envelope.number());
+			document.open();
+			document.add(RideLayout.header(envelope.issuer(), title, envelope.number(), envelope.environment(),
+					envelope.accessKey(), ride.authorizationNumber(), ride.authorizedAt(), writer));
+			document.add(RideLayout.spacer());
+			document.add(RideLayout.recipient(envelope.recipient(), envelope.issueDate()));
+			document.add(RideLayout.spacer());
+			document.add(modifiedDocument(envelope.modified(), reason));
+			document.add(RideLayout.spacer());
+			document.add(detail);
+			document.add(RideLayout.spacer());
+			document.add(footer);
+			document.close();
+		}
+		catch (DocumentException ex) {
+			throw new IllegalStateException("No se pudo generar el RIDE", ex);
+		}
+		return out.toByteArray();
+	}
+
+	private static PdfPTable modifiedDocument(DocumentEnvelope.ModifiedDocument modified, String reason) {
+		PdfPTable inner = RideLayout.box();
+		inner.addCell(RideLayout.labelled("Comprobante que se modifica: ", "FACTURA " + modified.number()));
+		inner.addCell(RideLayout.labelled("Fecha de emisión (comprobante a modificar): ",
+				RideLayout.DATE.format(modified.issueDate())));
+		if (reason != null) {
+			inner.addCell(RideLayout.labelled("Razón de modificación: ", reason));
+		}
+		PdfPTable table = new PdfPTable(1);
+		table.setWidthPercentage(100);
+		table.addCell(RideLayout.framed(inner));
+		return table;
+	}
+
+	/** Columna izquierda del pie: el correo del receptor como información adicional y, debajo, below (puede ser nulo). */
+	static PdfPTable left(DocumentEnvelope envelope, PdfPTable below) {
+		PdfPTable left = new PdfPTable(1);
+		left.setWidthPercentage(100);
+		boolean empty = true;
+		if (envelope.recipient().email() != null) {
+			PdfPTable additional = RideLayout.box();
+			additional.addCell(RideLayout.line("Información Adicional", RideLayout.BOLD));
+			additional.addCell(RideLayout.labelled("Email: ", envelope.recipient().email()));
+			left.addCell(RideLayout.framed(additional));
+			left.addCell(RideLayout.gap());
+			empty = false;
+		}
+		if (below != null) {
+			left.addCell(RideLayout.wrap(below));
+			empty = false;
+		}
+		if (empty) {
+			left.addCell(RideLayout.gap());
+		}
+		return left;
+	}
+
+}

@@ -50,19 +50,19 @@ Ramas: `dev` (integración: cada cambio llega por pull request), `qa` y `main`.
 
 El trabajo se ejecuta siguiendo el [plan maestro](docs/superpowers/plans/2026-10-10-plan-maestro.md), que divide el desarrollo en nueve planes; el primero está detallado tarea por tarea en [Plan 1 — Fundación](docs/superpowers/plans/2026-10-10-p1-fundacion.md).
 
-## XSD y XML de factura incorporados (entregados por el usuario)
+## XSD y XML de comprobantes incorporados (entregados por el usuario)
 
-**Disponibles físicamente en el repositorio:** los XSD y XML de ejemplo para factura (`01`) en versiones **1.0.0, 1.1.0, 2.0.0 y 2.1.0**, y la dependencia `xmldsig-core-schema.xsd` junto a cada versión. Fueron aportados por el usuario el **10 de octubre de 2026**; no se ha verificado que sean idénticos a los del ZIP del SRI ni a la copia de W3C. Sus hashes SHA-256 están en el [registro de activos](docs/xsd-source-registry.csv).
+**Disponibles físicamente en el repositorio:** los XSD y XML de ejemplo de factura (`01`, versiones **1.0.0, 1.1.0, 2.0.0 y 2.1.0**, aportados el **10 de octubre de 2026**), y de liquidación de compra (`03`), nota de crédito (`04`), nota de débito (`05`), guía de remisión (`06`) y comprobante de retención (`07`), aportados el **18 de octubre de 2026**; más una sola copia de la dependencia `xmldsig-core-schema.xsd`, compartida por todos. Los aportó el usuario; no se ha verificado que sean idénticos a los de los ZIP del SRI ni a la copia de W3C. Por ahora solo se emite la factura. Sus hashes SHA-256 están en el [registro de activos](docs/xsd-source-registry.csv).
 
-Estructura: `src/main/resources/xsd/invoice/{version}/` con `factura_V{version}.xsd`, `factura_V{version}.xml` y `xmldsig-core-schema.xsd`. Ver [guía de integración](docs/14-xsd-integration.md).
+Estructura: `src/main/resources/xsd/{tipo}/{versión}/` con el XSD y el XML de ejemplo de cada comprobante (por ejemplo `invoice/1.1.0/factura_V1.1.0.xsd`), y `src/main/resources/xsd/common/xmldsig-core-schema.xsd`. Ver [guía de integración](docs/14-xsd-integration.md).
 
-**Estado de validación (prueba manual, JDK 23.0.2):** los cuatro XSD compilan sin acceso externo usando un resolver local. `xmldsig-core-schema.xsd` trae un `DOCTYPE` que apunta a un DTD en w3.org, así que sin ese resolver la compilación falla o descarga el DTD de internet; el [anexo 14](docs/14-xsd-integration.md) fija cómo resolverlo. La validación está automatizada (`InvoiceSchemasTest`, `InvoiceXsdIT`, `XsdAssetIntegrityTest`) y corre con `./mvnw verify` y en CI.
+**Estado de validación:** todos los XSD compilan sin acceso externo usando un resolver local. `xmldsig-core-schema.xsd` trae un `DOCTYPE` que apunta a un DTD en w3.org, así que sin ese resolver la compilación falla o descarga el DTD de internet; el [anexo 14](docs/14-xsd-integration.md) fija cómo resolverlo. La validación está automatizada (`DocumentSchemasTest`, `InvoiceXsdIT`, `DocumentSamplesXsdIT`, `XsdAssetIntegrityTest`) y corre con `./mvnw verify` y en CI.
 
-**XML de ejemplo:** los de 1.0.0, 1.1.0 y 2.1.0 pasan su XSD; el de 2.0.0 no (`incoTermFactura` vacío). Todos contienen valores ilustrativos (`codDoc=00`, `version=version0`, rutas `file:/C:/...`, clave en ceros) que el XSD no rechaza. No deben emitirse ni usarse como facturas válidas; las reglas que el XSD no cubre se validan en código.
+**XML de ejemplo:** todos pasan su XSD salvo el de factura 2.0.0 (`incoTermFactura` vacío). Todos contienen valores ilustrativos (`codDoc=00`, `version=version0`, rutas `file:/C:/...`, clave en ceros) que el XSD no rechaza. No deben emitirse ni usarse como comprobantes válidos; las reglas que el XSD no cubre se validan en código.
 
 ## Próximo paso
 
-1. Contrastar los hashes de los XSD/XML con el ZIP oficial del SRI y el de `xmldsig-core-schema.xsd` con W3C; actualizar el [registro de activos](docs/xsd-source-registry.csv).
+1. Contrastar los hashes de los XSD/XML con los ZIP oficiales del SRI y el de `xmldsig-core-schema.xsd` con W3C; actualizar el [registro de activos](docs/xsd-source-registry.csv).
 2. Validar la ficha v2.34, el Anexo 26 (RUC del proveedor) y los escenarios tributarios aplicables; resolver las [preguntas abiertas](docs/DEVELOPMENT.md#8-preguntas-abiertas-antes-de-desarrollo-productivo).
 3. Decidir cómo se revisan las vulnerabilidades de las dependencias de Maven: no se usa Code Security de GitHub, así que hoy no tienen ninguna comprobación (las de npm sí, con `npm audit`). Una opción sin GitHub es un análisis dentro del propio build.
 4. Conseguir una firma electrónica real y un RUC habilitado en el ambiente de pruebas del SRI (tarea N4). Con ellos, la certificación es un comando ([guía](docs/15-produccion.md#certificar-contra-el-sri-de-pruebas)) y dirá, antes que nada, si el SRI acepta la firma.

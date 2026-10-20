@@ -29,11 +29,13 @@ import com.example.einvoice.storage.ArtifactStore;
 import com.example.einvoice.support.AbstractIntegrationTest;
 import com.example.einvoice.support.BillingScenario;
 import com.example.einvoice.support.TestCertificates;
+import com.example.einvoice.support.TestData;
 import com.example.einvoice.web.ApiException;
-import com.example.einvoice.xml.InvoiceEnvelopeRules;
-import com.example.einvoice.xml.InvoiceSchemas;
+import com.example.einvoice.xml.EnvelopeRules;
+import com.example.einvoice.xml.DocumentSchemas;
 import com.example.einvoice.xml.SchemaVersion;
 import com.example.einvoice.xml.XsdValidator;
+
 
 class DocumentProcessingIT extends AbstractIntegrationTest {
 
@@ -90,8 +92,8 @@ class DocumentProcessingIT extends AbstractIntegrationTest {
 
 		byte[] signed = artifacts.find(s.tenant(), document, ArtifactKind.XML_SIGNED).orElseThrow().content();
 		assertThat(verifier.verify(signed).errors()).isEmpty();
-		assertThat(new XsdValidator(new InvoiceSchemas()).validate(signed, SchemaVersion.V1_1_0).errors()).isEmpty();
-		assertThat(InvoiceEnvelopeRules.check(signed, SchemaVersion.V1_1_0)).isEmpty();
+		assertThat(new XsdValidator(new DocumentSchemas()).validate(signed, SchemaVersion.V1_1_0).errors()).isEmpty();
+		assertThat(EnvelopeRules.check(signed, SchemaVersion.V1_1_0.schema())).isEmpty();
 		String accessKey = jdbc.queryForObject("SELECT access_key FROM fiscal_documents WHERE id = ?", String.class,
 				document);
 		String xml = new String(signed, StandardCharsets.UTF_8);
@@ -294,6 +296,35 @@ class DocumentProcessingIT extends AbstractIntegrationTest {
 		// No se reintenta solo: el documento necesita corrección.
 		assertThat(processor.generateAndSign(s.tenant(), document)).isEqualTo("XSD_INVALID");
 		assertThat(transitions()).hasSize(2);
+	}
+
+	UUID otherDocument(String type, String contentJson) {
+		return TestData.document(jdbc, s.tenant(), s.taxpayer(), s.point(), s.customer(), 50, TestData.accessKey(),
+				type, java.math.BigDecimal.ONE, contentJson);
+	}
+
+	String lastReason(UUID id) {
+		return jdbc.queryForObject(
+				"SELECT reason FROM state_events WHERE document_id = ? ORDER BY event_time DESC LIMIT 1", String.class,
+				id);
+	}
+
+	@Test
+	void unsupportedTypeEndsInXsdInvalid() {
+		UUID retention = otherDocument("07", "{}");
+
+		assertThat(processor.generateAndSign(s.tenant(), retention)).isEqualTo("XSD_INVALID");
+
+		assertThat(lastReason(retention)).isEqualTo("DOCUMENT_TYPE_NOT_SUPPORTED");
+	}
+
+	@Test
+	void unreadableContentEndsInXsdInvalid() {
+		UUID debit = otherDocument("05", "[]");
+
+		assertThat(processor.generateAndSign(s.tenant(), debit)).isEqualTo("XSD_INVALID");
+
+		assertThat(lastReason(debit)).isEqualTo("CONTENT_UNREADABLE");
 	}
 
 }

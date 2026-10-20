@@ -11,7 +11,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 class InvoiceXsdIT {
 
-	final XsdValidator validator = new XsdValidator(new InvoiceSchemas());
+	final XsdValidator validator = new XsdValidator(new DocumentSchemas());
 
 	static byte[] sample(SchemaVersion version) throws IOException {
 		try (var in = InvoiceXsdIT.class.getClassLoader().getResourceAsStream(version.sampleResource())) {

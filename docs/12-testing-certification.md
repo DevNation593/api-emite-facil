@@ -41,11 +41,11 @@ Guardar resultados sin datos personales sensibles, fecha, ambiente, versión de 
 
 ## Precondición: XSD disponibles y verificables
 
-Los XSD de factura y `xmldsig-core-schema.xsd` están en `src/main/resources/xsd/invoice/{version}/`; seguir el [doc 14](14-xsd-integration.md). Pruebas mínimas derivadas de ese documento:
+Los XSD de cada comprobante están en `src/main/resources/xsd/{tipo}/{versión}/` y `xmldsig-core-schema.xsd`, una sola vez, en `src/main/resources/xsd/common/`; seguir el [doc 14](14-xsd-integration.md). Pruebas mínimas derivadas de ese documento:
 
-- `XsdAssetIntegrityTest`: cada archivo del [registro de activos](xsd-source-registry.csv) existe y su SHA-256 coincide.
-- `InvoiceXsdIT`: las cuatro versiones compilan con `ACCESS_EXTERNAL_DTD=""` y `ACCESS_EXTERNAL_SCHEMA=""` usando solo el resolver local; el resolver rechaza cualquier recurso fuera de su allowlist.
-- XML de ejemplo: 1.0.0, 1.1.0 y 2.1.0 pasan su XSD; el de 2.0.0 falla por `incoTermFactura` vacío y el test espera ese fallo.
+- `XsdAssetIntegrityTest`: cada archivo del [registro de activos](xsd-source-registry.csv) existe y su SHA-256 coincide, no hay XSD ni XML sin registrar y `xmldsig-core-schema.xsd` existe una sola vez.
+- `DocumentSchemasTest`: cada tipo y versión compila con `ACCESS_EXTERNAL_DTD=""` y `ACCESS_EXTERNAL_SCHEMA=""` usando solo el resolver local; el resolver rechaza cualquier recurso fuera de su allowlist (`ClasspathSchemaResolverTest`).
+- XML de ejemplo (`InvoiceXsdIT`, `DocumentSamplesXsdIT`): todos pasan su XSD salvo el de factura 2.0.0, que falla por `incoTermFactura` vacío y el test espera ese fallo.
 - Reglas fuera del XSD: `codDoc=00`, `version="version0"` o `id` ausente se rechazan en código aunque el XSD los acepte.
 - XML con `DOCTYPE` o entidad externa se rechaza antes de validar.
 

@@ -84,7 +84,13 @@ public class InvoiceController {
 
 	}
 
-	record IssuedResponse(UUID id, String state, String statusUrl) {
+	/** Respuesta 202 de toda emisión: el id, el estado actual y dónde consultarlo. */
+	public record IssuedResponse(UUID id, String state, String statusUrl) {
+
+		public static IssuedResponse of(UUID id, String state) {
+			return new IssuedResponse(id, state, "/api/v1/documents/" + id);
+		}
+
 	}
 
 	/** Acepta la factura para procesamiento: RESERVED no es todavía un comprobante autorizado. */
@@ -94,17 +100,17 @@ public class InvoiceController {
 			@RequestHeader(value = IDEMPOTENCY_HEADER, required = false) String idempotencyKey,
 			@Valid @RequestBody IssueInvoiceRequest request) {
 		requireIdempotencyKey(idempotencyKey);
-		UUID id = service.issue(access, idempotencyKey, hashOf(request), request.toCommand());
+		UUID id = service.issue(access, idempotencyKey, requestHash(json, request), request.toCommand());
 		// En un reintento el documento puede haber avanzado: se informa su estado actual.
 		String state = documents.find(access.tenantId(), id).orElseThrow(ApiException::notFound).state();
-		return new IssuedResponse(id, state, "/api/v1/documents/" + id);
+		return IssuedResponse.of(id, state);
 	}
 
 	/**
 	 * Huella de la petición ya interpretada: no depende del orden de las claves ni de los espacios
-	 * del JSON recibido.
+	 * del JSON recibido. La usan todas las emisiones para su clave de idempotencia.
 	 */
-	private String hashOf(IssueInvoiceRequest request) {
+	public static String requestHash(JsonMapper json, Object request) {
 		try {
 			byte[] digest = MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(request));
 			return HexFormat.of().formatHex(digest);
@@ -114,7 +120,8 @@ public class InvoiceController {
 		}
 	}
 
-	static void requireIdempotencyKey(String key) {
+	/** 400 si falta la cabecera Idempotency-Key o no tiene el formato admitido. */
+	public static void requireIdempotencyKey(String key) {
 		if (key == null || key.isBlank()) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "IDEMPOTENCY_KEY_REQUIRED",
 					"La emisión requiere la cabecera " + IDEMPOTENCY_HEADER);

@@ -19,11 +19,13 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param maxLoginFailures intentos fallidos seguidos de un correo antes de bloquearlo
  * @param lockout cuánto dura el bloqueo de un correo, y la ventana en que se cuentan sus fallos
  * @param publicRequestsPerMinute peticiones por minuto de una dirección IP a los endpoints públicos
+ * @param trustedProxyHops proxies de confianza que añaden su entrada a X-Forwarded-For (ver
+ *        {@link ClientAddress})
  */
 @ConfigurationProperties("einvoice.auth")
 public record AuthProperties(String jwtSecret, URI webUrl, Duration accessTokenTtl, Duration sessionTtl,
 		Duration verificationTtl, Duration resetTtl, int maxLoginFailures, Duration lockout,
-		int publicRequestsPerMinute) {
+		int publicRequestsPerMinute, int trustedProxyHops) {
 
 	/** Emisor y audiencia de los tokens: los emite y los valida esta misma API. */
 	public static final String ISSUER = "einvoice-api";
@@ -54,6 +56,10 @@ public record AuthProperties(String jwtSecret, URI webUrl, Duration accessTokenT
 		if (maxLoginFailures < 1 || publicRequestsPerMinute < 1) {
 			throw new IllegalStateException("einvoice.auth.max-login-failures y public-requests-per-minute deben ser"
 					+ " al menos 1");
+		}
+		if (trustedProxyHops < 1) {
+			throw new IllegalStateException("EINVOICE_TRUSTED_PROXY_HOPS debe ser al menos 1: cuántos proxies de"
+					+ " confianza añaden su entrada a X-Forwarded-For (2 en Cloud Run, contando la web)");
 		}
 	}
 

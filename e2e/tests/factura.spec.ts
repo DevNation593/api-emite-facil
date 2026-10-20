@@ -23,6 +23,17 @@ async function writeInvoice(page: import("@playwright/test").Page): Promise<void
   await page.getByLabel("Cantidad de la línea 1").fill("2");
 }
 
+/**
+ * Cantidad de la primera línea en los borradores que la web guardó en este navegador para la empresa.
+ * El aviso «Borrador guardado a las …» no basta: puede venir de un guardado anterior al último cambio.
+ */
+async function savedQuantities(page: import("@playwright/test").Page): Promise<string[]> {
+  return page.evaluate((key) => {
+    const drafts = JSON.parse(window.localStorage.getItem(key) ?? "[]") as { lines: { quantity: string }[] }[];
+    return drafts.map((draft) => draft.lines[0]?.quantity ?? "");
+  }, `einvoice.borradores.${company.tenantId}`);
+}
+
 test("una factura va del borrador a Autorizada, se descarga y llega por correo", async ({ page, shot }) => {
   await test.step("escribirla: la vista previa calcula el total", async () => {
     await writeInvoice(page);
@@ -33,6 +44,8 @@ test("una factura va del borrador a Autorizada, se descarga y llega por correo",
     await expect(totals.getByRole("row", { name: /^Total/ })).toContainText("28.75");
     await expect(page.getByLabel("Importe pagado")).toHaveValue("28.75");
     await expect(page.getByRole("status").filter({ hasText: "Borrador guardado a las" })).toBeVisible();
+    // Antes de salir del editor, el borrador ya tiene las dos unidades.
+    await expect.poll(() => savedQuantities(page)).toEqual(["2"]);
     await shot("factura-editor");
   });
 
