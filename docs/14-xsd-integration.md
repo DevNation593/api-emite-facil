@@ -13,7 +13,7 @@ Los XSD y XML de ejemplo están físicamente en el repositorio. Todos fueron apo
 | `06` | Guía de remisión | `1.0.0`, `1.1.0` | `remission-guide/` | 2026-10-18 |
 | `07` | Comprobante de retención | `1.0.0`, `2.0.0` | `retention-receipt/` | 2026-10-18 |
 
-Hoy solo se emite la factura. Los demás tipos tienen el XSD empacado y compilando, pero todavía no se generan ni se envían al SRI.
+Hoy se emiten la factura, la nota de crédito (`1.1.0`) y la nota de débito (`1.0.0`). Los demás tipos tienen el XSD empacado y compilando, pero todavía no se generan ni se envían al SRI.
 
 Versión que emitirá cada tipo: factura `1.1.0`, liquidación `1.1.0`, nota de crédito `1.1.0`, nota de débito `1.0.0`, guía de remisión `1.1.0` y retención `2.0.0`. Cada tipo se habilita con su propio PR.
 
