@@ -3,16 +3,22 @@
 # Las pruebas no corren aquí: las ejecuta el CI antes de construir la imagen. Despliegue en Google
 # Cloud Run: docs/13-deployment.md.
 
-# El jar no depende de la arquitectura: se compila en la de la máquina que construye, aunque la
-# imagen sea para otra (linux/amd64 desde un Mac con ARM, por ejemplo), sin emular Maven.
-FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk AS build
+# Se construye igual con BuildKit que con el constructor clásico de Docker, que es el que usa Cloud
+# Build: nada de RUN --mount ni de variables que solo define BuildKit sin un valor por defecto.
+
+# El jar no depende de la arquitectura: con BuildKit se compila en la de la máquina que construye,
+# aunque la imagen sea para otra (linux/amd64 desde un Mac con ARM, por ejemplo), sin emular Maven.
+# El constructor clásico no define BUILDPLATFORM y compila en linux/amd64.
+FROM --platform=${BUILDPLATFORM:-linux/amd64} eclipse-temurin:21-jdk AS build
 WORKDIR /src
 COPY .mvn .mvn
 COPY mvnw pom.xml ./
 # En un checkout de Windows el script puede llegar con fin de línea CRLF.
 RUN sed -i 's/\r$//' mvnw && chmod +x mvnw
+# Las dependencias van en una capa propia, que solo se rehace cuando cambia pom.xml.
+RUN ./mvnw -B -q dependency:go-offline
 COPY src src
-RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -q -DskipTests -Djacoco.skip=true package \
+RUN ./mvnw -B -q -DskipTests -Djacoco.skip=true package \
  && cp target/einvoice-*.jar app.jar
 # El jar se descomprime por capas: las dependencias cambian poco y quedan en capas propias que el
 # registro reutiliza, y la JVM arranca antes que con el jar anidado.

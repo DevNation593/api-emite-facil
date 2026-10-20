@@ -36,7 +36,7 @@ En la API, además:
 
 Los registros de la web son texto: Cloud Logging los guarda como INFO (salida estándar) o ERROR (salida de errores).
 
-**Construir y subir las imágenes.** Cloud Run solo ejecuta imágenes `linux/amd64`, así que hay que pedirla al construir desde un Mac con ARM. En la API, Maven corre en la arquitectura de la máquina y solo la etapa final es amd64. En la web las dos etapas lo son, porque lleva binarios nativos. Hace falta BuildKit, que es lo predeterminado en Docker Desktop y en `docker buildx`. Las imágenes van a Artifact Registry:
+**Construir y subir las imágenes.** Cloud Run solo ejecuta imágenes `linux/amd64`, así que hay que pedirla al construir desde un Mac con ARM. En la API, con BuildKit (lo predeterminado en Docker Desktop y en `docker buildx`), Maven corre en la arquitectura de la máquina y solo la etapa final es amd64. En la web las dos etapas lo son, porque lleva binarios nativos. Las imágenes van a Artifact Registry:
 
 ```bash
 export PROJECT=mi-proyecto REGION=us-east1 TAG=$(git rev-parse --short HEAD)
@@ -48,7 +48,7 @@ docker build --platform linux/amd64 -t $REPO/web:$TAG ../client-factura-facil   
 docker push $REPO/api:$TAG && docker push $REPO/web:$TAG
 ```
 
-Se despliega con la etiqueta del commit, nunca con `latest`, para saber qué corre y poder volver a la anterior. Para construir con Cloud Build (`gcloud builds submit --tag …`), el paso de Docker necesita `DOCKER_BUILDKIT=1`: sin BuildKit fallan `RUN --mount` y `$BUILDPLATFORM`.
+Se despliega con la etiqueta del commit, nunca con `latest`, para saber qué corre y poder volver a la anterior. La imagen de la API también se construye con el constructor clásico de Docker, sin BuildKit, que es el que usa Cloud Build (`gcloud builds submit --tag …` o un activador de Cloud Run): Maven corre entonces en linux/amd64.
 
 **Secretos.** Van en Secret Manager y Cloud Run los entrega como variables de entorno. Cada servicio usa su propia cuenta de servicio con `roles/secretmanager.secretAccessor` sobre sus secretos, y ningún secreto va en `--set-env-vars` ni en la imagen. Cada uno se crea una vez y se rota añadiendo una versión:
 
