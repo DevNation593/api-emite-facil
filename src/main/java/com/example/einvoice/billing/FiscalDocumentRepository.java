@@ -1,6 +1,7 @@
 package com.example.einvoice.billing;
 
 import java.math.BigDecimal;
+import java.sql.Types;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -13,21 +14,18 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-import com.example.einvoice.delivery.RideData;
-import com.example.einvoice.xml.InvoiceXmlData;
+import com.example.einvoice.xml.DocumentType;
 
 /** Lectura y escritura de documentos fiscales. Toda lectura filtra por tenant. */
 @Repository
 public class FiscalDocumentRepository {
 
-	public record NewDocument(UUID tenantId, UUID taxpayerId, UUID emissionPointId, UUID customerId,
-			String documentType, String environment, String issuerRuc, String establishmentCode,
-			String emissionPointCode, int sequence, String accessKey, String state, LocalDate issueDate,
-			String currency, String customerIdType, String customerIdNumber, String customerName,
-			String customerAddress, String customerEmail, InvoiceTotals totals, UUID createdBy,
-			String issuerLegalName, String issuerTradeName, String issuerHeadOfficeAddress,
-			String establishmentAddress, boolean issuerAccountingRequired, String issuerSpecialTaxpayerCode,
-			String issuerWithholdingAgentCode, String issuerRimpeRegime, String providerRuc) {
+	/**
+	 * Sobre de un comprobante nuevo, tal como se generó y validó su XML. contentJson es el contenido propio del
+	 * tipo para la columna content; nulo en la factura.
+	 */
+	public record NewDocument(UUID tenantId, UUID taxpayerId, UUID emissionPointId, UUID customerId, String state,
+			UUID createdBy, DocumentEnvelope envelope, String contentJson) {
 	}
 
 	public record NewLine(UUID productId, String mainCode, String description, BigDecimal quantity,
@@ -69,58 +67,77 @@ public class FiscalDocumentRepository {
 		this.jdbc = jdbc;
 	}
 
-	public UUID insert(NewDocument document, List<NewLine> lines, List<NewPayment> payments) {
-		UUID id = jdbc.sql("""
+	/**
+	 * Inserta el sobre y devuelve el id. La moneda es siempre USD: la emisión no admite otra. Las tablas
+	 * propias del tipo (las de la factura) se llenan después, con {@link DocumentKind#saveDetails}.
+	 */
+	public UUID insert(NewDocument document) {
+		DocumentEnvelope envelope = document.envelope();
+		DocumentEnvelope.Issuer issuer = envelope.issuer();
+		DocumentEnvelope.Recipient recipient = envelope.recipient();
+		DocumentEnvelope.Totals totals = envelope.totals();
+		DocumentEnvelope.ModifiedDocument modified = envelope.modified();
+		return jdbc.sql("""
 				INSERT INTO fiscal_documents (tenant_id, taxpayer_id, emission_point_id, customer_id, document_type,
 				 environment, issuer_ruc, establishment_code, emission_point_code, sequence, access_key, state,
 				 issue_date, currency, customer_id_type, customer_id_number, customer_name, customer_address,
 				 customer_email, subtotal, total_discount, total_tax, total, created_by, issuer_legal_name,
 				 issuer_trade_name, issuer_head_office_address, establishment_address, issuer_accounting_required,
-				 issuer_special_taxpayer_code, issuer_withholding_agent_code, issuer_rimpe_regime, provider_ruc)
+				 issuer_special_taxpayer_code, issuer_withholding_agent_code, issuer_rimpe_regime, provider_ruc,
+				 modified_document_id, modified_doc_code, modified_doc_number, modified_doc_date, content)
 				VALUES (:tenantId, :taxpayerId, :emissionPointId, :customerId, :documentType, :environment,
 				 :issuerRuc, :establishmentCode, :emissionPointCode, :sequence, :accessKey, :state, :issueDate,
-				 :currency, :customerIdType, :customerIdNumber, :customerName, :customerAddress, :customerEmail,
+				 'USD', :customerIdType, :customerIdNumber, :customerName, :customerAddress, :customerEmail,
 				 :subtotal, :totalDiscount, :totalTax, :total, :createdBy, :issuerLegalName, :issuerTradeName,
 				 :issuerHeadOfficeAddress, :establishmentAddress, :issuerAccountingRequired,
-				 :issuerSpecialTaxpayerCode, :issuerWithholdingAgentCode, :issuerRimpeRegime, :providerRuc)
+				 :issuerSpecialTaxpayerCode, :issuerWithholdingAgentCode, :issuerRimpeRegime, :providerRuc,
+				 :modifiedDocumentId, :modifiedDocCode, :modifiedDocNumber, :modifiedDocDate, CAST(:content AS jsonb))
 				RETURNING id
 				""")
 			.param("tenantId", document.tenantId())
 			.param("taxpayerId", document.taxpayerId())
 			.param("emissionPointId", document.emissionPointId())
 			.param("customerId", document.customerId())
-			.param("documentType", document.documentType())
-			.param("environment", document.environment())
-			.param("issuerRuc", document.issuerRuc())
-			.param("establishmentCode", document.establishmentCode())
-			.param("emissionPointCode", document.emissionPointCode())
-			.param("sequence", document.sequence())
-			.param("accessKey", document.accessKey())
+			.param("documentType", envelope.type().code())
+			.param("environment", envelope.environment())
+			.param("issuerRuc", issuer.ruc())
+			.param("establishmentCode", envelope.establishmentCode())
+			.param("emissionPointCode", envelope.emissionPointCode())
+			.param("sequence", envelope.sequence())
+			.param("accessKey", envelope.accessKey())
 			.param("state", document.state())
-			.param("issueDate", document.issueDate())
-			.param("currency", document.currency())
-			.param("customerIdType", document.customerIdType())
-			.param("customerIdNumber", document.customerIdNumber())
-			.param("customerName", document.customerName())
-			.param("customerAddress", document.customerAddress())
-			.param("customerEmail", document.customerEmail())
-			.param("subtotal", document.totals().subtotal())
-			.param("totalDiscount", document.totals().totalDiscount())
-			.param("totalTax", document.totals().totalTax())
-			.param("total", document.totals().total())
+			.param("issueDate", envelope.issueDate())
+			.param("customerIdType", recipient.idType())
+			.param("customerIdNumber", recipient.idNumber())
+			.param("customerName", recipient.name())
+			.param("customerAddress", recipient.address())
+			.param("customerEmail", recipient.email())
+			.param("subtotal", totals == null ? null : totals.subtotal(), Types.NUMERIC)
+			.param("totalDiscount", totals == null ? null : totals.totalDiscount(), Types.NUMERIC)
+			.param("totalTax", totals == null ? null : totals.totalTax(), Types.NUMERIC)
+			.param("total", totals == null ? null : totals.total(), Types.NUMERIC)
 			.param("createdBy", document.createdBy())
-			.param("issuerLegalName", document.issuerLegalName())
-			.param("issuerTradeName", document.issuerTradeName())
-			.param("issuerHeadOfficeAddress", document.issuerHeadOfficeAddress())
-			.param("establishmentAddress", document.establishmentAddress())
-			.param("issuerAccountingRequired", document.issuerAccountingRequired())
-			.param("issuerSpecialTaxpayerCode", document.issuerSpecialTaxpayerCode())
-			.param("issuerWithholdingAgentCode", document.issuerWithholdingAgentCode())
-			.param("issuerRimpeRegime", document.issuerRimpeRegime())
-			.param("providerRuc", document.providerRuc())
+			.param("issuerLegalName", issuer.legalName())
+			.param("issuerTradeName", issuer.tradeName())
+			.param("issuerHeadOfficeAddress", issuer.headOfficeAddress())
+			.param("establishmentAddress", issuer.establishmentAddress())
+			.param("issuerAccountingRequired", issuer.accountingRequired())
+			.param("issuerSpecialTaxpayerCode", issuer.specialTaxpayerCode())
+			.param("issuerWithholdingAgentCode", issuer.withholdingAgentCode())
+			.param("issuerRimpeRegime", issuer.rimpeRegime())
+			.param("providerRuc", envelope.providerRuc())
+			.param("modifiedDocumentId", modified == null ? null : modified.documentId(), Types.OTHER)
+			.param("modifiedDocCode", modified == null ? null : modified.code(), Types.VARCHAR)
+			.param("modifiedDocNumber", modified == null ? null : modified.number(), Types.VARCHAR)
+			.param("modifiedDocDate", modified == null ? null : modified.issueDate(), Types.DATE)
+			.param("content", document.contentJson(), Types.VARCHAR)
 			.query(UUID.class)
 			.single();
-		UUID tenantId = document.tenantId();
+	}
+
+	/** Líneas, impuestos por tarifa y pagos de una factura ya insertada; las líneas y los pagos se numeran desde 1. */
+	public void insertInvoiceBody(UUID tenantId, UUID documentId, InvoiceBody body) {
+		List<NewLine> lines = body.lines();
 		for (int i = 0; i < lines.size(); i++) {
 			NewLine line = lines.get(i);
 			jdbc.sql("""
@@ -130,7 +147,7 @@ public class FiscalDocumentRepository {
 					 :unitPrice, :discount, :subtotal, :taxCode, :taxRateCode, :taxRate, :taxAmount)
 					""")
 				.param("tenantId", tenantId)
-				.param("documentId", id)
+				.param("documentId", documentId)
 				.param("lineNo", i + 1)
 				.param("productId", line.productId())
 				.param("mainCode", line.mainCode())
@@ -145,13 +162,13 @@ public class FiscalDocumentRepository {
 				.param("taxAmount", line.taxAmount())
 				.update();
 		}
-		for (TaxTotal tax : document.totals().taxes()) {
+		for (TaxTotal tax : body.taxes()) {
 			jdbc.sql("""
 					INSERT INTO fiscal_document_taxes (tenant_id, document_id, tax_code, rate_code, rate, base, amount)
 					VALUES (:tenantId, :documentId, :taxCode, :rateCode, :rate, :base, :amount)
 					""")
 				.param("tenantId", tenantId)
-				.param("documentId", id)
+				.param("documentId", documentId)
 				.param("taxCode", tax.taxCode())
 				.param("rateCode", tax.rateCode())
 				.param("rate", tax.rate())
@@ -159,19 +176,19 @@ public class FiscalDocumentRepository {
 				.param("amount", tax.amount())
 				.update();
 		}
+		List<NewPayment> payments = body.payments();
 		for (int i = 0; i < payments.size(); i++) {
 			jdbc.sql("""
 					INSERT INTO fiscal_document_payments (tenant_id, document_id, line_no, method_code, amount)
 					VALUES (:tenantId, :documentId, :lineNo, :methodCode, :amount)
 					""")
 				.param("tenantId", tenantId)
-				.param("documentId", id)
+				.param("documentId", documentId)
 				.param("lineNo", i + 1)
 				.param("methodCode", payments.get(i).methodCode())
 				.param("amount", payments.get(i).amount())
 				.update();
 		}
-		return id;
 	}
 
 	public void recordStateChange(UUID tenantId, UUID documentId, String previousState, String newState,
@@ -189,11 +206,12 @@ public class FiscalDocumentRepository {
 	}
 
 	/** Lo que el procesamiento necesita saber del documento. version cambia con cada transición. */
-	public record ProcessingState(String state, UUID taxpayerId, String environment, String accessKey,
-			int attemptCount, long version) {
+	public record ProcessingState(String state, UUID taxpayerId, String documentType, String environment,
+			String accessKey, int attemptCount, long version) {
 	}
 
-	private static final String PROCESSING_COLUMNS = "state, taxpayer_id, environment, access_key, attempt_count, version";
+	private static final String PROCESSING_COLUMNS = "state, taxpayer_id, document_type, environment, access_key,"
+			+ " attempt_count, version";
 
 	/**
 	 * Bloquea el documento hasta el final de la transacción en curso y devuelve su estado: dos
@@ -289,6 +307,15 @@ public class FiscalDocumentRepository {
 			.optional();
 	}
 
+	/** Versión del esquema con que se generó el documento; vacío si aún no se generó. */
+	public Optional<String> schemaVersion(UUID tenantId, UUID documentId) {
+		return jdbc.sql("SELECT schema_version FROM fiscal_documents WHERE id = :id AND tenant_id = :tenantId")
+			.param("id", documentId)
+			.param("tenantId", tenantId)
+			.query(String.class)
+			.optional();
+	}
+
 	public void setSchemaVersion(UUID tenantId, UUID documentId, String schemaVersion) {
 		jdbc.sql("UPDATE fiscal_documents SET schema_version = :version WHERE id = :id AND tenant_id = :tenantId")
 			.param("version", schemaVersion)
@@ -305,48 +332,6 @@ public class FiscalDocumentRepository {
 			.optional();
 	}
 
-	private record XmlHeader(String environment, String issuerLegalName, String issuerTradeName, String issuerRuc,
-			String accessKey, String documentType, String establishmentCode, String emissionPointCode, int sequence,
-			String issuerHeadOfficeAddress, String issuerWithholdingAgentCode, String issuerRimpeRegime,
-			LocalDate issueDate, String establishmentAddress, String issuerSpecialTaxpayerCode,
-			boolean issuerAccountingRequired, String customerIdType, String customerName, String customerIdNumber,
-			String customerAddress, BigDecimal subtotal, BigDecimal totalDiscount, BigDecimal total,
-			String providerRuc) {
-	}
-
-	/** Datos congelados del documento, en la forma que consume el generador del XML. */
-	public Optional<InvoiceXmlData> xmlData(UUID tenantId, UUID documentId) {
-		Optional<XmlHeader> found = jdbc.sql("""
-				SELECT environment, issuer_legal_name, issuer_trade_name, issuer_ruc, access_key, document_type,
-				 establishment_code, emission_point_code, sequence, issuer_head_office_address,
-				 issuer_withholding_agent_code, issuer_rimpe_regime, issue_date, establishment_address,
-				 issuer_special_taxpayer_code, issuer_accounting_required, customer_id_type, customer_name,
-				 customer_id_number, customer_address, subtotal, total_discount, total, provider_ruc
-				FROM fiscal_documents WHERE id = :id AND tenant_id = :tenantId
-				""").param("id", documentId).param("tenantId", tenantId).query(XmlHeader.class).optional();
-		if (found.isEmpty()) {
-			return Optional.empty();
-		}
-		XmlHeader h = found.get();
-		List<InvoiceXmlData.Tax> taxes = taxes(tenantId, documentId).stream()
-			.map(tax -> new InvoiceXmlData.Tax(tax.taxCode(), tax.rateCode(), tax.rate(), tax.base(), tax.amount()))
-			.toList();
-		List<InvoiceXmlData.Line> lines = lines(tenantId, documentId).stream()
-			.map(line -> new InvoiceXmlData.Line(line.mainCode(), line.description(), line.quantity(),
-					line.unitPrice(), line.discount(), line.subtotal(), line.taxCode(), line.taxRateCode(),
-					line.taxRate(), line.taxAmount()))
-			.toList();
-		List<InvoiceXmlData.Payment> payments = payments(tenantId, documentId).stream()
-			.map(payment -> new InvoiceXmlData.Payment(payment.methodCode(), payment.amount()))
-			.toList();
-		return Optional.of(new InvoiceXmlData(h.environment(), h.issuerLegalName(), h.issuerTradeName(),
-				h.issuerRuc(), h.accessKey(), h.documentType(), h.establishmentCode(), h.emissionPointCode(),
-				h.sequence(), h.issuerHeadOfficeAddress(), h.issuerWithholdingAgentCode(), h.issuerRimpeRegime(),
-				h.issueDate(), h.establishmentAddress(), h.issuerSpecialTaxpayerCode(), h.issuerAccountingRequired(),
-				h.customerIdType(), h.customerName(), h.customerIdNumber(), h.customerAddress(), h.subtotal(),
-				h.totalDiscount(), taxes, h.total(), lines, payments, h.providerRuc()));
-	}
-
 	/** Correo del cliente congelado en el comprobante; vacío si no lo tiene o el documento no existe. */
 	public Optional<String> customerEmail(UUID tenantId, UUID documentId) {
 		return jdbc.sql("""
@@ -355,47 +340,120 @@ public class FiscalDocumentRepository {
 				""").param("id", documentId).param("tenantId", tenantId).query(String.class).optional();
 	}
 
-	private record RideExtras(String authorizationNumber, OffsetDateTime authorizedAt, String customerEmail) {
-	}
-
 	private record PaymentMethodName(String code, String name) {
 	}
 
-	/** Datos para el RIDE; vacío si el documento no existe en esa empresa o todavía no está autorizado. */
-	public Optional<RideData> rideData(UUID tenantId, UUID documentId) {
-		Optional<RideExtras> extras = jdbc.sql("""
-				SELECT authorization_number, authorized_at, customer_email FROM fiscal_documents
-				WHERE id = :id AND tenant_id = :tenantId AND state = 'AUTHORIZED'
-				 AND authorization_number IS NOT NULL AND authorized_at IS NOT NULL
-				""").param("id", documentId).param("tenantId", tenantId).query(RideExtras.class).optional();
-		if (extras.isEmpty()) {
-			return Optional.empty();
-		}
-		InvoiceXmlData invoice = xmlData(tenantId, documentId).orElseThrow();
+	/** Nombre de cada forma de pago del catálogo del SRI, por código. */
+	public Map<String, String> paymentMethodNames() {
 		Map<String, String> names = new HashMap<>();
 		jdbc.sql("SELECT code, name FROM payment_methods").query(PaymentMethodName.class).list()
 			.forEach(method -> names.put(method.code(), method.name()));
-		RideExtras e = extras.get();
-		return Optional.of(new RideData(invoice, e.authorizationNumber(), e.authorizedAt(), e.customerEmail(),
-				Map.copyOf(names)));
+		return Map.copyOf(names);
 	}
 
-	public List<DocumentRow> page(UUID tenantId, int page, int size) {
+	private record EnvelopeRow(String documentType, String environment, String issuerLegalName,
+			String issuerTradeName, String issuerRuc, String issuerHeadOfficeAddress, String establishmentAddress,
+			boolean issuerAccountingRequired, String issuerSpecialTaxpayerCode, String issuerWithholdingAgentCode,
+			String issuerRimpeRegime, String accessKey, String establishmentCode, String emissionPointCode,
+			int sequence, LocalDate issueDate, String customerIdType, String customerIdNumber, String customerName,
+			String customerAddress, String customerEmail, BigDecimal subtotal, BigDecimal totalDiscount,
+			BigDecimal totalTax, BigDecimal total, UUID modifiedDocumentId, String modifiedDocCode,
+			String modifiedDocNumber, LocalDate modifiedDocDate, String providerRuc) {
+
+		DocumentEnvelope envelope() {
+			return new DocumentEnvelope(DocumentType.of(documentType), environment,
+					new DocumentEnvelope.Issuer(issuerLegalName, issuerTradeName, issuerRuc, issuerHeadOfficeAddress,
+							establishmentAddress, issuerAccountingRequired, issuerSpecialTaxpayerCode,
+							issuerWithholdingAgentCode, issuerRimpeRegime),
+					accessKey, establishmentCode, emissionPointCode, sequence, issueDate,
+					new DocumentEnvelope.Recipient(customerIdType, customerIdNumber, customerName, customerAddress,
+							customerEmail),
+					total == null ? null : new DocumentEnvelope.Totals(subtotal, totalDiscount, totalTax, total),
+					modifiedDocCode == null ? null
+							: new DocumentEnvelope.ModifiedDocument(modifiedDocumentId, modifiedDocCode,
+									modifiedDocNumber, modifiedDocDate),
+					providerRuc);
+		}
+
+	}
+
+	private static final String ENVELOPE_COLUMNS = """
+			document_type, environment, issuer_legal_name, issuer_trade_name, issuer_ruc,
+			 issuer_head_office_address, establishment_address, issuer_accounting_required,
+			 issuer_special_taxpayer_code, issuer_withholding_agent_code, issuer_rimpe_regime, access_key,
+			 establishment_code, emission_point_code, sequence, issue_date, customer_id_type, customer_id_number,
+			 customer_name, customer_address, customer_email, subtotal, total_discount, total_tax, total,
+			 modified_document_id, modified_doc_code, modified_doc_number, modified_doc_date, provider_ruc
+			""";
+
+	/** Sobre congelado del comprobante, de cualquier tipo; vacío si no existe en esa empresa. */
+	public Optional<DocumentEnvelope> envelope(UUID tenantId, UUID documentId) {
+		return jdbc.sql("SELECT " + ENVELOPE_COLUMNS + " FROM fiscal_documents WHERE id = :id AND tenant_id = :tenantId")
+			.param("id", documentId)
+			.param("tenantId", tenantId)
+			.query(EnvelopeRow.class)
+			.optional()
+			.map(EnvelopeRow::envelope);
+	}
+
+	private record AuthorizationRow(String authorizationNumber, OffsetDateTime authorizedAt) {
+	}
+
+	/** Sobre y autorización para el RIDE; vacío si el comprobante no existe en esa empresa o no está autorizado. */
+	public Optional<RideEnvelope> rideEnvelope(UUID tenantId, UUID documentId) {
+		Optional<AuthorizationRow> authorization = jdbc.sql("""
+				SELECT authorization_number, authorized_at FROM fiscal_documents
+				WHERE id = :id AND tenant_id = :tenantId AND state = 'AUTHORIZED'
+				 AND authorization_number IS NOT NULL AND authorized_at IS NOT NULL
+				""").param("id", documentId).param("tenantId", tenantId).query(AuthorizationRow.class).optional();
+		return authorization.flatMap(a -> envelope(tenantId, documentId)
+			.map(envelope -> new RideEnvelope(envelope, a.authorizationNumber(), a.authorizedAt())));
+	}
+
+	/** JSON del contenido propio del comprobante; vacío si no existe en esa empresa o no tiene (la factura). */
+	public Optional<String> content(UUID tenantId, UUID documentId) {
+		return jdbc.sql("""
+				SELECT content::text FROM fiscal_documents
+				WHERE id = :id AND tenant_id = :tenantId AND content IS NOT NULL
+				""").param("id", documentId).param("tenantId", tenantId).query(String.class).optional();
+	}
+
+	/** Cuerpo de la factura: sus líneas, los impuestos por tarifa y los pagos, en su orden. */
+	public InvoiceBody invoiceBody(UUID tenantId, UUID documentId) {
+		List<NewLine> lines = lines(tenantId, documentId).stream()
+			.map(line -> new NewLine(line.productId(), line.mainCode(), line.description(), line.quantity(),
+					line.unitPrice(), line.discount(), line.subtotal(), line.taxCode(), line.taxRateCode(),
+					line.taxRate(), line.taxAmount()))
+			.toList();
+		List<NewPayment> payments = payments(tenantId, documentId).stream()
+			.map(payment -> new NewPayment(payment.methodCode(), payment.amount()))
+			.toList();
+		return new InvoiceBody(lines, taxes(tenantId, documentId), payments);
+	}
+
+	/** Página de comprobantes del tenant; {@code type} nulo trae todos los tipos. */
+	public List<DocumentRow> page(UUID tenantId, DocumentType type, int page, int size) {
 		return jdbc.sql("SELECT " + DOCUMENT_COLUMNS + """
-				FROM fiscal_documents WHERE tenant_id = :tenantId
+				FROM fiscal_documents
+				 WHERE tenant_id = :tenantId AND (CAST(:type AS varchar) IS NULL OR document_type = :type)
 				ORDER BY created_at DESC, sequence DESC, id
 				LIMIT :size OFFSET :offset
 				""")
 			.param("tenantId", tenantId)
+			.param("type", type == null ? null : type.code(), Types.VARCHAR)
 			.param("size", size)
 			.param("offset", (long) page * size)
 			.query(DocumentRow.class)
 			.list();
 	}
 
-	public long count(UUID tenantId) {
-		return jdbc.sql("SELECT count(*) FROM fiscal_documents WHERE tenant_id = :tenantId")
+	public long count(UUID tenantId, DocumentType type) {
+		return jdbc.sql("""
+				SELECT count(*) FROM fiscal_documents
+				 WHERE tenant_id = :tenantId AND (CAST(:type AS varchar) IS NULL OR document_type = :type)
+				""")
 			.param("tenantId", tenantId)
+			.param("type", type == null ? null : type.code(), Types.VARCHAR)
 			.query(Long.class)
 			.single();
 	}

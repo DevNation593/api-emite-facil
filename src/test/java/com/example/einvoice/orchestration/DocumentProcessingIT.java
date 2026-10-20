@@ -20,7 +20,14 @@ import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 
+import com.example.einvoice.billing.DocumentEnvelope;
+import com.example.einvoice.billing.DocumentKind;
+import com.example.einvoice.billing.FiscalDocumentRepository;
+import com.example.einvoice.billing.JsonContentKind;
+import com.example.einvoice.billing.RideEnvelope;
 import com.example.einvoice.certificate.CertificateService;
 import com.example.einvoice.certificate.SecretCipher;
 import com.example.einvoice.signature.XadesVerifier;
@@ -29,13 +36,69 @@ import com.example.einvoice.storage.ArtifactStore;
 import com.example.einvoice.support.AbstractIntegrationTest;
 import com.example.einvoice.support.BillingScenario;
 import com.example.einvoice.support.TestCertificates;
+import com.example.einvoice.support.TestData;
 import com.example.einvoice.web.ApiException;
-import com.example.einvoice.xml.InvoiceEnvelopeRules;
+import com.example.einvoice.xml.DocumentSchema;
+import com.example.einvoice.xml.DocumentType;
+import com.example.einvoice.xml.EnvelopeRules;
 import com.example.einvoice.xml.DocumentSchemas;
 import com.example.einvoice.xml.SchemaVersion;
 import com.example.einvoice.xml.XsdValidator;
 
+
 class DocumentProcessingIT extends AbstractIntegrationTest {
+
+	/** Contenido de la nota de débito de prueba: cualquier objeto con un campo. */
+	record DebitNoteStub(String reason) {
+	}
+
+	/** Un tipo de prueba cuyo contenido propio se lee como JSON; no genera XML porque ninguna prueba llega a ello. */
+	@TestConfiguration
+	static class DebitNoteKindConfig {
+
+		@Bean
+		DocumentKind<DebitNoteStub> debitNoteStubKind(FiscalDocumentRepository documents) {
+			return new JsonContentKind<>(DebitNoteStub.class, documents) {
+
+				@Override
+				public DocumentType type() {
+					return DocumentType.DEBIT_NOTE;
+				}
+
+				@Override
+				public DocumentSchema schema() {
+					return DocumentSchema.DEBIT_NOTE_1_0_0;
+				}
+
+				@Override
+				public String displayName() {
+					return "Nota de débito";
+				}
+
+				@Override
+				public String fileStem() {
+					return "nota-debito";
+				}
+
+				@Override
+				public String auditReserved() {
+					return "DEBIT_NOTE_RESERVED";
+				}
+
+				@Override
+				public byte[] buildXml(DocumentEnvelope envelope, DebitNoteStub content) {
+					throw new UnsupportedOperationException();
+				}
+
+				@Override
+				public byte[] buildRide(RideEnvelope ride, DebitNoteStub content) {
+					throw new UnsupportedOperationException();
+				}
+
+			};
+		}
+
+	}
 
 	@Autowired
 	DocumentProcessor processor;
@@ -91,7 +154,7 @@ class DocumentProcessingIT extends AbstractIntegrationTest {
 		byte[] signed = artifacts.find(s.tenant(), document, ArtifactKind.XML_SIGNED).orElseThrow().content();
 		assertThat(verifier.verify(signed).errors()).isEmpty();
 		assertThat(new XsdValidator(new DocumentSchemas()).validate(signed, SchemaVersion.V1_1_0).errors()).isEmpty();
-		assertThat(InvoiceEnvelopeRules.check(signed, SchemaVersion.V1_1_0)).isEmpty();
+		assertThat(EnvelopeRules.check(signed, SchemaVersion.V1_1_0.schema())).isEmpty();
 		String accessKey = jdbc.queryForObject("SELECT access_key FROM fiscal_documents WHERE id = ?", String.class,
 				document);
 		String xml = new String(signed, StandardCharsets.UTF_8);
@@ -294,6 +357,35 @@ class DocumentProcessingIT extends AbstractIntegrationTest {
 		// No se reintenta solo: el documento necesita corrección.
 		assertThat(processor.generateAndSign(s.tenant(), document)).isEqualTo("XSD_INVALID");
 		assertThat(transitions()).hasSize(2);
+	}
+
+	UUID otherDocument(String type, String contentJson) {
+		return TestData.document(jdbc, s.tenant(), s.taxpayer(), s.point(), s.customer(), 50, TestData.accessKey(),
+				type, java.math.BigDecimal.ONE, contentJson);
+	}
+
+	String lastReason(UUID id) {
+		return jdbc.queryForObject(
+				"SELECT reason FROM state_events WHERE document_id = ? ORDER BY event_time DESC LIMIT 1", String.class,
+				id);
+	}
+
+	@Test
+	void unsupportedTypeEndsInXsdInvalid() {
+		UUID credit = otherDocument("04", "{}");
+
+		assertThat(processor.generateAndSign(s.tenant(), credit)).isEqualTo("XSD_INVALID");
+
+		assertThat(lastReason(credit)).isEqualTo("DOCUMENT_TYPE_NOT_SUPPORTED");
+	}
+
+	@Test
+	void unreadableContentEndsInXsdInvalid() {
+		UUID debit = otherDocument("05", "[]");
+
+		assertThat(processor.generateAndSign(s.tenant(), debit)).isEqualTo("XSD_INVALID");
+
+		assertThat(lastReason(debit)).isEqualTo("CONTENT_UNREADABLE");
 	}
 
 }

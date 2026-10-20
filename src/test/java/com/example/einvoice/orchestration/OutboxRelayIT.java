@@ -75,7 +75,7 @@ class OutboxRelayIT extends AbstractIntegrationTest {
 			.toList();
 		assertThat(mine).hasSize(1);
 		assertThat(mine.get(0)).containsEntry("tenantId", s.tenant().toString())
-			.containsEntry("eventType", "INVOICE_RESERVED");
+			.containsEntry("eventType", "DOCUMENT_RESERVED");
 		assertThat(jdbc.queryForObject("SELECT id::text FROM outbox_events WHERE aggregate_id = ?", String.class,
 				document))
 			.isEqualTo(mine.get(0).get("eventId"));

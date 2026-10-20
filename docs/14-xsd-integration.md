@@ -15,6 +15,8 @@ Los XSD y XML de ejemplo están físicamente en el repositorio. Todos fueron apo
 
 Hoy solo se emite la factura. Los demás tipos tienen el XSD empacado y compilando, pero todavía no se generan ni se envían al SRI.
 
+Versión que emitirá cada tipo: factura `1.1.0`, liquidación `1.1.0`, nota de crédito `1.1.0`, nota de débito `1.0.0`, guía de remisión `1.1.0` y retención `2.0.0`. Cada tipo se habilita con su propio PR.
+
 - Fuente oficial: los paquetes «XML y XSD» de cada comprobante en [SRI — Facturación electrónica](https://www.sri.gob.ec/facturacion-electronica); el de factura es [este ZIP](https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/05546998-6f29-4870-be3b-62650f312a6c/XML%20y%20XSD%20Factura.zip) (versiones `1.0.0` a `2.1.0`, actualizado a febrero 2022).
 - Fuente normativa: [Ficha técnica 2.34 (julio 2026)](https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/f8d9bb36-5632-4f96-b463-b9265b55338c/FICHA%20TE%CC%81CNICA%20COMPROBANTES%20ELECTRO%CC%81NICOS%20ESQUEMA%20OFFLINE%20Versio%CC%81n%202.34.pdf).
 - Dependencia: `xmldsig-core-schema.xsd` ([especificación W3C XML Signature](https://www.w3.org/TR/xmldsig-core/#sec-Schema)), cabecera `Revision 1.2, 2013/04/16`, `targetNamespace` `http://www.w3.org/2000/09/xmldsig#`.
@@ -111,7 +113,7 @@ Mantener [xsd-source-registry.csv](xsd-source-registry.csv). Estados: `PENDIENTE
 - **Versión 1.1.0.** Es la que la ficha (Anexo 3) define para cantidad y precio unitario con seis decimales. Las versiones 2.0.0 y 2.1.0 añaden rubros de terceros y la factura sustitutiva de guía de remisión, que no se usan. `InvoiceXmlBuilder` escribe el XML y un test lo compara byte a byte con el esperado y lo valida contra el XSD.
 - **RUC del emisor.** El tipo `numeroRuc` del XSD es `[0-9]{10}001`: el alta de emisores exige ese formato y la base lo impone con una restricción.
 - **Leyenda de negocio popular.** La ficha (Anexo 22) admite `CONTRIBUYENTE NEGOCIO POPULAR - RÉGIMEN RIMPE`, pero el `factura_V1.1.0.xsd` del repositorio solo acepta `CONTRIBUYENTE RÉGIMEN RIMPE`. Sus facturas quedarían en `XSD_INVALID` después de consumir un secuencial, así que el alta de un emisor con `rimpeRegime=NEGOCIO_POPULAR` se rechaza con `422 RIMPE_REGIME_UNSUPPORTED`. Se habilitará cuando se contraste el XSD con el paquete oficial del SRI (tarea N1).
-- **Clave de acceso.** `InvoiceEnvelopeRules` comprueba además que `claveAcceso` sea válida y coincida con fecha, tipo, RUC, ambiente, establecimiento, punto, secuencial y tipo de emisión del mismo XML.
+- **Clave de acceso.** `EnvelopeRules` comprueba además que `claveAcceso` sea válida y coincida con fecha, tipo, RUC, ambiente, establecimiento, punto, secuencial y tipo de emisión del mismo XML.
 - **Tamaño.** Un XML de más de 320 KB (límite de envío individual de la ficha) se rechaza al generarlo.
 
 ## Fuentes oficiales y control de cambios

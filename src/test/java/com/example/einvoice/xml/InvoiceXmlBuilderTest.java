@@ -62,7 +62,7 @@ class InvoiceXmlBuilderTest {
 		byte[] bytes = InvoiceXmlBuilder.build(data);
 		ValidationResult result = validator.validate(bytes, InvoiceXmlBuilder.VERSION);
 		assertThat(result.errors()).isEmpty();
-		assertThat(InvoiceEnvelopeRules.check(bytes, InvoiceXmlBuilder.VERSION)).isEmpty();
+		assertThat(EnvelopeRules.check(bytes, InvoiceXmlBuilder.VERSION.schema())).isEmpty();
 	}
 
 	@Test

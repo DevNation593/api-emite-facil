@@ -5,11 +5,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 
+import com.example.einvoice.billing.DocumentEnvelope;
+import com.example.einvoice.billing.RideEnvelope;
 import com.example.einvoice.delivery.DeliveryEmail.Attachment;
-import com.example.einvoice.xml.InvoiceXmlData;
 
 /**
- * Redacta el correo de entrega de una factura autorizada, con el RIDE y el XML autorizado adjuntos
+ * Redacta el correo de entrega de un comprobante autorizado, con el RIDE y el XML autorizado adjuntos
  * (ficha técnica, 4.7: el emisor debe enviar el comprobante al receptor por correo electrónico).
  */
 public final class DeliveryEmailFactory {
@@ -23,25 +24,26 @@ public final class DeliveryEmailFactory {
 	private DeliveryEmailFactory() {
 	}
 
-	public static DeliveryEmail build(String from, RideData data, String recipient, byte[] ridePdf,
-			byte[] authorizedXml) {
-		InvoiceXmlData invoice = data.invoice();
-		String number = invoice.establishmentCode() + "-" + invoice.emissionPointCode() + "-"
-				+ String.format(Locale.ROOT, "%09d", invoice.sequence());
-		String tradeName = headerSafe(invoice.issuerTradeName(), MAX_NAME);
-		String issuer = tradeName.isEmpty() ? headerSafe(invoice.issuerLegalName(), MAX_NAME) : tradeName;
-		String subject = headerSafe("Factura " + number + " de " + issuer, MAX_SUBJECT);
-		String text = "Estimado(a) " + invoice.customerName() + ":\n\n" + invoice.issuerLegalName() + " (RUC "
-				+ invoice.issuerRuc() + ") le ha emitido la factura electrónica " + number + ".\n\n"
-				+ "Fecha de emisión: " + DATE.format(invoice.issueDate()) + "\n" + "Valor total: "
-				+ invoice.total().setScale(2, RoundingMode.UNNECESSARY).toPlainString() + " USD\n"
-				+ "Clave de acceso: " + invoice.accessKey() + "\n" + "Número de autorización: "
-				+ data.authorizationNumber() + "\n\n"
+	public static DeliveryEmail build(String from, RideEnvelope ride, String displayName, String fileStem,
+			String recipient, byte[] ridePdf, byte[] authorizedXml) {
+		DocumentEnvelope document = ride.envelope();
+		String number = document.number();
+		String tradeName = headerSafe(document.issuer().tradeName(), MAX_NAME);
+		String issuer = tradeName.isEmpty() ? headerSafe(document.issuer().legalName(), MAX_NAME) : tradeName;
+		String subject = headerSafe(displayName + " " + number + " de " + issuer, MAX_SUBJECT);
+		String total = document.totals() == null ? ""
+				: "Valor total: " + document.totals().total().setScale(2, RoundingMode.UNNECESSARY).toPlainString()
+						+ " USD\n";
+		String text = "Estimado(a) " + document.recipient().name() + ":\n\n" + document.issuer().legalName()
+				+ " (RUC " + document.issuer().ruc() + ") le ha emitido la " + displayName.toLowerCase(Locale.ROOT)
+				+ " electrónica " + number + ".\n\n" + "Fecha de emisión: " + DATE.format(document.issueDate()) + "\n"
+				+ total + "Clave de acceso: " + document.accessKey() + "\n" + "Número de autorización: "
+				+ ride.authorizationNumber() + "\n\n"
 				+ "Se adjuntan el RIDE (PDF) y el comprobante autorizado (XML). Puede verificar su validez en el"
 				+ " portal del SRI con la clave de acceso.\n";
 		return new DeliveryEmail(from, issuer, recipient, subject, text,
-				List.of(new Attachment("factura-" + number + ".pdf", "application/pdf", ridePdf),
-						new Attachment(invoice.accessKey() + ".xml", "application/xml", authorizedXml)));
+				List.of(new Attachment(fileStem + "-" + number + ".pdf", "application/pdf", ridePdf),
+						new Attachment(document.accessKey() + ".xml", "application/xml", authorizedXml)));
 	}
 
 	/**
