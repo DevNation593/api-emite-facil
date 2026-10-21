@@ -53,7 +53,7 @@ export default defineConfig({
       name: "web",
       command: `npx next start -p ${PORTS.web}`,
       cwd: FRONTEND_DIR,
-      url: `${URLS.web}/ingresar`,
+      url: `${URLS.web}/sign-in`,
       env: webEnv(),
       timeout: 60_000,
       reuseExistingServer: !CI,

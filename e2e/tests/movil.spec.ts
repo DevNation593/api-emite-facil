@@ -12,13 +12,13 @@ test("las pantallas principales caben en un teléfono sin desplazarse de lado", 
   await waitForState(page, company, invoice.id, "AUTHORIZED");
 
   const screens: [string, string][] = [
-    ["movil-comprobantes", "/documentos"],
-    ["movil-comprobante", `/documentos/${invoice.id}`],
-    ["movil-nueva-factura", "/facturas/nueva"],
-    ["movil-clientes", "/clientes"],
-    ["movil-productos", "/productos"],
-    ["movil-emisor", "/configuracion/emisor"],
-    ["movil-integraciones", "/integraciones"],
+    ["movil-comprobantes", "/documents/invoices"],
+    ["movil-comprobante", `/documents/${invoice.id}`],
+    ["movil-nueva-factura", "/invoices/new"],
+    ["movil-clientes", "/customers"],
+    ["movil-productos", "/products"],
+    ["movil-emisor", "/settings/issuer"],
+    ["movil-integraciones", "/integrations"],
   ];
   for (const [name, path] of screens) {
     await test.step(path, async () => {

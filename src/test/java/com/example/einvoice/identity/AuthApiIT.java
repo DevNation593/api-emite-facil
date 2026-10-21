@@ -99,7 +99,7 @@ class AuthApiIT extends AbstractIntegrationTest {
 			.andExpect(jsonPath("$.emailVerified").value(false));
 
 		Link link = link(email, 1);
-		assertThat(link.path()).isEqualTo("/verificar-correo");
+		assertThat(link.path()).isEqualTo("/verify-email");
 		assertThat(subject(email, 1)).isEqualTo("Confirma tu correo");
 		send("/api/v1/auth/email-verification", "{\"token\":\"" + link.token() + "\"}").andExpect(status().isNoContent());
 		mvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, session.bearer()))
@@ -196,7 +196,7 @@ class AuthApiIT extends AbstractIntegrationTest {
 
 		send("/api/v1/auth/password-reset/request", "{\"email\":\"" + email + "\"}").andExpect(status().isAccepted());
 		Link link = link(email, 2);
-		assertThat(link.path()).isEqualTo("/restablecer-contrasena");
+		assertThat(link.path()).isEqualTo("/reset-password");
 		send("/api/v1/auth/password-reset", "{\"token\":\"" + link.token() + "\",\"newPassword\":\"corta\"}")
 			.andExpect(status().isUnprocessableEntity())
 			.andExpect(jsonPath("$.errorCode").value("WEAK_PASSWORD"));
