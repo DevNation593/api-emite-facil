@@ -28,7 +28,7 @@ test("un sistema externo factura con una API key y deja de poder al revocarla", 
   const keys = () => page.getByRole("table", { name: "API keys" });
 
   await test.step("el dueño crea la key y la ve una sola vez", async () => {
-    await page.goto("/integraciones");
+    await page.goto("/integrations");
     await page.getByLabel("Nombre de la key").fill("ERP");
     await page.getByRole("button", { name: "Crear API key" }).click();
 

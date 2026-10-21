@@ -14,13 +14,13 @@ test.beforeEach(async ({ page }) => {
 
 test("una nota de crédito desde una factura autorizada llega a Autorizada", async ({ page, shot }) => {
   await test.step("emitir una factura de dos unidades hasta Autorizada", async () => {
-    await page.goto("/facturas/nueva");
+    await page.goto("/invoices/new");
     await selectCatalog(page, "Cliente", customer);
     await selectCatalog(page, "Producto de la línea 1", product);
     await page.getByLabel("Cantidad de la línea 1").fill("2");
     await expect(page.getByLabel("Importe pagado")).toHaveValue("28.75");
     await page.getByRole("button", { name: "Emitir factura" }).click();
-    await expect(page).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
+    await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/);
     await expect(page.getByText("Autorizada", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toContainText("001-001-000000001");
   });
@@ -30,7 +30,7 @@ test("una nota de crédito desde una factura autorizada llega a Autorizada", asy
   await test.step("el detalle de la factura ofrece la nota de crédito", async () => {
     await expect(page.getByText("Acreditado $0.00 de $28.75")).toBeVisible();
     await page.getByRole("link", { name: "Nota de crédito" }).click();
-    await expect(page).toHaveURL(/\/notas\/nueva\?tipo=credito&factura=[0-9a-f-]{36}$/);
+    await expect(page).toHaveURL(/\/notes\/new\?tipo=credito&factura=[0-9a-f-]{36}$/);
   });
 
   await test.step("acreditar una unidad de la línea 1 por devolución", async () => {
@@ -42,7 +42,7 @@ test("una nota de crédito desde una factura autorizada llega a Autorizada", asy
     await expect(totals.getByRole("row", { name: /^Total/ })).toContainText("14.38");
     await shot("nota-credito-formulario");
     await page.getByRole("button", { name: "Emitir nota de crédito" }).click();
-    await expect(page).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
+    await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/);
   });
 
   await test.step("el detalle de la nota llega a Autorizada y dice a qué factura modifica", async () => {
@@ -52,16 +52,16 @@ test("una nota de crédito desde una factura autorizada llega a Autorizada", asy
     await shot("nota-credito-autorizada");
   });
 
-  await test.step("en Comprobantes, el filtro de notas de crédito muestra solo esa nota", async () => {
-    await page.getByRole("navigation", { name: "Secciones" }).getByRole("link", { name: "Comprobantes" }).click();
-    await expect(page.getByRole("row", { name: /^Factura 001-001-000000001/ })).toBeVisible();
-    await page.getByLabel("Tipo").selectOption({ label: "Notas de crédito" });
+  await test.step("cada tipo en su listado: la factura en Facturas y la nota sola en Notas de crédito", async () => {
+    const sections = page.getByRole("navigation", { name: "Secciones" });
+    await sections.getByRole("link", { name: "Facturas" }).click();
+    await expect(page.getByRole("row", { name: /^001-001-000000001/ })).toBeVisible();
+    await sections.getByRole("link", { name: "Notas de crédito" }).click();
+    await expect(page).toHaveURL(/\/documents\/credit-notes$/);
 
     const rows = page.locator("tbody tr");
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText("Autorizada");
-    await expect(rows.first()).toContainText("N. crédito");
-    await expect(page.getByRole("row", { name: /^Factura/ })).toHaveCount(0);
     await shot("comprobantes-notas-de-credito");
   });
 

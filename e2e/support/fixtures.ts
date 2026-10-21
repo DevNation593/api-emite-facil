@@ -14,10 +14,10 @@ export async function login(page: Page, user: TestUser, startAt = "/"): Promise<
 
 /**
  * Espera a que la aplicación esté cargada con la sesión. Tras ingresar, la web navega a donde iba el
- * usuario y puede redirigir otra vez (de "/" a "/documentos"): pedir otra página antes la cortaría.
+ * usuario y puede redirigir otra vez (de "/" a "/documents/invoices"): pedir otra página antes la cortaría.
  */
 export async function signedIn(page: Page): Promise<void> {
-  await page.waitForURL((url) => !url.pathname.startsWith("/ingresar"));
+  await page.waitForURL((url) => !url.pathname.startsWith("/sign-in"));
   await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
 }
 
@@ -30,7 +30,7 @@ export async function signIn(page: Page, user: TestUser): Promise<void> {
 
 /** Crea la cuenta desde la pantalla de registro. Si el correo ya tenía una, la pantalla dice lo mismo. */
 export async function register(page: Page, user: TestUser): Promise<void> {
-  await page.goto("/registro");
+  await page.goto("/sign-up");
   await page.getByLabel("Correo").fill(user.email);
   await page.getByLabel("Contraseña", { exact: true }).fill(user.password);
   await page.getByLabel("Repita la contraseña").fill(user.password);
