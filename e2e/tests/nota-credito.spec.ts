@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
 
 test("una nota de crédito desde una factura autorizada llega a Autorizada", async ({ page, shot }) => {
   await test.step("emitir una factura de dos unidades hasta Autorizada", async () => {
-    await page.goto("/invoices/new");
+    await page.goto("/documents/invoices/new");
     await selectCatalog(page, "Cliente", customer);
     await selectCatalog(page, "Producto de la línea 1", product);
     await page.getByLabel("Cantidad de la línea 1").fill("2");
@@ -30,7 +30,7 @@ test("una nota de crédito desde una factura autorizada llega a Autorizada", asy
   await test.step("el detalle de la factura ofrece la nota de crédito", async () => {
     await expect(page.getByText("Acreditado $0.00 de $28.75")).toBeVisible();
     await page.getByRole("link", { name: "Nota de crédito" }).click();
-    await expect(page).toHaveURL(/\/notes\/new\?tipo=credito&factura=[0-9a-f-]{36}$/);
+    await expect(page).toHaveURL(/\/documents\/credit-notes\/new\?factura=[0-9a-f-]{36}$/);
   });
 
   await test.step("acreditar una unidad de la línea 1 por devolución", async () => {

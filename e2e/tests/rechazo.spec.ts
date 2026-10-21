@@ -47,7 +47,7 @@ test("una factura devuelta por el SRI se corrige emitiendo otra, y quedan enlaza
 
   await test.step("corregir y emitir de nuevo abre una factura con los mismos datos", async () => {
     await page.getByRole("button", { name: "Corregir y emitir de nuevo" }).click();
-    await expect(page).toHaveURL(/\/invoices\/new\?borrador=/);
+    await expect(page).toHaveURL(/\/documents\/invoices\/new\?borrador=/);
     await expect(page.getByText("Esta factura reemplazará a un comprobante que el SRI rechazó")).toBeVisible();
     await expectCatalogSelection(page, "Cliente", customer);
     await expect(page.getByLabel("Cantidad de la línea 1")).toHaveValue("2");

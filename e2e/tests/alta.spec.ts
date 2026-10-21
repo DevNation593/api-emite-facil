@@ -10,7 +10,7 @@ test("una empresa se da de alta: emisor, punto de emisión, certificado, cliente
   const sections = page.getByRole("navigation", { name: "Secciones" });
 
   await test.step("crear la empresa", async () => {
-    await page.goto("/companies");
+    await page.goto("/settings/companies");
     await page.getByLabel("Nombre de la empresa").fill(company);
     await shot("empresas");
     await page.getByRole("button", { name: "Crear empresa" }).click();

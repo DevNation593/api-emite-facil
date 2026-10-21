@@ -17,7 +17,7 @@ test.beforeEach(async ({ page }) => {
 
 /** Rellena el editor: el cliente y una línea con dos unidades del producto. */
 async function writeInvoice(page: import("@playwright/test").Page): Promise<void> {
-  await page.goto("/invoices/new");
+  await page.goto("/documents/invoices/new");
   await selectCatalog(page, "Cliente", customer);
   await selectCatalog(page, "Producto de la línea 1", product);
   await page.getByLabel("Cantidad de la línea 1").fill("2");

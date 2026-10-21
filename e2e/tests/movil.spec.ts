@@ -14,11 +14,11 @@ test("las pantallas principales caben en un teléfono sin desplazarse de lado", 
   const screens: [string, string][] = [
     ["movil-comprobantes", "/documents/invoices"],
     ["movil-comprobante", `/documents/${invoice.id}`],
-    ["movil-nueva-factura", "/invoices/new"],
-    ["movil-clientes", "/customers"],
-    ["movil-productos", "/products"],
+    ["movil-nueva-factura", "/documents/invoices/new"],
+    ["movil-clientes", "/catalogs/customers"],
+    ["movil-productos", "/catalogs/products"],
     ["movil-emisor", "/settings/issuer"],
-    ["movil-integraciones", "/integrations"],
+    ["movil-integraciones", "/settings/integrations"],
   ];
   for (const [name, path] of screens) {
     await test.step(path, async () => {
