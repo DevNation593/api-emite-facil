@@ -26,7 +26,7 @@ test("el sistema de una empresa recibe avisos firmados de lo que pasa con sus co
   };
 
   await test.step("registrar la dirección: el secreto se ve una sola vez", async () => {
-    await page.goto("/integrations");
+    await page.goto("/settings/integrations");
     await page.getByLabel("Dirección de su sistema").fill(url);
     await page.getByLabel("El SRI lo autorizó").check();
     await page.getByLabel("El SRI lo devolvió o no lo autorizó").check();
@@ -144,7 +144,7 @@ test("el sistema de una empresa recibe avisos firmados de lo que pasa con sus co
 
 test("no se puede registrar una dirección que no sea una URL válida", async ({ page }) => {
   await seedCompany(page);
-  await page.goto("/integrations");
+  await page.goto("/settings/integrations");
   await page.getByLabel("Dirección de su sistema").fill("ftp://example.test/avisos");
   await page.getByLabel("El SRI lo autorizó").check();
   await page.getByRole("button", { name: "Registrar", exact: true }).click();

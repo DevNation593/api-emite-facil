@@ -14,7 +14,7 @@ test("la sesión se renueva sola: tras caducar la ficha de acceso se emite sin v
   const customer = await seedCustomer(page, company);
   const product = await seedProduct(page, company);
 
-  await page.goto("/invoices/new");
+  await page.goto("/documents/invoices/new");
   await selectCatalog(page, "Cliente", customer);
   await selectCatalog(page, "Producto de la línea 1", product);
   await page.getByLabel("Cantidad de la línea 1").fill("3");
