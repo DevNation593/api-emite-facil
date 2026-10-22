@@ -55,7 +55,7 @@ final class NoteRideSupport {
 
 	private static PdfPTable modifiedDocument(DocumentEnvelope.ModifiedDocument modified, String reason) {
 		Map<String, String> rows = new LinkedHashMap<>();
-		rows.put("Comprobante que se modifica:", "FACTURA " + modified.number());
+		rows.put("Comprobante:", "FACTURA " + modified.number());
 		rows.put("Fecha de emisión:", RideLayout.DATE.format(modified.issueDate()));
 		if (reason != null) {
 			rows.put("Razón de modificación:", reason);
@@ -63,23 +63,15 @@ final class NoteRideSupport {
 		return RideLayout.infoTable("COMPROBANTE MODIFICADO", rows);
 	}
 
-	/** Bloques bajo los totales: el correo del receptor como información adicional y, debajo, below (puede ser nulo). */
+	/** Bloques bajo los totales: la información adicional del receptor y, debajo, below (puede ser nulo). */
 	static PdfPTable left(DocumentEnvelope envelope, PdfPTable below) {
-		PdfPTable left = new PdfPTable(1);
-		left.setWidthPercentage(100);
-		boolean empty = true;
-		if (envelope.recipient().email() != null) {
-			left.addCell(RideLayout.wrap(RideLayout.infoTable("INFORMACIÓN ADICIONAL",
-					Map.of("Correo Electrónico", envelope.recipient().email()))));
-			left.addCell(RideLayout.gap());
-			empty = false;
-		}
+		PdfPTable left = RideLayout.box();
+		DocumentEnvelope.Recipient recipient = envelope.recipient();
+		left.addCell(RideLayout.wrap(RideLayout.additionalInfo(recipient.email(), recipient.address(),
+				recipient.phone(), envelope.providerRuc())));
 		if (below != null) {
-			left.addCell(RideLayout.wrap(below));
-			empty = false;
-		}
-		if (empty) {
 			left.addCell(RideLayout.gap());
+			left.addCell(RideLayout.wrap(below));
 		}
 		return left;
 	}

@@ -33,7 +33,8 @@ public class FiscalDocumentRepository {
 			BigDecimal taxRate, BigDecimal taxAmount) {
 	}
 
-	public record NewPayment(String methodCode, BigDecimal amount) {
+	/** term y timeUnit (plazo y unidadTiempo del XML) van juntos o ambos nulos. */
+	public record NewPayment(String methodCode, BigDecimal amount, BigDecimal term, String timeUnit) {
 	}
 
 	public record DocumentRow(UUID id, UUID taxpayerId, String documentType, String state, String environment,
@@ -52,7 +53,7 @@ public class FiscalDocumentRepository {
 	public record Links(UUID customerId, UUID replacesDocumentId, UUID replacedByDocumentId) {
 	}
 
-	public record PaymentRow(int lineNo, String methodCode, BigDecimal amount) {
+	public record PaymentRow(int lineNo, String methodCode, BigDecimal amount, BigDecimal term, String timeUnit) {
 	}
 
 	private static final String DOCUMENT_COLUMNS = """
@@ -84,14 +85,16 @@ public class FiscalDocumentRepository {
 				 customer_email, subtotal, total_discount, total_tax, total, created_by, issuer_legal_name,
 				 issuer_trade_name, issuer_head_office_address, establishment_address, issuer_accounting_required,
 				 issuer_special_taxpayer_code, issuer_withholding_agent_code, issuer_rimpe_regime, provider_ruc,
-				 modified_document_id, modified_doc_code, modified_doc_number, modified_doc_date, content)
+				 modified_document_id, modified_doc_code, modified_doc_number, modified_doc_date, content,
+				 issuer_phone, customer_phone)
 				VALUES (:tenantId, :taxpayerId, :emissionPointId, :customerId, :documentType, :environment,
 				 :issuerRuc, :establishmentCode, :emissionPointCode, :sequence, :accessKey, :state, :issueDate,
 				 'USD', :customerIdType, :customerIdNumber, :customerName, :customerAddress, :customerEmail,
 				 :subtotal, :totalDiscount, :totalTax, :total, :createdBy, :issuerLegalName, :issuerTradeName,
 				 :issuerHeadOfficeAddress, :establishmentAddress, :issuerAccountingRequired,
 				 :issuerSpecialTaxpayerCode, :issuerWithholdingAgentCode, :issuerRimpeRegime, :providerRuc,
-				 :modifiedDocumentId, :modifiedDocCode, :modifiedDocNumber, :modifiedDocDate, CAST(:content AS jsonb))
+				 :modifiedDocumentId, :modifiedDocCode, :modifiedDocNumber, :modifiedDocDate, CAST(:content AS jsonb),
+				 :issuerPhone, :customerPhone)
 				RETURNING id
 				""")
 			.param("tenantId", document.tenantId())
@@ -131,6 +134,8 @@ public class FiscalDocumentRepository {
 			.param("modifiedDocNumber", modified == null ? null : modified.number(), Types.VARCHAR)
 			.param("modifiedDocDate", modified == null ? null : modified.issueDate(), Types.DATE)
 			.param("content", document.contentJson(), Types.VARCHAR)
+			.param("issuerPhone", issuer.phone(), Types.VARCHAR)
+			.param("customerPhone", recipient.phone(), Types.VARCHAR)
 			.query(UUID.class)
 			.single();
 	}
@@ -179,14 +184,17 @@ public class FiscalDocumentRepository {
 		List<NewPayment> payments = body.payments();
 		for (int i = 0; i < payments.size(); i++) {
 			jdbc.sql("""
-					INSERT INTO fiscal_document_payments (tenant_id, document_id, line_no, method_code, amount)
-					VALUES (:tenantId, :documentId, :lineNo, :methodCode, :amount)
+					INSERT INTO fiscal_document_payments (tenant_id, document_id, line_no, method_code, amount, term,
+					 time_unit)
+					VALUES (:tenantId, :documentId, :lineNo, :methodCode, :amount, :term, :timeUnit)
 					""")
 				.param("tenantId", tenantId)
 				.param("documentId", documentId)
 				.param("lineNo", i + 1)
 				.param("methodCode", payments.get(i).methodCode())
 				.param("amount", payments.get(i).amount())
+				.param("term", payments.get(i).term(), Types.NUMERIC)
+				.param("timeUnit", payments.get(i).timeUnit(), Types.VARCHAR)
 				.update();
 		}
 	}
@@ -358,16 +366,17 @@ public class FiscalDocumentRepository {
 			int sequence, LocalDate issueDate, String customerIdType, String customerIdNumber, String customerName,
 			String customerAddress, String customerEmail, BigDecimal subtotal, BigDecimal totalDiscount,
 			BigDecimal totalTax, BigDecimal total, UUID modifiedDocumentId, String modifiedDocCode,
-			String modifiedDocNumber, LocalDate modifiedDocDate, String providerRuc) {
+			String modifiedDocNumber, LocalDate modifiedDocDate, String providerRuc, String issuerPhone,
+			String customerPhone) {
 
 		DocumentEnvelope envelope() {
 			return new DocumentEnvelope(DocumentType.of(documentType), environment,
 					new DocumentEnvelope.Issuer(issuerLegalName, issuerTradeName, issuerRuc, issuerHeadOfficeAddress,
 							establishmentAddress, issuerAccountingRequired, issuerSpecialTaxpayerCode,
-							issuerWithholdingAgentCode, issuerRimpeRegime),
+							issuerWithholdingAgentCode, issuerRimpeRegime, issuerPhone),
 					accessKey, establishmentCode, emissionPointCode, sequence, issueDate,
 					new DocumentEnvelope.Recipient(customerIdType, customerIdNumber, customerName, customerAddress,
-							customerEmail),
+							customerEmail, customerPhone),
 					total == null ? null : new DocumentEnvelope.Totals(subtotal, totalDiscount, totalTax, total),
 					modifiedDocCode == null ? null
 							: new DocumentEnvelope.ModifiedDocument(modifiedDocumentId, modifiedDocCode,
@@ -383,7 +392,8 @@ public class FiscalDocumentRepository {
 			 issuer_special_taxpayer_code, issuer_withholding_agent_code, issuer_rimpe_regime, access_key,
 			 establishment_code, emission_point_code, sequence, issue_date, customer_id_type, customer_id_number,
 			 customer_name, customer_address, customer_email, subtotal, total_discount, total_tax, total,
-			 modified_document_id, modified_doc_code, modified_doc_number, modified_doc_date, provider_ruc
+			 modified_document_id, modified_doc_code, modified_doc_number, modified_doc_date, provider_ruc,
+			 issuer_phone, customer_phone
 			""";
 
 	/** Sobre congelado del comprobante, de cualquier tipo; vacío si no existe en esa empresa. */
@@ -426,7 +436,8 @@ public class FiscalDocumentRepository {
 					line.taxRate(), line.taxAmount()))
 			.toList();
 		List<NewPayment> payments = payments(tenantId, documentId).stream()
-			.map(payment -> new NewPayment(payment.methodCode(), payment.amount()))
+			.map(payment -> new NewPayment(payment.methodCode(), payment.amount(), payment.term(),
+					payment.timeUnit()))
 			.toList();
 		return new InvoiceBody(lines, taxes(tenantId, documentId), payments);
 	}
@@ -516,7 +527,7 @@ public class FiscalDocumentRepository {
 
 	public List<PaymentRow> payments(UUID tenantId, UUID documentId) {
 		return jdbc.sql("""
-				SELECT line_no, method_code, amount FROM fiscal_document_payments
+				SELECT line_no, method_code, amount, term, time_unit FROM fiscal_document_payments
 				WHERE document_id = :documentId AND tenant_id = :tenantId ORDER BY line_no
 				""").param("documentId", documentId).param("tenantId", tenantId).query(PaymentRow.class).list();
 	}

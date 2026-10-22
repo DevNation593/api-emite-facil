@@ -32,7 +32,23 @@ public class InvoiceService {
 	public record LineCommand(UUID productId, BigDecimal quantity, BigDecimal unitPrice, BigDecimal discount) {
 	}
 
-	public record PaymentCommand(String methodCode, BigDecimal amount) {
+	/**
+	 * Una forma de pago con su plazo opcional: term y timeUnit (plazo y unidadTiempo del XML, como «30» y
+	 * «dias») van juntos o ninguno; una unidad en blanco cuenta como ausente.
+	 */
+	public record PaymentCommand(String methodCode, BigDecimal amount, BigDecimal term, String timeUnit) {
+
+		public PaymentCommand {
+			timeUnit = timeUnit == null || timeUnit.isBlank() ? null : timeUnit.strip();
+		}
+
+		/** 422 INVALID_PAYMENT_TERM si llega el plazo sin su unidad o la unidad sin plazo. */
+		public void requireCompleteTerm() {
+			if ((term == null) != (timeUnit == null)) {
+				throw unprocessable("INVALID_PAYMENT_TERM", "El plazo de una forma de pago lleva su unidad de tiempo");
+			}
+		}
+
 	}
 
 	public record IssueInvoiceCommand(UUID taxpayerId, String establishmentCode, String emissionPointCode,
@@ -90,6 +106,7 @@ public class InvoiceService {
 				throw unprocessable("PAYMENT_METHOD_UNKNOWN",
 						"La forma de pago no existe o no está vigente en la fecha de emisión");
 			}
+			payment.requireCompleteTerm();
 			paid = paid.add(payment.amount());
 		}
 		if (paid.compareTo(totals.total()) != 0) {
@@ -108,7 +125,8 @@ public class InvoiceService {
 		}
 		List<NewPayment> payments = command.payments()
 			.stream()
-			.map(payment -> new NewPayment(payment.methodCode(), payment.amount()))
+			.map(payment -> new NewPayment(payment.methodCode(), payment.amount(), payment.term(),
+					payment.timeUnit()))
 			.toList();
 		return Preparation.forCustomer(kind, customer,
 				new DocumentEnvelope.Totals(totals.subtotal(), totals.totalDiscount(), totals.totalTax(),

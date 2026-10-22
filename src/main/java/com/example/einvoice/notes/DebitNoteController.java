@@ -52,8 +52,10 @@ public class DebitNoteController {
 			@NotNull @Pattern(regexp = Decimals.AMOUNT) String value, @NotNull @Pattern(regexp = "[0-9]{1,4}") String ivaRateCode) {
 	}
 
+	/** term y timeUnit: plazo y su unidad («30» y «dias»), juntos o ninguno. */
 	record PaymentRequest(@NotNull @Pattern(regexp = "[0-9]{2}") String methodCode,
-			@NotNull @Pattern(regexp = Decimals.AMOUNT) String amount) {
+			@NotNull @Pattern(regexp = Decimals.AMOUNT) String amount, @Pattern(regexp = Decimals.AMOUNT) String term,
+			@Size(max = 10) @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String timeUnit) {
 	}
 
 	record IssueDebitNoteRequest(@NotNull UUID taxpayerId,
@@ -73,7 +75,8 @@ public class DebitNoteController {
 						.map(reason -> new ReasonCommand(reason.reason().strip(),
 								Decimals.parse(reason.value(), 12, 2), reason.ivaRateCode()))
 						.toList(),
-					new PaymentCommand(payment.methodCode(), Decimals.parse(payment.amount(), 12, 2)));
+					new PaymentCommand(payment.methodCode(), Decimals.parse(payment.amount(), 12, 2),
+							payment.term() == null ? null : Decimals.parse(payment.term(), 12, 2), payment.timeUnit()));
 		}
 
 	}

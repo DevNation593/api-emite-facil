@@ -27,7 +27,7 @@ public class TaxpayerService {
 
 	@Transactional
 	public Taxpayer create(TenantAccess access, String ruc, String legalName, String tradeName,
-			String headOfficeAddress, String defaultEnvironment, Taxpayer.FiscalData fiscalData) {
+			String headOfficeAddress, String phone, String defaultEnvironment, Taxpayer.FiscalData fiscalData) {
 		access.requireWrite();
 		if (fiscalData.rimpeRegime() == RimpeRegime.NEGOCIO_POPULAR) {
 			// El XSD de factura 1.1.0 incorporado solo admite la leyenda de RIMPE emprendedor: las
@@ -43,7 +43,8 @@ public class TaxpayerService {
 		Taxpayer taxpayer;
 		try {
 			taxpayer = taxpayers.saveAndFlush(new Taxpayer(access.tenantId(), ruc, legalName.strip(),
-					blankToNull(tradeName), headOfficeAddress.strip(), defaultEnvironment, fiscalData));
+					blankToNull(tradeName), headOfficeAddress.strip(), blankToNull(phone), defaultEnvironment,
+					fiscalData));
 		}
 		catch (DataIntegrityViolationException ex) {
 			// La restricción UNIQUE de la base decide, también cuando dos tenants registran a la vez.
@@ -61,6 +62,16 @@ public class TaxpayerService {
 	@Transactional(readOnly = true)
 	public List<Taxpayer> list(TenantAccess access) {
 		return taxpayers.findAllByTenantIdOrderByLegalName(access.tenantId());
+	}
+
+	/** Cambia el teléfono del emisor (en blanco lo quita); vale para los comprobantes que se emitan desde ahora. */
+	@Transactional
+	public Taxpayer changePhone(TenantAccess access, UUID id, String phone) {
+		access.requireWrite();
+		Taxpayer taxpayer = get(access, id);
+		taxpayer.changePhone(blankToNull(phone));
+		audit.record(access, "TAXPAYER_UPDATED", "TAXPAYER", taxpayer.getId(), Map.of("field", "phone"));
+		return taxpayer;
 	}
 
 	/** Un emisor de otro tenant se trata igual que uno inexistente. */

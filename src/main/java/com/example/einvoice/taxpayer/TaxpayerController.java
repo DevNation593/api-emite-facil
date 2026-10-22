@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -36,6 +37,7 @@ public class TaxpayerController {
 			@NotBlank @Size(max = 300) @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String legalName,
 			@Size(max = 300) @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String tradeName,
 			@NotBlank @Size(max = 300) @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String headOfficeAddress,
+			@Size(max = 30) @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String phone,
 			@NotNull @Pattern(regexp = "[12]") String defaultEnvironment, Boolean accountingRequired,
 			@Pattern(regexp = "[A-Za-z0-9]{3,13}") String specialTaxpayerCode,
 			@Pattern(regexp = "[1-9][0-9]{0,7}") String withholdingAgentCode, RimpeRegime rimpeRegime) {
@@ -47,13 +49,18 @@ public class TaxpayerController {
 
 	}
 
+	/** Lo que se cambia de un emisor ya dado de alta: su teléfono (nulo o en blanco lo quita). */
+	record UpdateTaxpayerRequest(@Size(max = 30) @Pattern(regexp = TextRules.NO_CONTROL_CHARS) String phone) {
+	}
+
 	record TaxpayerResponse(UUID id, String ruc, String legalName, String tradeName, String headOfficeAddress,
-			String defaultEnvironment, boolean accountingRequired, String specialTaxpayerCode,
+			String phone, String defaultEnvironment, boolean accountingRequired, String specialTaxpayerCode,
 			String withholdingAgentCode, RimpeRegime rimpeRegime, Instant productionEnabledAt) {
 
 		static TaxpayerResponse of(Taxpayer taxpayer) {
 			return new TaxpayerResponse(taxpayer.getId(), taxpayer.getRuc(), taxpayer.getLegalName(),
-					taxpayer.getTradeName(), taxpayer.getHeadOfficeAddress(), taxpayer.getDefaultEnvironment(),
+					taxpayer.getTradeName(), taxpayer.getHeadOfficeAddress(), taxpayer.getPhone(),
+					taxpayer.getDefaultEnvironment(),
 					taxpayer.isAccountingRequired(), taxpayer.getSpecialTaxpayerCode(),
 					taxpayer.getWithholdingAgentCode(), taxpayer.getRimpeRegime(), taxpayer.getProductionEnabledAt());
 		}
@@ -64,7 +71,13 @@ public class TaxpayerController {
 	@ResponseStatus(HttpStatus.CREATED)
 	TaxpayerResponse create(TenantAccess access, @Valid @RequestBody CreateTaxpayerRequest request) {
 		return TaxpayerResponse.of(service.create(access, request.ruc(), request.legalName(), request.tradeName(),
-				request.headOfficeAddress(), request.defaultEnvironment(), request.fiscalData()));
+				request.headOfficeAddress(), request.phone(), request.defaultEnvironment(), request.fiscalData()));
+	}
+
+	@PatchMapping("/{id}")
+	TaxpayerResponse update(TenantAccess access, @PathVariable UUID id,
+			@Valid @RequestBody UpdateTaxpayerRequest request) {
+		return TaxpayerResponse.of(service.changePhone(access, id, request.phone()));
 	}
 
 	@GetMapping

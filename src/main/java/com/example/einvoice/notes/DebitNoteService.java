@@ -105,6 +105,7 @@ public class DebitNoteService {
 		DebitNoteCalculator.Result result = calculate(command.reasons());
 		CatalogLines.requireStorable(result.subtotal(), result.total());
 		PaymentCommand payment = command.payment();
+		payment.requireCompleteTerm();
 		if (!catalogs.paymentMethodValidOn(payment.methodCode(), issueDate)) {
 			throw unprocessable("PAYMENT_METHOD_UNKNOWN",
 					"La forma de pago no existe o no está vigente en la fecha de emisión");
@@ -118,7 +119,8 @@ public class DebitNoteService {
 				new DocumentEnvelope.Totals(result.subtotal(), BigDecimal.ZERO, result.totalTax(), result.total()),
 				modified,
 				new DebitNoteContent(result.reasons(), result.taxes(),
-						List.of(new DebitNoteContent.Payment(payment.methodCode(), payment.amount()))));
+						List.of(new DebitNoteContent.Payment(payment.methodCode(), payment.amount(), payment.term(),
+								payment.timeUnit()))));
 	}
 
 	/** Cada motivo con la tarifa del catálogo (422 TAX_RATE_UNKNOWN); un valor no positivo es 422 INVALID_LINE. */
