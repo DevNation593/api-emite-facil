@@ -326,10 +326,10 @@ public class AuthService {
 			.param("seconds", validFor.toSeconds())
 			.update();
 		events.publishEvent(switch (kind) {
-			case VERIFY_EMAIL -> AuthMailer.verification(email, properties.link("/verificar-correo", token), validFor);
-			case RESET_PASSWORD -> AuthMailer.passwordReset(email, properties.link("/restablecer-contrasena", token),
+			case VERIFY_EMAIL -> AuthMailer.verification(email, properties.link("/verify-email", token), validFor);
+			case RESET_PASSWORD -> AuthMailer.passwordReset(email, properties.link("/reset-password", token),
 					validFor);
-			default -> AuthMailer.alreadyRegistered(email, properties.link("/restablecer-contrasena", token), validFor);
+			default -> AuthMailer.alreadyRegistered(email, properties.link("/reset-password", token), validFor);
 		});
 	}
 

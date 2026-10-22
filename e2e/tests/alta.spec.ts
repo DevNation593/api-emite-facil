@@ -10,12 +10,12 @@ test("una empresa se da de alta: emisor, punto de emisión, certificado, cliente
   const sections = page.getByRole("navigation", { name: "Secciones" });
 
   await test.step("crear la empresa", async () => {
-    await page.goto("/empresas");
+    await page.goto("/settings/companies");
     await page.getByLabel("Nombre de la empresa").fill(company);
     await shot("empresas");
     await page.getByRole("button", { name: "Crear empresa" }).click();
 
-    await expect(page).toHaveURL(/\/configuracion\/emisor/);
+    await expect(page).toHaveURL(/\/settings\/issuer/);
     await expect(page.getByRole("heading", { name: "Emisor", level: 1 })).toBeVisible();
     await expect(page.locator(".rail-company")).toContainText(company);
     await expect(page.locator(".rail-company")).toContainText("Propietario");

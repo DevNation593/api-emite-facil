@@ -40,8 +40,8 @@ class AuthPropertiesTest {
 	@Test
 	void linksCarryTheCodeInTheFragmentSoItNeverReachesAServer() {
 		AuthProperties properties = properties(SECRET, "https://app.example.com/facturas/");
-		assertThat(properties.link("/verificar-correo", "abc"))
-			.hasToString("https://app.example.com/facturas/verificar-correo#token=abc");
+		assertThat(properties.link("/verify-email", "abc"))
+			.hasToString("https://app.example.com/facturas/verify-email#token=abc");
 	}
 
 }
