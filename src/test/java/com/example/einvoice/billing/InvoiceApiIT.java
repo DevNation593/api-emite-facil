@@ -348,6 +348,16 @@ class InvoiceApiIT extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void rejectsPaymentTermWithoutItsUnit() throws Exception {
+		for (String term : new String[] { ",\"term\":\"30\"}]}", ",\"timeUnit\":\"dias\"}]}" }) {
+			mvc.perform(invoiceRequest(s.owner(), s.invoiceJson("1", "11.50").replace("}]}", term)))
+				.andExpect(status().isUnprocessableEntity())
+				.andExpect(jsonPath("$.errorCode").value("INVALID_PAYMENT_TERM"));
+		}
+		assertThat(documentCount()).isZero();
+	}
+
+	@Test
 	void rejectsZeroPaymentBesideARealOne() throws Exception {
 		String body = s.invoiceJson("1", "11.50").replace("}]}", "},{\"methodCode\":\"01\",\"amount\":\"0\"}]}");
 		mvc.perform(invoiceRequest(s.owner(), body))

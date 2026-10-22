@@ -115,6 +115,17 @@ class InvoiceXmlBuilderTest {
 	}
 
 	@Test
+	void paymentTermGoesAfterItsTotal() {
+		InvoiceXmlFixtures.Builder builder = InvoiceXmlFixtures.builder();
+		builder.payments = List.of(new InvoiceXmlData.Payment("20", d("30.00"), d("30"), "dias"),
+				new InvoiceXmlData.Payment("01", d("7.00"), null, null));
+		InvoiceXmlData data = builder.build();
+		assertThat(xml(data)).contains("<pago><formaPago>20</formaPago><total>30.00</total><plazo>30.00</plazo>"
+				+ "<unidadTiempo>dias</unidadTiempo></pago><pago><formaPago>01</formaPago><total>7.00</total></pago>");
+		assertValid(data);
+	}
+
+	@Test
 	void addsProviderRucAsAdditionalField() {
 		InvoiceXmlFixtures.Builder builder = InvoiceXmlFixtures.builder();
 		builder.providerRuc = "1790099999001";

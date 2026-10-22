@@ -15,14 +15,15 @@ public record DocumentEnvelope(DocumentType type, String environment, Issuer iss
 		String establishmentCode, String emissionPointCode, int sequence, LocalDate issueDate,
 		Recipient recipient, Totals totals, ModifiedDocument modified, String providerRuc) {
 
-	/** rimpeRegime es NONE, EMPRENDEDOR o NEGOCIO_POPULAR; los códigos opcionales pueden ser nulos. */
+	/** rimpeRegime es NONE, EMPRENDEDOR o NEGOCIO_POPULAR; los códigos opcionales y phone pueden ser nulos. */
 	public record Issuer(String legalName, String tradeName, String ruc, String headOfficeAddress,
 			String establishmentAddress, boolean accountingRequired, String specialTaxpayerCode,
-			String withholdingAgentCode, String rimpeRegime) {
+			String withholdingAgentCode, String rimpeRegime, String phone) {
 	}
 
-	/** email puede ser nulo. */
-	public record Recipient(String idType, String idNumber, String name, String address, String email) {
+	/** email y phone pueden ser nulos. */
+	public record Recipient(String idType, String idNumber, String name, String address, String email,
+			String phone) {
 	}
 
 	/** total no nulo; subtotal, totalDiscount y totalTax pueden serlo (retención). */

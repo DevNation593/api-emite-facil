@@ -23,9 +23,10 @@ class DeliveryEmailFactoryTest {
 	private static RideEnvelope ride(String tradeName, boolean withTotals) {
 		DocumentEnvelope envelope = new DocumentEnvelope(DocumentType.INVOICE, "1",
 				new DocumentEnvelope.Issuer("Comercial Andina S.A.", tradeName, "1790012345001", "Quito", "Quito",
-						false, null, null, "NONE"),
+						false, null, null, "NONE", null),
 				InvoiceXmlFixtures.ACCESS_KEY, "001", "002", 123, LocalDate.of(2026, 10, 7),
-				new DocumentEnvelope.Recipient("05", "1712345678", "María Pérez", "Quito", "cliente@example.test"),
+				new DocumentEnvelope.Recipient("05", "1712345678", "María Pérez", "Quito", "cliente@example.test",
+						null),
 				withTotals ? new DocumentEnvelope.Totals(new BigDecimal("33.00"), BigDecimal.ZERO,
 						new BigDecimal("4.00"), new BigDecimal("37.00")) : null,
 				null, "1790099999001");

@@ -73,7 +73,8 @@ public class InvoiceKind implements DocumentKind<InvoiceBody> {
 	public byte[] buildRide(RideEnvelope ride, InvoiceBody content) {
 		DocumentEnvelope envelope = ride.envelope();
 		return RidePdfBuilder.build(new RideData(xmlData(envelope, content), ride.authorizationNumber(),
-				ride.authorizedAt(), envelope.recipient().email(), documents.paymentMethodNames()));
+				ride.authorizedAt(), envelope.recipient().email(), envelope.recipient().phone(),
+				envelope.issuer().phone(), documents.paymentMethodNames()));
 	}
 
 	/** Junta el sobre y el cuerpo en los datos que consume el generador del XML de la factura. */
@@ -99,7 +100,8 @@ public class InvoiceKind implements DocumentKind<InvoiceBody> {
 							line.taxRate(), line.taxAmount()))
 					.toList(),
 				body.payments().stream()
-					.map(payment -> new InvoiceXmlData.Payment(payment.methodCode(), payment.amount()))
+					.map(payment -> new InvoiceXmlData.Payment(payment.methodCode(), payment.amount(), payment.term(),
+							payment.timeUnit()))
 					.toList(),
 				envelope.providerRuc());
 	}

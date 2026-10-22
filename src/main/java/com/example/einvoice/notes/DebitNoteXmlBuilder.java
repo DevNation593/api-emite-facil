@@ -56,6 +56,10 @@ public final class DebitNoteXmlBuilder {
 			w.open("pago");
 			w.element("formaPago", payment.methodCode());
 			w.money("total", payment.amount());
+			if (payment.term() != null) {
+				w.money("plazo", payment.term());
+				w.element("unidadTiempo", payment.timeUnit());
+			}
 			w.close("pago");
 		}
 		w.close("pagos");

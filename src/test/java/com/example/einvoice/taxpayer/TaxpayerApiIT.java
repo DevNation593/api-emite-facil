@@ -3,6 +3,7 @@ package com.example.einvoice.taxpayer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -54,6 +55,40 @@ class TaxpayerApiIT extends AbstractIntegrationTest {
 				"SELECT count(*) FROM audit_events WHERE action = 'TAXPAYER_CREATED' AND entity_id = ? AND tenant_id = ?",
 				Integer.class, UUID.fromString(id), tenant))
 			.isEqualTo(1);
+	}
+
+	@Test
+	void phoneIsSetAtCreationAndChangedLater() throws Exception {
+		String owner = newUserToken();
+		UUID tenant = createTenant(owner);
+		String withPhone = taxpayerJson(TestData.ruc()).replace("}", ",\"phone\":\"022569442\"}");
+		String id = JsonPath.read(mvc.perform(json(post(TAXPAYERS), owner, withPhone))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.phone").value("022569442"))
+			.andReturn()
+			.getResponse()
+			.getContentAsString(), "$.id");
+
+		mvc.perform(json(patch(TAXPAYERS + "/" + id), owner, "{\"phone\":\" +593 2 256 9442 \"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.phone").value("+593 2 256 9442"))
+			.andExpect(jsonPath("$.ruc").exists());
+		mvc.perform(as(get(TAXPAYERS + "/" + id), owner)).andExpect(jsonPath("$.phone").value("+593 2 256 9442"));
+		mvc.perform(json(patch(TAXPAYERS + "/" + id), owner, "{\"phone\":\"  \"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.phone").doesNotExist());
+		assertThat(jdbc.queryForObject(
+				"SELECT count(*) FROM audit_events WHERE action = 'TAXPAYER_UPDATED' AND entity_id = ? AND tenant_id = ?",
+				Integer.class, UUID.fromString(id), tenant))
+			.isEqualTo(2);
+
+		mvc.perform(json(patch(TAXPAYERS + "/" + id), memberToken(tenant, "BILLER"), "{\"phone\":\"1\"}"))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.errorCode").value("ROLE_FORBIDDEN"));
+		mvc.perform(json(patch(TAXPAYERS + "/" + id), owner, "{\"phone\":\"" + "9".repeat(31) + "\"}"))
+			.andExpect(status().isBadRequest());
+		mvc.perform(json(patch(TAXPAYERS + "/" + UUID.randomUUID()), owner, "{\"phone\":\"1\"}"))
+			.andExpect(status().isNotFound());
 	}
 
 	@Test
