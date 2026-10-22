@@ -64,21 +64,22 @@ class RidePdfBuilderTest {
 	void containsEveryRequiredField() throws IOException {
 		String text = text(RidePdfBuilder.build(ride(InvoiceXmlFixtures.standard())));
 
-		assertThat(text).contains("R.U.C.:", "1790012345001", "FACTURA", "No.", "001-002-000000123",
-				"NÚMERO DE AUTORIZACIÓN", "FECHA Y HORA DE AUTORIZACIÓN", "07/10/2026 15:15:30", "AMBIENTE:", "PRUEBAS",
+		assertThat(text).contains("R.U.C. 1790012345001", "FACTURA", "001-002-000000123", "NÚMERO DE AUTORIZACIÓN",
+				"FECHA Y HORA DE AUTORIZACIÓN", "07/10/2026 15:15:30", "AMBIENTE:", "PRUEBAS", "ESTADO:", "AUTORIZADO",
 				"EMISIÓN:", "NORMAL", "CLAVE DE ACCESO", InvoiceXmlFixtures.ACCESS_KEY);
-		assertThat(text).contains("Comercial Andina S.A.", "Andina", "Dirección Matriz:", "Av. Amazonas N34-12, Quito",
-				"Dirección Sucursal:", "Av. 10 de Agosto, Quito", "OBLIGADO A LLEVAR CONTABILIDAD:", "NO");
-		assertThat(text).contains("Razón Social / Nombres y Apellidos:", "María Pérez", "Identificación:",
-				"1712345678", "Fecha Emisión:", "07/10/2026", "Dirección:", "Av. República, Quito");
-		assertThat(text).contains("Cod. Principal", "Cantidad", "Descripción", "Precio Unitario", "Descuento",
-				"Precio Total", "SRV-001", "Servicio de consultoría", "2.00", "10.00", "20.00", "LIB-001", "Libro",
-				"1.50", "9.333333", "14.00");
-		assertThat(text).contains("Información Adicional", "cliente@example.test", "Forma de pago",
-				"OTROS CON UTILIZACIÓN DEL SISTEMA FINANCIERO", "30.00", "SIN UTILIZACION DEL SISTEMA FINANCIERO",
-				"7.00");
-		assertThat(text).contains("SUBTOTAL 15%", "SUBTOTAL 0%", "SUBTOTAL SIN IMPUESTOS", "34.00", "TOTAL Descuento",
-				"IVA 15%", "3.00", "VALOR TOTAL", "37.00");
+		assertThat(text).contains("RAZÓN SOCIAL:", "Comercial Andina S.A.", "NOMBRE COMERCIAL:", "Andina",
+				"DIRECCIÓN MATRIZ:", "Av. Amazonas N34-12, Quito", "DIRECCIÓN SUCURSAL:", "Av. 10 de Agosto, Quito",
+				"OBLIGADO A LLEVAR CONTABILIDAD:", "NO");
+		assertThat(text).contains("DATOS DEL CLIENTE", "María Pérez", "CÉDULA:", "1712345678", "FECHA DE EMISIÓN:",
+				"07/10/2026", "DIRECCIÓN:", "Av. República, Quito");
+		assertThat(text).contains("CÓDIGO", "CANTIDAD", "DESCRIPCIÓN", "V. UNITARIO", "DESCUENTO", "V. TOTAL",
+				"SRV-001", "Servicio de consultoría", "2.00", "10.00", "20.00", "LIB-001", "Libro", "1.50", "9.333333",
+				"14.00");
+		assertThat(text).contains("INFORMACIÓN ADICIONAL", "Correo Electrónico", "cliente@example.test",
+				"FORMA DE PAGO", "OTROS CON UTILIZACIÓN DEL SISTEMA FINANCIERO", "30.00",
+				"SIN UTILIZACION DEL SISTEMA FINANCIERO", "7.00");
+		assertThat(text).contains("Subtotal IVA 15%", "Subtotal IVA 0%", "Subtotal sin impuestos", "34.00",
+				"Descuento", "IVA 15%", "3.00", "VALOR TOTAL", "37.00");
 	}
 
 	@Test
@@ -102,7 +103,7 @@ class RidePdfBuilderTest {
 	@Test
 	void optionalLegendsAppearOnlyWhenPresent() throws IOException {
 		String plain = text(RidePdfBuilder.build(ride(InvoiceXmlFixtures.standard())));
-		assertThat(plain).doesNotContain("Contribuyente Especial", "Agente de Retención", "RIMPE", "RUC Proveedor");
+		assertThat(plain).doesNotContain("CONTRIBUYENTE ESPECIAL", "AGENTE DE RETENCIÓN", "RIMPE", "RUC Proveedor");
 
 		InvoiceXmlFixtures.Builder builder = InvoiceXmlFixtures.builder();
 		builder.specialTaxpayerCode = "5368";
@@ -115,7 +116,7 @@ class RidePdfBuilderTest {
 		Files.write(Path.of("target", "ride-ejemplo.pdf"), pdf);
 		String full = text(pdf);
 
-		assertThat(full).contains("Contribuyente Especial Nro: 5368", "Agente de Retención Resolución No. 1",
+		assertThat(full).contains("CONTRIBUYENTE ESPECIAL NRO: 5368", "AGENTE DE RETENCIÓN RESOLUCIÓN NO. 1",
 				"CONTRIBUYENTE RÉGIMEN RIMPE", "RUC Proveedor", "1790099999001");
 		assertThat(full).containsPattern("OBLIGADO A LLEVAR CONTABILIDAD: ?SI");
 	}
@@ -135,8 +136,8 @@ class RidePdfBuilderTest {
 
 		String text = text(RidePdfBuilder.build(ride(invoice)));
 
-		assertThat(text).contains("SUBTOTAL No objeto de IVA", "SUBTOTAL Exento de IVA", "TOTAL Descuento", "1.25");
-		assertThat(text).doesNotContain("SUBTOTAL 15%", "IVA 15%");
+		assertThat(text).contains("Subtotal No Objeto IVA", "Subtotal Exento IVA", "Descuento", "1.25");
+		assertThat(text).doesNotContain("Subtotal IVA 15%", "IVA 15%");
 	}
 
 	@Test
@@ -200,7 +201,7 @@ class RidePdfBuilderTest {
 			.build(new RideData(InvoiceXmlFixtures.standard(), InvoiceXmlFixtures.ACCESS_KEY, AUTHORIZED_AT, null, Map.of())));
 
 		// Sin correo no hay cuadro de información adicional; una forma de pago sin nombre sale por su código.
-		assertThat(text).doesNotContain("Información Adicional").contains("Forma de pago", "20", "30.00");
+		assertThat(text).doesNotContain("INFORMACIÓN ADICIONAL").contains("FORMA DE PAGO", "20", "30.00");
 	}
 
 }
