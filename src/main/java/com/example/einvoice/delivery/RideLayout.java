@@ -78,6 +78,18 @@ public final class RideLayout {
 
 	private static final Font GRAND_AMOUNT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10);
 
+	private static final Font LINK = FontFactory.getFont(FontFactory.HELVETICA, 7, Font.UNDERLINE, new Color(0, 0, 238));
+
+	/** Consulta pública de validez de comprobantes del SRI. */
+	private static final String SRI_VALIDATION_URL =
+			"https://declaraciones.sri.gob.ec/comprobantes-electronicos-internet/publico/validezComprobantes.jsf";
+
+	/** Tarifas cuyo subtotal sale siempre, aunque sea cero. */
+	private static final List<String> FIXED_SUBTOTAL_RATES = List.of("15%", "0%", "5%");
+
+	/** Tarifas cuyo IVA sale siempre, aunque sea cero. */
+	private static final List<String> FIXED_VAT_RATES = List.of("15%", "5%");
+
 	private RideLayout() {
 	}
 
@@ -92,21 +104,27 @@ public final class RideLayout {
 	 */
 	public static PdfPTable header(DocumentEnvelope.Issuer issuer, String title, String number, String environment,
 			String accessKey, String authorizationNumber, OffsetDateTime authorizedAt, PdfWriter writer) {
+		// El nombre ocupa el lugar del logo, que el emisor aún no puede cargar.
 		PdfPTable issuerBox = box();
 		PdfPCell name = centered(issuer.tradeName() != null ? issuer.tradeName() : issuer.legalName(), NAME);
 		name.setPaddingTop(14);
 		name.setPaddingBottom(14);
 		issuerBox.addCell(name);
 		issuerBox.addCell(labelled("RAZÓN SOCIAL: ", issuer.legalName()));
-		if (issuer.tradeName() != null) {
-			issuerBox.addCell(labelled("NOMBRE COMERCIAL: ", issuer.tradeName()));
+		issuerBox.addCell(labelled("NOMBRE COMERCIAL: ", issuer.tradeName()));
+		// La dirección del establecimiento solo se separa de la matriz cuando es otra.
+		if (issuer.establishmentAddress() == null
+				|| issuer.establishmentAddress().equals(issuer.headOfficeAddress())) {
+			issuerBox.addCell(labelled("DIRECCIÓN: ", issuer.headOfficeAddress()));
 		}
-		issuerBox.addCell(labelled("DIRECCIÓN MATRIZ: ", issuer.headOfficeAddress()));
-		issuerBox.addCell(labelled("DIRECCIÓN SUCURSAL: ", issuer.establishmentAddress()));
+		else {
+			issuerBox.addCell(labelled("DIRECCIÓN MATRIZ: ", issuer.headOfficeAddress()));
+			issuerBox.addCell(labelled("DIRECCIÓN SUCURSAL: ", issuer.establishmentAddress()));
+		}
+		issuerBox.addCell(labelled("OBLIGADO A LLEVAR CONTABILIDAD: ", issuer.accountingRequired() ? "SI" : "NO"));
 		if (issuer.specialTaxpayerCode() != null) {
 			issuerBox.addCell(labelled("CONTRIBUYENTE ESPECIAL NRO: ", issuer.specialTaxpayerCode()));
 		}
-		issuerBox.addCell(labelled("OBLIGADO A LLEVAR CONTABILIDAD: ", issuer.accountingRequired() ? "SI" : "NO"));
 		if (issuer.withholdingAgentCode() != null) {
 			issuerBox.addCell(labelled("AGENTE DE RETENCIÓN RESOLUCIÓN NO. ", issuer.withholdingAgentCode()));
 		}
@@ -114,12 +132,14 @@ public final class RideLayout {
 		if (rimpe != null) {
 			issuerBox.addCell(labelled(rimpe, ""));
 		}
+		// El emisor todavía no registra teléfono: la fila queda, sin valor.
+		issuerBox.addCell(labelled("TELÉFONO: ", null));
 
 		PdfPTable fiscal = box();
 		fiscal.addCell(band("R.U.C. " + issuer.ruc(), RUC, NAVY));
 		fiscal.addCell(band(title, TITLE, BAND_GREY));
 		fiscal.addCell(centered(number, NORMAL));
-		fiscal.addCell(centered("NÚMERO DE AUTORIZACIÓN", BOLD));
+		fiscal.addCell(centered("Número Autorización SRI", NORMAL));
 		fiscal.addCell(digits(authorizationNumber));
 		fiscal.addCell(labelled("FECHA Y HORA DE AUTORIZACIÓN: ",
 				DATE_TIME.format(authorizedAt.withOffsetSameInstant(ECUADOR))));
@@ -141,21 +161,50 @@ public final class RideLayout {
 		return header;
 	}
 
-	/** «DATOS DEL CLIENTE»: nombre, identificación según su tipo, dirección y fecha de emisión. */
+	/** «DATOS DEL CLIENTE»: nombre, identificación según su tipo y fecha de emisión; la dirección va en la información adicional. */
 	public static PdfPTable recipient(DocumentEnvelope.Recipient recipient, LocalDate issueDate) {
 		Map<String, String> rows = new LinkedHashMap<>();
 		rows.put("RAZÓN SOCIAL:", recipient.name());
 		rows.put(idLabel(recipient.idType()) + ":", recipient.idNumber());
-		if (recipient.address() != null) {
-			rows.put("DIRECCIÓN:", recipient.address());
-		}
 		rows.put("FECHA DE EMISIÓN:", DATE.format(issueDate));
 		return infoTable("DATOS DEL CLIENTE", rows);
 	}
 
+	/**
+	 * «INFORMACIÓN ADICIONAL» con el correo, la dirección y el teléfono del cliente y, en la factura, el RUC
+	 * del proveedor. Los nulos se omiten salvo el teléfono, que el comprobante aún no guarda y queda vacío.
+	 */
+	public static PdfPTable additionalInfo(String email, String address, String providerRuc) {
+		Map<String, String> rows = new LinkedHashMap<>();
+		if (email != null) {
+			rows.put("Correo Electrónico", email);
+		}
+		if (address != null) {
+			rows.put("Dirección", address);
+		}
+		rows.put("Teléfono", "");
+		if (providerRuc != null) {
+			rows.put("RUC Proveedor", providerRuc);
+		}
+		return infoTable("INFORMACIÓN ADICIONAL", rows);
+	}
+
+	/** «FORMA DE PAGO» con plazo y tiempo, que el comprobante aún no guarda y quedan vacíos; las filas con {@link #payment}. */
+	public static PdfPTable paymentsTable() {
+		return detailTable(new float[] { 64, 12, 12, 12 }, "FORMA DE PAGO", "PLAZO", "TIEMPO", "VALOR");
+	}
+
+	/** Una forma de pago por su nombre del catálogo o, si no lo tiene, por su código. */
+	public static void payment(PdfPTable payments, String code, String name, BigDecimal value) {
+		payments.addCell(text(name == null ? code : name, Element.ALIGN_LEFT));
+		payments.addCell(text("", Element.ALIGN_CENTER));
+		payments.addCell(text("", Element.ALIGN_CENTER));
+		payments.addCell(text(amount(value, 2), Element.ALIGN_RIGHT));
+	}
+
 	/** Bloque a todo el ancho: franja azul con el título y una fila de fondo claro por etiqueta y valor. */
 	public static PdfPTable infoTable(String title, Map<String, String> rows) {
-		PdfPTable table = new PdfPTable(new float[] { 24, 76 });
+		PdfPTable table = new PdfPTable(new float[] { 18, 82 });
 		table.setWidthPercentage(100);
 		PdfPCell band = band(title, ON_NAVY, NAVY);
 		band.setColspan(2);
@@ -185,20 +234,37 @@ public final class RideLayout {
 		return totals;
 	}
 
-	/** Filas «Subtotal IVA 15%», «Subtotal No Objeto IVA»… una por tarifa. */
+	/**
+	 * Subtotales por tarifa, siempre con las filas 15 %, 0 %, 5 %, no objeto y exento (en cero si no hay
+	 * base); otra tarifa que tenga el comprobante entra después de la del 5 %.
+	 */
 	public static void subtotalRows(PdfPTable totals, List<NoteTax> taxes) {
-		for (NoteTax tax : taxes) {
-			total(totals, "Subtotal " + rateLabel(tax.rateCode(), tax.rate()), tax.base());
+		Map<String, BigDecimal> bases = new LinkedHashMap<>();
+		for (String rate : FIXED_SUBTOTAL_RATES) {
+			bases.put("IVA " + rate, BigDecimal.ZERO);
 		}
-	}
-
-	/** Filas de IVA de las tarifas mayores que cero. */
-	public static void vatRows(PdfPTable totals, List<NoteTax> taxes) {
 		for (NoteTax tax : taxes) {
-			if (tax.rate().signum() > 0) {
-				total(totals, "IVA " + percent(tax.rate()), tax.amount());
+			if (!"6".equals(tax.rateCode()) && !"7".equals(tax.rateCode())) {
+				bases.merge(rateLabel(tax.rateCode(), tax.rate()), tax.base(), BigDecimal::add);
 			}
 		}
+		bases.put(rateLabel("6", BigDecimal.ZERO), baseOf(taxes, "6"));
+		bases.put(rateLabel("7", BigDecimal.ZERO), baseOf(taxes, "7"));
+		bases.forEach((label, base) -> total(totals, "Subtotal " + label, base));
+	}
+
+	/** IVA por tarifa, siempre con las filas 15 % y 5 %; otra tarifa mayor que cero entra a continuación. */
+	public static void vatRows(PdfPTable totals, List<NoteTax> taxes) {
+		Map<String, BigDecimal> amounts = new LinkedHashMap<>();
+		for (String rate : FIXED_VAT_RATES) {
+			amounts.put("IVA " + rate, BigDecimal.ZERO);
+		}
+		for (NoteTax tax : taxes) {
+			if (tax.rate().signum() > 0) {
+				amounts.merge("IVA " + percent(tax.rate()), tax.amount(), BigDecimal::add);
+			}
+		}
+		amounts.forEach((label, amount) -> total(totals, label, amount));
 	}
 
 	public static void total(PdfPTable totals, String label, BigDecimal value) {
@@ -212,27 +278,40 @@ public final class RideLayout {
 
 	/**
 	 * Cierre del RIDE, que si no cabe al final de una página pasa entero a la siguiente: los totales a la
-	 * derecha; debajo y a todo el ancho, below (información adicional, formas de pago) y la leyenda del RIDE.
+	 * derecha; debajo y a todo el ancho, below (información adicional, formas de pago); luego, centradas,
+	 * las leyendas propias del documento (en negrita), la de verificación en el SRI y la del medio ambiente.
 	 */
-	public static PdfPTable footer(PdfPTable below, PdfPTable totals) {
-		PdfPTable footer = new PdfPTable(new float[] { 55, 45 });
+	public static PdfPTable footer(PdfPTable below, PdfPTable totals, String... legends) {
+		PdfPTable footer = new PdfPTable(new float[] { 68, 32 });
 		footer.setWidthPercentage(100);
 		footer.setKeepTogether(true);
 		footer.addCell(gap());
 		footer.addCell(wrap(totals));
-		PdfPCell space = gap();
-		space.setColspan(2);
-		footer.addCell(space);
-		PdfPCell blocks = wrap(below);
-		blocks.setColspan(2);
-		footer.addCell(blocks);
-		PdfPCell legend = centered(
-				"Este documento es la representación impresa de un comprobante electrónico autorizado por el SRI.",
-				SMALL);
-		legend.setColspan(2);
-		legend.setPaddingTop(8);
-		footer.addCell(legend);
+		footer.addCell(wide(gap()));
+		footer.addCell(wide(wrap(below)));
+		footer.addCell(wide(gap()));
+		for (String legend : legends) {
+			footer.addCell(wide(centered(legend, BOLD)));
+		}
+		footer.addCell(wide(
+				centered("Para verificar la validez y legalidad de sus comprobantes puede consultar en el SRI:", SMALL)));
+		footer.addCell(wide(centered(SRI_VALIDATION_URL, LINK)));
+		PdfPCell environment = wide(centered("Cuidemos el medio ambiente.", SMALL));
+		environment.setPaddingTop(8);
+		footer.addCell(environment);
 		return footer;
+	}
+
+	private static PdfPCell wide(PdfPCell cell) {
+		cell.setColspan(2);
+		return cell;
+	}
+
+	private static BigDecimal baseOf(List<NoteTax> taxes, String rateCode) {
+		return taxes.stream()
+			.filter(tax -> rateCode.equals(tax.rateCode()))
+			.map(NoteTax::base)
+			.reduce(BigDecimal.ZERO, BigDecimal::add);
 	}
 
 	/** Celda sin borde que envuelve una tabla; la última fila no se estira hasta el alto de la celda. */

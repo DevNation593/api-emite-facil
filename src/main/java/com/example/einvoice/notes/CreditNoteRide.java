@@ -1,5 +1,7 @@
 package com.example.einvoice.notes;
 
+import java.math.BigDecimal;
+
 import org.openpdf.text.Element;
 import org.openpdf.text.pdf.PdfPTable;
 
@@ -19,14 +21,13 @@ public final class CreditNoteRide {
 	}
 
 	private static PdfPTable detail(CreditNoteContent content) {
-		PdfPTable table = RideLayout.detailTable(new float[] { 13, 10, 38, 13, 13, 13 }, "CÓDIGO", "CANTIDAD",
-				"DESCRIPCIÓN", "V. UNITARIO", "DESCUENTO", "V. TOTAL");
+		PdfPTable table = RideLayout.detailTable(new float[] { 13, 10, 51, 13, 13 }, "CÓDIGO", "CANTIDAD",
+				"DESCRIPCIÓN", "V. UNITARIO", "V. TOTAL");
 		for (CreditNoteContent.Line line : content.lines()) {
 			table.addCell(RideLayout.text(line.mainCode(), Element.ALIGN_LEFT));
 			table.addCell(RideLayout.text(RideLayout.amount(line.quantity(), 2), Element.ALIGN_RIGHT));
 			table.addCell(RideLayout.text(line.description(), Element.ALIGN_LEFT));
 			table.addCell(RideLayout.text(RideLayout.amount(line.unitPrice(), 2), Element.ALIGN_RIGHT));
-			table.addCell(RideLayout.text(RideLayout.amount(line.discount(), 2), Element.ALIGN_RIGHT));
 			table.addCell(RideLayout.text(RideLayout.amount(line.subtotal(), 2), Element.ALIGN_RIGHT));
 		}
 		return table;
@@ -36,10 +37,8 @@ public final class CreditNoteRide {
 		DocumentEnvelope.Totals amounts = envelope.totals();
 		PdfPTable totals = RideLayout.totalsTable();
 		RideLayout.subtotalRows(totals, content.taxes());
-		RideLayout.total(totals, "Subtotal sin impuestos", amounts.subtotal());
-		if (amounts.totalDiscount() != null) {
-			RideLayout.total(totals, "Descuento", amounts.totalDiscount());
-		}
+		RideLayout.total(totals, "Descuento",
+				amounts.totalDiscount() == null ? BigDecimal.ZERO : amounts.totalDiscount());
 		RideLayout.vatRows(totals, content.taxes());
 		RideLayout.grandTotal(totals, "VALOR MODIFICACIÓN", amounts.total());
 		return RideLayout.footer(NoteRideSupport.left(envelope, null), totals);
