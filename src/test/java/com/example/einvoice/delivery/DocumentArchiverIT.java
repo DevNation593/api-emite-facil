@@ -111,7 +111,7 @@ class DocumentArchiverIT extends AbstractIntegrationTest {
 		PdfReader reader = new PdfReader(artifact(ArtifactKind.RIDE_PDF));
 		try {
 			String text = new PdfTextExtractor(reader).getTextFromPage(1).replaceAll("\\s+", " ");
-			assertThat(text).contains(key, s.ruc(), "001-001-", "VALOR TOTAL", "23.00", "María Pérez");
+			assertThat(text).contains(key, s.ruc(), "001-001-", "TOTAL", "23.00", "María Pérez");
 		}
 		finally {
 			reader.close();

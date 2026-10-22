@@ -34,19 +34,15 @@ public final class DebitNoteRide {
 
 	private static PdfPTable footer(DocumentEnvelope envelope, DebitNoteContent content,
 			Map<String, String> names) {
-		PdfPTable payments = RideLayout.detailTable(new float[] { 80, 20 }, "FORMA DE PAGO", "VALOR");
+		PdfPTable payments = RideLayout.paymentsTable();
 		for (DebitNoteContent.Payment payment : content.payments()) {
-			String name = names.get(payment.methodCode());
-			payments.addCell(RideLayout.text(
-					name == null ? payment.methodCode() : payment.methodCode() + " - " + name, Element.ALIGN_LEFT));
-			payments.addCell(RideLayout.text(RideLayout.amount(payment.amount(), 2), Element.ALIGN_RIGHT));
+			RideLayout.payment(payments, payment.methodCode(), names.get(payment.methodCode()), payment.amount());
 		}
 		DocumentEnvelope.Totals amounts = envelope.totals();
 		PdfPTable totals = RideLayout.totalsTable();
 		RideLayout.subtotalRows(totals, content.taxes());
-		RideLayout.total(totals, "Subtotal sin impuestos", amounts.subtotal());
 		RideLayout.vatRows(totals, content.taxes());
-		RideLayout.grandTotal(totals, "VALOR TOTAL", amounts.total());
+		RideLayout.grandTotal(totals, "TOTAL", amounts.total());
 		return RideLayout.footer(NoteRideSupport.left(envelope, payments), totals);
 	}
 
