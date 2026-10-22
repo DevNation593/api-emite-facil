@@ -51,12 +51,12 @@ public final class RidePdfBuilder {
 					new DocumentEnvelope.Issuer(invoice.issuerLegalName(), invoice.issuerTradeName(),
 							invoice.issuerRuc(), invoice.headOfficeAddress(), invoice.establishmentAddress(),
 							invoice.accountingRequired(), invoice.specialTaxpayerCode(),
-							invoice.withholdingAgentCode(), invoice.rimpeRegime()),
+							invoice.withholdingAgentCode(), invoice.rimpeRegime(), data.issuerPhone()),
 					"FACTURA", number(invoice), invoice.environment(), invoice.accessKey(),
 					data.authorizationNumber(), data.authorizedAt(), writer));
 			document.add(spacer());
 			document.add(RideLayout.recipient(new DocumentEnvelope.Recipient(invoice.customerIdType(),
-					invoice.customerIdNumber(), invoice.customerName(), invoice.customerAddress(), null),
+					invoice.customerIdNumber(), invoice.customerName(), invoice.customerAddress(), null, null),
 					invoice.issueDate()));
 			document.add(spacer());
 			document.add(detail(invoice));
@@ -88,12 +88,13 @@ public final class RidePdfBuilder {
 		InvoiceXmlData invoice = data.invoice();
 		PdfPTable below = RideLayout.box();
 		below.addCell(RideLayout.wrap(
-				RideLayout.additionalInfo(data.customerEmail(), invoice.customerAddress(), invoice.providerRuc())));
+				RideLayout.additionalInfo(data.customerEmail(), invoice.customerAddress(), data.customerPhone(),
+						invoice.providerRuc())));
 		below.addCell(RideLayout.gap());
 		PdfPTable payments = RideLayout.paymentsTable();
 		for (InvoiceXmlData.Payment payment : invoice.payments()) {
 			RideLayout.payment(payments, payment.methodCode(), data.paymentMethodNames().get(payment.methodCode()),
-					payment.amount());
+					payment.amount(), payment.term(), payment.timeUnit());
 		}
 		below.addCell(RideLayout.wrap(payments));
 

@@ -66,8 +66,9 @@ final class NoteRideSupport {
 	/** Bloques bajo los totales: la información adicional del receptor y, debajo, below (puede ser nulo). */
 	static PdfPTable left(DocumentEnvelope envelope, PdfPTable below) {
 		PdfPTable left = RideLayout.box();
-		left.addCell(RideLayout.wrap(RideLayout.additionalInfo(envelope.recipient().email(),
-				envelope.recipient().address(), envelope.providerRuc())));
+		DocumentEnvelope.Recipient recipient = envelope.recipient();
+		left.addCell(RideLayout.wrap(RideLayout.additionalInfo(recipient.email(), recipient.address(),
+				recipient.phone(), envelope.providerRuc())));
 		if (below != null) {
 			left.addCell(RideLayout.gap());
 			left.addCell(RideLayout.wrap(below));

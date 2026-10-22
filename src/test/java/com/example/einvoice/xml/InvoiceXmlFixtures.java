@@ -47,6 +47,9 @@ public final class InvoiceXmlFixtures {
 
 		public String providerRuc;
 
+		public List<InvoiceXmlData.Payment> payments = List.of(new InvoiceXmlData.Payment("20", d("30.00"), null, null),
+				new InvoiceXmlData.Payment("01", d("7.00"), null, null));
+
 		public List<InvoiceXmlData.Line> lines = new ArrayList<>(List.of(
 				new InvoiceXmlData.Line("SRV-001", "Servicio de consultoría", d("2"), d("10.00"), d("0.00"),
 						d("20.00"), "2", "4", d("15.00"), d("3.00")),
@@ -60,9 +63,7 @@ public final class InvoiceXmlFixtures {
 					customerAddress, d("34.00"), d("0.00"),
 					List.of(new InvoiceXmlData.Tax("2", "0", d("0.00"), d("14.00"), d("0.00")),
 							new InvoiceXmlData.Tax("2", "4", d("15.00"), d("20.00"), d("3.00"))),
-					d("37.00"), lines, List.of(new InvoiceXmlData.Payment("20", d("30.00")),
-							new InvoiceXmlData.Payment("01", d("7.00"))),
-					providerRuc);
+					d("37.00"), lines, payments, providerRuc);
 		}
 
 	}

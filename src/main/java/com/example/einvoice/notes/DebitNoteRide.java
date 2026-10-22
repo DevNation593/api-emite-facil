@@ -36,7 +36,8 @@ public final class DebitNoteRide {
 			Map<String, String> names) {
 		PdfPTable payments = RideLayout.paymentsTable();
 		for (DebitNoteContent.Payment payment : content.payments()) {
-			RideLayout.payment(payments, payment.methodCode(), names.get(payment.methodCode()), payment.amount());
+			RideLayout.payment(payments, payment.methodCode(), names.get(payment.methodCode()), payment.amount(),
+					payment.term(), payment.timeUnit());
 		}
 		DocumentEnvelope.Totals amounts = envelope.totals();
 		PdfPTable totals = RideLayout.totalsTable();

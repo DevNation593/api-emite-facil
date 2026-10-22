@@ -132,8 +132,7 @@ public final class RideLayout {
 		if (rimpe != null) {
 			issuerBox.addCell(labelled(rimpe, ""));
 		}
-		// El emisor todavía no registra teléfono: la fila queda, sin valor.
-		issuerBox.addCell(labelled("TELÉFONO: ", null));
+		issuerBox.addCell(labelled("TELÉFONO: ", issuer.phone()));
 
 		PdfPTable fiscal = box();
 		fiscal.addCell(band("R.U.C. " + issuer.ruc(), RUC, NAVY));
@@ -171,10 +170,10 @@ public final class RideLayout {
 	}
 
 	/**
-	 * «INFORMACIÓN ADICIONAL» con el correo, la dirección y el teléfono del cliente y, en la factura, el RUC
-	 * del proveedor. Los nulos se omiten salvo el teléfono, que el comprobante aún no guarda y queda vacío.
+	 * «INFORMACIÓN ADICIONAL» con el correo, la dirección y el teléfono del cliente y el RUC del proveedor.
+	 * Los nulos se omiten, salvo el teléfono: su fila queda aunque esté vacía, como en el modelo.
 	 */
-	public static PdfPTable additionalInfo(String email, String address, String providerRuc) {
+	public static PdfPTable additionalInfo(String email, String address, String phone, String providerRuc) {
 		Map<String, String> rows = new LinkedHashMap<>();
 		if (email != null) {
 			rows.put("Correo Electrónico", email);
@@ -182,23 +181,27 @@ public final class RideLayout {
 		if (address != null) {
 			rows.put("Dirección", address);
 		}
-		rows.put("Teléfono", "");
+		rows.put("Teléfono", phone);
 		if (providerRuc != null) {
 			rows.put("RUC Proveedor", providerRuc);
 		}
 		return infoTable("INFORMACIÓN ADICIONAL", rows);
 	}
 
-	/** «FORMA DE PAGO» con plazo y tiempo, que el comprobante aún no guarda y quedan vacíos; las filas con {@link #payment}. */
+	/** «FORMA DE PAGO» con su plazo y unidad de tiempo; las filas con {@link #payment}. */
 	public static PdfPTable paymentsTable() {
 		return detailTable(new float[] { 64, 12, 12, 12 }, "FORMA DE PAGO", "PLAZO", "TIEMPO", "VALOR");
 	}
 
-	/** Una forma de pago por su nombre del catálogo o, si no lo tiene, por su código. */
-	public static void payment(PdfPTable payments, String code, String name, BigDecimal value) {
+	/**
+	 * Una forma de pago por su nombre del catálogo o, si no lo tiene, por su código; term y timeUnit, el
+	 * plazo y su unidad, quedan en blanco si son nulos.
+	 */
+	public static void payment(PdfPTable payments, String code, String name, BigDecimal value, BigDecimal term,
+			String timeUnit) {
 		payments.addCell(text(name == null ? code : name, Element.ALIGN_LEFT));
-		payments.addCell(text("", Element.ALIGN_CENTER));
-		payments.addCell(text("", Element.ALIGN_CENTER));
+		payments.addCell(text(term == null ? "" : term.stripTrailingZeros().toPlainString(), Element.ALIGN_CENTER));
+		payments.addCell(text(timeUnit, Element.ALIGN_CENTER));
 		payments.addCell(text(amount(value, 2), Element.ALIGN_RIGHT));
 	}
 

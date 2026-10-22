@@ -383,6 +383,36 @@ paths:
         '401': { $ref: '#/components/responses/Problem' }
         '403': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [taxpayers]
+      operationId: updateTaxpayer
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      summary: >
+        Cambia el teléfono de un emisor; los demás datos no se cambian después del alta. Vale para los
+        comprobantes que se emitan desde ahora. Requiere rol OWNER o ADMIN.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateTaxpayerRequest' }
+      responses:
+        '200':
+          description: Emisor actualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Taxpayer' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
   /taxpayers/{id}/production-readiness:
     get:
       tags: [taxpayers]
@@ -914,7 +944,8 @@ paths:
           description: >
             Regla fiscal incumplida. errorCode: UNSUPPORTED_CURRENCY, INVALID_ISSUE_DATE,
             EMISSION_POINT_DISABLED, INVALID_LINE, AMOUNT_TOO_LARGE, TAX_RATE_UNKNOWN,
-            PAYMENT_METHOD_UNKNOWN, INVALID_PAYMENT, PAYMENTS_MISMATCH,
+            PAYMENT_METHOD_UNKNOWN, INVALID_PAYMENT, INVALID_PAYMENT_TERM (plazo sin unidad o al revés),
+            PAYMENTS_MISMATCH,
             FINAL_CONSUMER_LIMIT_EXCEEDED, SEQUENCE_EXHAUSTED o DOCUMENT_XML_INVALID (el XML generado
             no pasó el esquema del SRI; no se consume secuencial).
           content:
@@ -1044,7 +1075,8 @@ paths:
             Regla fiscal incumplida. errorCode: MODIFIED_DOCUMENT_NOT_INVOICE (invoiceId no es una
             factura), MODIFIED_INVOICE_OTHER_ISSUER (la factura es de otro emisor de la empresa),
             MODIFIED_INVOICE_NOT_AUTHORIZED (la factura no está autorizada), INVALID_MODIFIED_DOCUMENT_DATE
-            (la factura es posterior a la nota), PAYMENT_METHOD_UNKNOWN, PAYMENTS_MISMATCH (el pago no es
+            (la factura es posterior a la nota), PAYMENT_METHOD_UNKNOWN, INVALID_PAYMENT_TERM (plazo sin
+            unidad o al revés), PAYMENTS_MISMATCH (el pago no es
             igual al total), FINAL_CONSUMER_LIMIT_EXCEEDED (comprador consumidor final y total sobre el
             límite), TAX_RATE_UNKNOWN, INVALID_LINE (valor del motivo no positivo), AMOUNT_TOO_LARGE,
             UNSUPPORTED_CURRENCY, INVALID_ISSUE_DATE, EMISSION_POINT_DISABLED, SEQUENCE_EXHAUSTED o
@@ -1753,6 +1785,7 @@ components:
             - PRODUCTION_REQUIREMENTS_NOT_MET
             - PAYMENT_METHOD_UNKNOWN
             - PAYMENTS_MISMATCH
+            - INVALID_PAYMENT_TERM
             - FINAL_CONSUMER_LIMIT_EXCEEDED
             - SEQUENCE_EXHAUSTED
             - INTERNAL_ERROR
@@ -1900,6 +1933,14 @@ components:
             properties:
               methodCode: { type: string, description: 'Forma de pago del catálogo (ficha, tabla 24).' }
               amount: { $ref: '#/components/schemas/Decimal' }
+              term:
+                type: [string, 'null']
+                pattern: '^[0-9]{1,12}(\.[0-9]{1,2})?$'
+                description: Plazo de pago (plazo del XML), hasta 2 decimales. Va con timeUnit.
+              timeUnit:
+                type: [string, 'null']
+                maxLength: 10
+                description: Unidad del plazo (unidadTiempo del XML), por ejemplo dias o meses. Va con term.
         replacesDocumentId:
           type: [string, 'null']
           format: uuid
@@ -2042,6 +2083,14 @@ components:
             properties:
               methodCode: { type: string, description: 'Forma de pago del catálogo (ficha, tabla 24).' }
               amount: { $ref: '#/components/schemas/Amount' }
+              term:
+                type: [string, 'null']
+                pattern: '^[0-9]{1,12}(\.[0-9]{1,2})?$'
+                description: Plazo de pago (plazo del XML), hasta 2 decimales. Va con timeUnit.
+              timeUnit:
+                type: [string, 'null']
+                maxLength: 10
+                description: Unidad del plazo (unidadTiempo del XML), por ejemplo dias o meses. Va con term.
     IssuedDocument:
       type: object
       required: [id, state, statusUrl]
@@ -2224,6 +2273,12 @@ components:
             properties:
               methodCode: { type: string }
               amount: { $ref: '#/components/schemas/Decimal' }
+              term:
+                type: [string, 'null']
+                description: Plazo de pago; nulo si no lo tiene.
+              timeUnit:
+                type: [string, 'null']
+                description: Unidad del plazo; nula si no lo tiene.
         modifiedDocument:
           type: [object, 'null']
           description: Factura que modifica la nota; nulo en los demás comprobantes.
@@ -2412,6 +2467,10 @@ components:
         legalName: { type: string, minLength: 1, maxLength: 300 }
         tradeName: { type: [string, 'null'], maxLength: 300 }
         headOfficeAddress: { type: string, minLength: 1, maxLength: 300 }
+        phone:
+          type: [string, 'null']
+          maxLength: 30
+          description: Teléfono que muestra el RIDE; opcional.
         defaultEnvironment:
           type: string
           enum: ['1', '2']
@@ -2435,6 +2494,13 @@ components:
           description: >
             Régimen RIMPE del emisor. Por defecto NONE. NEGOCIO_POPULAR se rechaza por ahora con 422
             RIMPE_REGIME_UNSUPPORTED: el XSD incorporado no admite su leyenda.
+    UpdateTaxpayerRequest:
+      type: object
+      properties:
+        phone:
+          type: [string, 'null']
+          maxLength: 30
+          description: Teléfono nuevo; nulo o en blanco lo quita.
     Taxpayer:
       type: object
       required: [id, ruc, legalName, headOfficeAddress, defaultEnvironment]
@@ -2444,6 +2510,7 @@ components:
         legalName: { type: string }
         tradeName: { type: [string, 'null'] }
         headOfficeAddress: { type: string }
+        phone: { type: [string, 'null'], description: Teléfono que muestra el RIDE. }
         defaultEnvironment: { type: string, enum: ['1', '2'] }
         productionEnabledAt:
           type: [string, 'null']

@@ -24,7 +24,8 @@ public record InvoiceXmlData(String environment, String issuerLegalName, String 
 			BigDecimal taxAmount) {
 	}
 
-	public record Payment(String methodCode, BigDecimal amount) {
+	/** term y timeUnit (plazo y unidadTiempo) van juntos o ambos nulos. */
+	public record Payment(String methodCode, BigDecimal amount, BigDecimal term, String timeUnit) {
 	}
 
 }

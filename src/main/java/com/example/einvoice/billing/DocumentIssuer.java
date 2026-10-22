@@ -82,7 +82,7 @@ public class DocumentIssuer {
 		/** Los datos que el comprobante congela de un cliente del catálogo. */
 		public static DocumentEnvelope.Recipient recipientOf(Customer customer) {
 			return new DocumentEnvelope.Recipient(customer.getIdType(), customer.getIdNumber(), customer.getName(),
-					customer.getAddress(), customer.getEmail());
+					customer.getAddress(), customer.getEmail(), customer.getPhone());
 		}
 
 	}
@@ -183,7 +183,7 @@ public class DocumentIssuer {
 				new DocumentEnvelope.Issuer(taxpayer.getLegalName(), taxpayer.getTradeName(), taxpayer.getRuc(),
 						taxpayer.getHeadOfficeAddress(), point.establishmentAddress(), taxpayer.isAccountingRequired(),
 						taxpayer.getSpecialTaxpayerCode(), taxpayer.getWithholdingAgentCode(),
-						taxpayer.getRimpeRegime().name()),
+						taxpayer.getRimpeRegime().name(), taxpayer.getPhone()),
 				accessKey, request.establishmentCode(), request.emissionPointCode(), sequence, issueDate,
 				preparation.recipient(), preparation.totals(), preparation.modified(), providerRuc);
 		// Se valida el contenido como el worker lo leerá, no el objeto en memoria.

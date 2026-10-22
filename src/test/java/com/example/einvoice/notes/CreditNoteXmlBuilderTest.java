@@ -36,9 +36,9 @@ class CreditNoteXmlBuilderTest {
 			String tradeName, String address, boolean accounting) {
 		return new DocumentEnvelope(DocumentType.CREDIT_NOTE, "1",
 				new DocumentEnvelope.Issuer("Comercial Andina S.A.", tradeName, "1790012345001",
-						"Av. Amazonas N34-12, Quito", address, accounting, special, withholding, rimpe),
+						"Av. Amazonas N34-12, Quito", address, accounting, special, withholding, rimpe, null),
 				ACCESS_KEY, "001", "002", 7, ISSUE,
-				new DocumentEnvelope.Recipient("05", "1712345678", "María Pérez", "Av. República, Quito", null),
+				new DocumentEnvelope.Recipient("05", "1712345678", "María Pérez", "Av. República, Quito", null, null),
 				new DocumentEnvelope.Totals(d("34.00"), d("0.00"), d("3.00"), d("37.00")),
 				new DocumentEnvelope.ModifiedDocument(null, "01", "001-001-000000123", LocalDate.of(2026, 10, 1)),
 				providerRuc);

@@ -52,7 +52,14 @@ public class DocumentController {
 			String taxAmount) {
 	}
 
-	record PaymentView(String methodCode, String amount) {
+	/** term y timeUnit son nulos si la forma de pago no lleva plazo. */
+	record PaymentView(String methodCode, String amount, String term, String timeUnit) {
+
+		static PaymentView of(String methodCode, BigDecimal amount, BigDecimal term, String timeUnit) {
+			return new PaymentView(methodCode, Decimals.format(amount, 2),
+					term == null ? null : Decimals.format(term, 2), timeUnit);
+		}
+
 	}
 
 	record ModifiedDocumentView(String code, String number, LocalDate issueDate, UUID documentId) {
@@ -104,7 +111,8 @@ public class DocumentController {
 			lines = List.of();
 			payments = debit.payments()
 				.stream()
-				.map(payment -> new PaymentView(payment.methodCode(), Decimals.format(payment.amount(), 2)))
+				.map(payment -> PaymentView.of(payment.methodCode(), payment.amount(), payment.term(),
+						payment.timeUnit()))
 				.toList();
 		}
 		else {
@@ -122,7 +130,8 @@ public class DocumentController {
 				.toList();
 			payments = documents.payments(access.tenantId(), id)
 				.stream()
-				.map(payment -> new PaymentView(payment.methodCode(), Decimals.format(payment.amount(), 2)))
+				.map(payment -> PaymentView.of(payment.methodCode(), payment.amount(), payment.term(),
+						payment.timeUnit()))
 				.toList();
 		}
 		ModifiedDocumentView modified = documents.envelope(access.tenantId(), id)
