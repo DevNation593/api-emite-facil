@@ -41,7 +41,7 @@ class NoteRideTest {
 
 		assertThat(text).contains("NOTA DE CRÉDITO", "001-002-000000007", "Comprobante que se modifica", "FACTURA",
 				"001-001-000000123", "01/10/2026", "Razón de modificación", "Devolución de mercadería",
-				"Servicio de consultoría", "SUBTOTAL 15%", "Valor modificación", "37.00",
+				"Servicio de consultoría", "Subtotal IVA 15%", "VALOR MODIFICACIÓN", "37.00",
 				CreditNoteXmlBuilderTest.ACCESS_KEY);
 	}
 
@@ -53,8 +53,8 @@ class NoteRideTest {
 				Map.of("01", "SIN UTILIZACION DEL SISTEMA FINANCIERO")));
 
 		assertThat(text).contains("NOTA DE DÉBITO", "Comprobante que se modifica", "FACTURA", "001-001-000000123",
-				"01/10/2026", "Intereses de mora", "10.00", "Gastos de cobranza", "5.00", "Valor total", "17.25",
-				"Forma de pago", "SIN UTILIZACION DEL SISTEMA FINANCIERO", DebitNoteXmlBuilderTest.ACCESS_KEY);
+				"01/10/2026", "Intereses de mora", "10.00", "Gastos de cobranza", "5.00", "VALOR TOTAL", "17.25",
+				"FORMA DE PAGO", "SIN UTILIZACION DEL SISTEMA FINANCIERO", DebitNoteXmlBuilderTest.ACCESS_KEY);
 		assertThat(text).doesNotContain("Razón de modificación");
 	}
 
