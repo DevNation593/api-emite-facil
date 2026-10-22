@@ -1,6 +1,8 @@
 package com.example.einvoice.notes;
 
 import java.io.ByteArrayOutputStream;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import org.openpdf.text.Document;
 import org.openpdf.text.DocumentException;
@@ -52,29 +54,23 @@ final class NoteRideSupport {
 	}
 
 	private static PdfPTable modifiedDocument(DocumentEnvelope.ModifiedDocument modified, String reason) {
-		PdfPTable inner = RideLayout.box();
-		inner.addCell(RideLayout.labelled("Comprobante que se modifica: ", "FACTURA " + modified.number()));
-		inner.addCell(RideLayout.labelled("Fecha de emisión (comprobante a modificar): ",
-				RideLayout.DATE.format(modified.issueDate())));
+		Map<String, String> rows = new LinkedHashMap<>();
+		rows.put("Comprobante que se modifica:", "FACTURA " + modified.number());
+		rows.put("Fecha de emisión:", RideLayout.DATE.format(modified.issueDate()));
 		if (reason != null) {
-			inner.addCell(RideLayout.labelled("Razón de modificación: ", reason));
+			rows.put("Razón de modificación:", reason);
 		}
-		PdfPTable table = new PdfPTable(1);
-		table.setWidthPercentage(100);
-		table.addCell(RideLayout.framed(inner));
-		return table;
+		return RideLayout.infoTable("COMPROBANTE MODIFICADO", rows);
 	}
 
-	/** Columna izquierda del pie: el correo del receptor como información adicional y, debajo, below (puede ser nulo). */
+	/** Bloques bajo los totales: el correo del receptor como información adicional y, debajo, below (puede ser nulo). */
 	static PdfPTable left(DocumentEnvelope envelope, PdfPTable below) {
 		PdfPTable left = new PdfPTable(1);
 		left.setWidthPercentage(100);
 		boolean empty = true;
 		if (envelope.recipient().email() != null) {
-			PdfPTable additional = RideLayout.box();
-			additional.addCell(RideLayout.line("Información Adicional", RideLayout.BOLD));
-			additional.addCell(RideLayout.labelled("Email: ", envelope.recipient().email()));
-			left.addCell(RideLayout.framed(additional));
+			left.addCell(RideLayout.wrap(RideLayout.infoTable("INFORMACIÓN ADICIONAL",
+					Map.of("Correo Electrónico", envelope.recipient().email()))));
 			left.addCell(RideLayout.gap());
 			empty = false;
 		}

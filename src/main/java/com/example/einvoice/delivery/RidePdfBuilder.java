@@ -1,25 +1,18 @@
 package com.example.einvoice.delivery;
 
-import static com.example.einvoice.delivery.RideLayout.BOLD;
-import static com.example.einvoice.delivery.RideLayout.SMALL;
 import static com.example.einvoice.delivery.RideLayout.amount;
-import static com.example.einvoice.delivery.RideLayout.box;
-import static com.example.einvoice.delivery.RideLayout.framed;
-import static com.example.einvoice.delivery.RideLayout.labelled;
-import static com.example.einvoice.delivery.RideLayout.line;
 import static com.example.einvoice.delivery.RideLayout.spacer;
 import static com.example.einvoice.delivery.RideLayout.text;
 
 import java.io.ByteArrayOutputStream;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import org.openpdf.text.Document;
 import org.openpdf.text.DocumentException;
 import org.openpdf.text.Element;
-import org.openpdf.text.Phrase;
-import org.openpdf.text.Rectangle;
-import org.openpdf.text.pdf.PdfPCell;
 import org.openpdf.text.pdf.PdfPTable;
 import org.openpdf.text.pdf.PdfWriter;
 
@@ -30,7 +23,8 @@ import com.example.einvoice.xml.InvoiceXmlData;
 /**
  * Representación impresa (RIDE) de una factura autorizada, en PDF, con la disposición habitual de
  * estos documentos: emisor a la izquierda; RUC, número, autorización y clave de acceso a la derecha;
- * adquirente; detalle; información adicional, formas de pago y totales. Está pendiente de cotejar
+ * datos del cliente; detalle; totales a la derecha y, debajo, información adicional y formas de pago,
+ * cada bloque con su franja azul de título. Está pendiente de cotejar
  * campo a campo con el modelo del Anexo 2 de la ficha técnica v2.34, que es una imagen.
  *
  * <p>El RIDE no sustituye al XML firmado: lo representa. Las piezas comunes con las notas están en
@@ -77,8 +71,8 @@ public final class RidePdfBuilder {
 	}
 
 	private static PdfPTable detail(InvoiceXmlData invoice) {
-		PdfPTable table = RideLayout.detailTable(new float[] { 14, 9, 41, 13, 10, 13 }, "Cod. Principal", "Cantidad",
-				"Descripción", "Precio Unitario", "Descuento", "Precio Total");
+		PdfPTable table = RideLayout.detailTable(new float[] { 13, 10, 38, 13, 13, 13 }, "CÓDIGO", "CANTIDAD",
+				"DESCRIPCIÓN", "V. UNITARIO", "DESCUENTO", "V. TOTAL");
 		for (InvoiceXmlData.Line line : invoice.lines()) {
 			table.addCell(text(line.mainCode(), Element.ALIGN_LEFT));
 			table.addCell(text(amount(line.quantity(), 2), Element.ALIGN_RIGHT));
@@ -92,33 +86,26 @@ public final class RidePdfBuilder {
 
 	private static PdfPTable footer(RideData data) {
 		InvoiceXmlData invoice = data.invoice();
-		PdfPTable left = new PdfPTable(1);
-		left.setWidthPercentage(100);
-		if (data.customerEmail() != null || invoice.providerRuc() != null) {
-			PdfPTable additional = box();
-			additional.addCell(line("Información Adicional", BOLD));
-			if (data.customerEmail() != null) {
-				additional.addCell(labelled("Email: ", data.customerEmail()));
-			}
-			if (invoice.providerRuc() != null) {
-				additional.addCell(labelled("RUC Proveedor: ", invoice.providerRuc()));
-			}
-			left.addCell(framed(additional));
-			PdfPCell gap = new PdfPCell(new Phrase(" ", SMALL));
-			gap.setBorder(Rectangle.NO_BORDER);
-			left.addCell(gap);
+		PdfPTable below = RideLayout.box();
+		Map<String, String> additional = new LinkedHashMap<>();
+		if (data.customerEmail() != null) {
+			additional.put("Correo Electrónico", data.customerEmail());
 		}
-		PdfPTable payments = new PdfPTable(new float[] { 75, 25 });
-		payments.setWidthPercentage(100);
-		payments.addCell(RideLayout.heading("Forma de pago"));
-		payments.addCell(RideLayout.heading("Valor"));
+		if (invoice.providerRuc() != null) {
+			additional.put("RUC Proveedor", invoice.providerRuc());
+		}
+		if (!additional.isEmpty()) {
+			below.addCell(RideLayout.wrap(RideLayout.infoTable("INFORMACIÓN ADICIONAL", additional)));
+			below.addCell(RideLayout.gap());
+		}
+		PdfPTable payments = RideLayout.detailTable(new float[] { 80, 20 }, "FORMA DE PAGO", "VALOR");
 		for (InvoiceXmlData.Payment payment : invoice.payments()) {
 			String name = data.paymentMethodNames().get(payment.methodCode());
 			payments.addCell(text(name == null ? payment.methodCode() : payment.methodCode() + " - " + name,
 					Element.ALIGN_LEFT));
 			payments.addCell(text(amount(payment.amount(), 2), Element.ALIGN_RIGHT));
 		}
-		left.addCell(RideLayout.wrap(payments));
+		below.addCell(RideLayout.wrap(payments));
 
 		List<NoteTax> taxes = invoice.taxes()
 			.stream()
@@ -126,11 +113,11 @@ public final class RidePdfBuilder {
 			.toList();
 		PdfPTable totals = RideLayout.totalsTable();
 		RideLayout.subtotalRows(totals, taxes);
-		RideLayout.total(totals, "SUBTOTAL SIN IMPUESTOS", invoice.subtotal());
-		RideLayout.total(totals, "TOTAL Descuento", invoice.totalDiscount());
+		RideLayout.total(totals, "Subtotal sin impuestos", invoice.subtotal());
+		RideLayout.total(totals, "Descuento", invoice.totalDiscount());
 		RideLayout.vatRows(totals, taxes);
 		RideLayout.grandTotal(totals, "VALOR TOTAL", invoice.total());
-		return RideLayout.footer(left, totals);
+		return RideLayout.footer(below, totals);
 	}
 
 	private static String number(InvoiceXmlData invoice) {
