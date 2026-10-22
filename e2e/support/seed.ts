@@ -33,7 +33,7 @@ export async function apiCall<T = unknown>(
   options: CallOptions = {},
 ): Promise<{ status: number; body: T }> {
   if (!page.url().startsWith(URLS.web)) {
-    await page.goto("/empresas");
+    await page.goto("/settings/companies");
   }
   return page.evaluate(
     async ({ method, path, options }) => {

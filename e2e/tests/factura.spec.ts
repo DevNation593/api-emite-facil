@@ -17,7 +17,7 @@ test.beforeEach(async ({ page }) => {
 
 /** Rellena el editor: el cliente y una línea con dos unidades del producto. */
 async function writeInvoice(page: import("@playwright/test").Page): Promise<void> {
-  await page.goto("/facturas/nueva");
+  await page.goto("/documents/invoices/new");
   await selectCatalog(page, "Cliente", customer);
   await selectCatalog(page, "Producto de la línea 1", product);
   await page.getByLabel("Cantidad de la línea 1").fill("2");
@@ -57,7 +57,7 @@ test("una factura va del borrador a Autorizada, se descarga y llega por correo",
 
     await expect(page.getByLabel("Cantidad de la línea 1")).toHaveValue("2");
     await page.getByRole("button", { name: "Emitir factura" }).click();
-    await expect(page).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
+    await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/);
   });
 
   const documentId = page.url().split("/").pop()!;
@@ -112,8 +112,8 @@ test("una factura va del borrador a Autorizada, se descarga y llega por correo",
     await expect(page.getByRole("row", { name: new RegExp(customer.email) })).toContainText("Aceptado por el servidor de correo");
   });
 
-  await test.step("aparece en el monitor de comprobantes", async () => {
-    await page.getByRole("navigation", { name: "Secciones" }).getByRole("link", { name: "Comprobantes" }).click();
+  await test.step("aparece en el listado de facturas", async () => {
+    await page.getByRole("navigation", { name: "Secciones" }).getByRole("link", { name: "Facturas" }).click();
     const row = page.getByRole("row", { name: new RegExp(number) });
     await expect(row).toContainText("Autorizada");
     await expect(row).toContainText("28.75");
@@ -127,7 +127,7 @@ test("un doble clic en Emitir produce una sola factura", async ({ page }) => {
   await expect(page.getByLabel("Importe pagado")).toHaveValue("28.75");
 
   await page.getByRole("button", { name: "Emitir factura" }).dblclick();
-  await expect(page).toHaveURL(/\/documentos\/[0-9a-f-]{36}$/);
+  await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/);
   await expect(page.getByText("Autorizada", { exact: true })).toBeVisible();
 
   const documents = await listDocuments(page, company);

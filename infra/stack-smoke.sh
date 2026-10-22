@@ -25,8 +25,8 @@ done
 check "la base tiene las migraciones aplicadas" \
   "$(docker exec einvoice-postgres-1 sh -c 'psql -U "$(sh /connection-url.sh user "$CONNECTION_URL")" -d "$(sh /connection-url.sh path "$CONNECTION_URL")" -At -c "SELECT count(*) > 0 AND bool_and(success) FROM flyway_schema_history"' 2>/dev/null)" "t"
 check "la API no publica ningún puerto" "$(docker port einvoice-api-1 2>/dev/null | wc -l | tr -d ' ')" "0"
-check "la web responde la pantalla de ingreso" "$(curl -s -o /dev/null -w '%{http_code}' "$web/ingresar")" "200"
-policy="$(curl -s -D - -o /dev/null "$web/ingresar" | tr -d '\r' | grep -i '^content-security-policy:')"
+check "la web responde la pantalla de ingreso" "$(curl -s -o /dev/null -w '%{http_code}' "$web/sign-in")" "200"
+policy="$(curl -s -D - -o /dev/null "$web/sign-in" | tr -d '\r' | grep -i '^content-security-policy:')"
 check "la pantalla trae política de contenido con nonce" "$(echo "$policy" | grep -c "script-src 'self' 'nonce-")" "1"
 check "la política no permite scripts en línea ni eval" "$(echo "$policy" | grep -c -E "unsafe-inline|unsafe-eval")" "0"
 check "sin sesión, la web lo dice" "$(curl -s "$web/api/session")" '{"authenticated":false}'

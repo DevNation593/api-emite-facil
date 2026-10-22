@@ -15,21 +15,21 @@ test("una cuenta nueva confirma su correo, cambia la contraseña y vuelve a entr
   const user = newUser();
 
   await test.step("registrarse", async () => {
-    await page.goto("/registro");
+    await page.goto("/sign-up");
     await shot("registro");
     await register(page, user);
   });
 
   await test.step("entrar antes de confirmar el correo", async () => {
     await page.goto("/");
-    await expect(page).toHaveURL(/\/ingresar/);
+    await expect(page).toHaveURL(/\/sign-in/);
     await shot("ingresar");
     await signIn(page, user);
     await signedIn(page);
     // Sin empresa todavía: se queda en la aplicación y se le ofrece crear una.
     await expect(page.getByRole("link", { name: "elija o cree una empresa" })).toBeVisible();
-    await expect(page).toHaveURL(/\/documentos$/);
-    await page.goto("/cuenta");
+    await expect(page).toHaveURL(/\/documents\/invoices$/);
+    await page.goto("/account");
     await expect(page.getByText("Sin confirmar")).toBeVisible();
     await shot("cuenta-sin-confirmar");
   });
@@ -40,8 +40,8 @@ test("una cuenta nueva confirma su correo, cambia la contraseña y vuelve a entr
     await page.goto(linkIn(mail));
     await expect(page.getByText("Su correo quedó confirmado.")).toBeVisible();
     // El código no queda en la barra de direcciones.
-    expect(page.url()).toBe(`${URLS.web}/verificar-correo`);
-    await page.goto("/cuenta");
+    expect(page.url()).toBe(`${URLS.web}/verify-email`);
+    await page.goto("/account");
     await expect(page.getByText("Confirmado", { exact: true })).toBeVisible();
   });
 
@@ -55,7 +55,7 @@ test("una cuenta nueva confirma su correo, cambia la contraseña y vuelve a entr
 
   await test.step("salir y volver a entrar: solo vale la contraseña nueva", async () => {
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
-    await expect(page).toHaveURL(`${URLS.web}/ingresar`);
+    await expect(page).toHaveURL(`${URLS.web}/sign-in`);
     await signIn(page, user);
     await expect(page.getByText("Correo o contraseña incorrectos.")).toBeVisible();
     await login(page, { ...user, password: "otra frase larga de prueba" });
@@ -68,7 +68,7 @@ test("quien olvidó la contraseña elige otra con el enlace del correo", async (
   await register(page, user);
   await waitForMail(user.email, 1);
 
-  await page.goto("/ingresar");
+  await page.goto("/sign-in");
   await page.getByRole("link", { name: "Olvidé mi contraseña" }).click();
   await page.getByLabel("Correo de su cuenta").fill(user.email);
   await page.getByRole("button", { name: "Enviar enlace" }).click();
