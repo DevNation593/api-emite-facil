@@ -39,6 +39,9 @@ public class Taxpayer {
 
 	private String headOfficeAddress;
 
+	/** Teléfono que el RIDE muestra; opcional. */
+	private String phone;
+
 	private String defaultEnvironment;
 
 	private boolean accountingRequired;
@@ -58,12 +61,13 @@ public class Taxpayer {
 	}
 
 	public Taxpayer(UUID tenantId, String ruc, String legalName, String tradeName, String headOfficeAddress,
-			String defaultEnvironment, FiscalData fiscalData) {
+			String phone, String defaultEnvironment, FiscalData fiscalData) {
 		this.tenantId = tenantId;
 		this.ruc = ruc;
 		this.legalName = legalName;
 		this.tradeName = tradeName;
 		this.headOfficeAddress = headOfficeAddress;
+		this.phone = phone;
 		this.defaultEnvironment = defaultEnvironment;
 		this.accountingRequired = fiscalData.accountingRequired();
 		this.specialTaxpayerCode = fiscalData.specialTaxpayerCode();
@@ -93,6 +97,15 @@ public class Taxpayer {
 
 	public String getHeadOfficeAddress() {
 		return headOfficeAddress;
+	}
+
+	public String getPhone() {
+		return phone;
+	}
+
+	/** El teléfono es el único dato que se cambia después del alta; los comprobantes ya emitidos conservan el suyo. */
+	public void changePhone(String phone) {
+		this.phone = phone;
 	}
 
 	public String getDefaultEnvironment() {

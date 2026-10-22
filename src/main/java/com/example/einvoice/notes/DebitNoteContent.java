@@ -19,7 +19,8 @@ public record DebitNoteContent(List<Reason> reasons, List<NoteTax> taxes, List<P
 			BigDecimal taxAmount) {
 	}
 
-	public record Payment(String methodCode, BigDecimal amount) {
+	/** term y timeUnit (plazo y unidadTiempo) son nulos si no se indicaron, también en las notas anteriores. */
+	public record Payment(String methodCode, BigDecimal amount, BigDecimal term, String timeUnit) {
 	}
 
 }

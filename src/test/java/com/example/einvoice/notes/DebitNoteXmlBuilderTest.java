@@ -35,9 +35,10 @@ class DebitNoteXmlBuilderTest {
 	static DocumentEnvelope envelope(String providerRuc) {
 		return new DocumentEnvelope(DocumentType.DEBIT_NOTE, "1",
 				new DocumentEnvelope.Issuer("Comercial Andina S.A.", "Andina", "1790012345001",
-						"Av. Amazonas N34-12, Quito", "Av. 10 de Agosto, Quito", false, null, null, "NONE"),
+						"Av. Amazonas N34-12, Quito", "Av. 10 de Agosto, Quito", false, null, null, "NONE",
+						null),
 				ACCESS_KEY, "001", "002", 7, ISSUE,
-				new DocumentEnvelope.Recipient("05", "1712345678", "María Pérez", "Av. República, Quito", null),
+				new DocumentEnvelope.Recipient("05", "1712345678", "María Pérez", "Av. República, Quito", null, null),
 				new DocumentEnvelope.Totals(d("15.00"), d("0.00"), d("2.25"), d("17.25")),
 				new DocumentEnvelope.ModifiedDocument(null, "01", "001-001-000000123", LocalDate.of(2026, 10, 1)),
 				providerRuc);
@@ -49,7 +50,7 @@ class DebitNoteXmlBuilderTest {
 						new DebitNoteContent.Reason("Gastos de cobranza", d("5.00"), "2", "4", d("15.00"),
 								d("0.75"))),
 				List.of(new NoteTax("2", "4", d("15.00"), d("15.00"), d("2.25"))),
-				List.of(new DebitNoteContent.Payment("01", d("17.25"))));
+				List.of(new DebitNoteContent.Payment("01", d("17.25"), null, null)));
 	}
 
 	static String xml(DocumentEnvelope envelope, DebitNoteContent content) {
@@ -93,6 +94,18 @@ class DebitNoteXmlBuilderTest {
 		assertThat(new String(bytes, StandardCharsets.UTF_8)).contains("<razon>Cambio &amp; &lt;ajuste&gt;</razon>")
 			.endsWith("</motivos><infoAdicional><campoAdicional nombre=\"RUC Proveedor\">1790099999001"
 					+ "</campoAdicional></infoAdicional></notaDebito>");
+	}
+
+	@Test
+	void paymentTermGoesAfterItsTotal() {
+		DebitNoteContent base = content("Intereses de mora");
+		DebitNoteContent content = new DebitNoteContent(base.reasons(), base.taxes(),
+				List.of(new DebitNoteContent.Payment("01", d("17.25"), d("2"), "meses")));
+		byte[] bytes = DebitNoteXmlBuilder.build(envelope(null), content);
+
+		assertThat(new String(bytes, StandardCharsets.UTF_8)).contains(
+				"<pago><formaPago>01</formaPago><total>17.25</total><plazo>2.00</plazo><unidadTiempo>meses</unidadTiempo></pago>");
+		assertThat(validator.validate(bytes, DocumentSchema.DEBIT_NOTE_1_0_0).errors()).isEmpty();
 	}
 
 	@Test

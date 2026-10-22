@@ -21,11 +21,11 @@ class InvoiceKindTest {
 		return new DocumentEnvelope(DocumentType.of(data.documentType()), data.environment(),
 				new DocumentEnvelope.Issuer(data.issuerLegalName(), data.issuerTradeName(), data.issuerRuc(),
 						data.headOfficeAddress(), data.establishmentAddress(), data.accountingRequired(),
-						data.specialTaxpayerCode(), data.withholdingAgentCode(), data.rimpeRegime()),
+						data.specialTaxpayerCode(), data.withholdingAgentCode(), data.rimpeRegime(), null),
 				data.accessKey(), data.establishmentCode(), data.emissionPointCode(), data.sequence(),
 				data.issueDate(),
 				new DocumentEnvelope.Recipient(data.customerIdType(), data.customerIdNumber(), data.customerName(),
-						data.customerAddress(), "cliente@example.test"),
+						data.customerAddress(), "cliente@example.test", null),
 				new DocumentEnvelope.Totals(data.subtotal(), data.totalDiscount(), null, data.total()), null,
 				data.providerRuc());
 	}
@@ -40,7 +40,10 @@ class InvoiceKindTest {
 				data.taxes().stream()
 					.map(tax -> new TaxTotal(tax.taxCode(), tax.rateCode(), tax.rate(), tax.base(), tax.amount()))
 					.toList(),
-				data.payments().stream().map(payment -> new NewPayment(payment.methodCode(), payment.amount())).toList());
+				data.payments().stream()
+					.map(payment -> new NewPayment(payment.methodCode(), payment.amount(), payment.term(),
+							payment.timeUnit()))
+					.toList());
 	}
 
 	@Test

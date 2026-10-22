@@ -1,7 +1,9 @@
 package com.example.einvoice.billing;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
@@ -63,6 +65,26 @@ class IssuerSnapshotIT extends AbstractIntegrationTest {
 		assertThat(data.lines().get(0).quantity()).isEqualByComparingTo(new BigDecimal("2"));
 		assertThat(data.payments()).hasSize(1);
 		assertThat(documents.envelope(UUID.randomUUID(), id)).isEmpty();
+	}
+
+	@Test
+	void documentFreezesPhonesAndPaymentTerm() throws Exception {
+		BillingScenario s = newBillingScenario();
+		mvc.perform(json(patch("/api/v1/taxpayers/" + s.taxpayer()), s.owner(), "{\"phone\":\"(02) 245-6789\"}"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.phone").value("(02) 245-6789"));
+		UUID id = issueInvoice(s.owner(),
+				s.invoiceJson("2", "23.00").replace("}]}", ",\"term\":\"30\",\"timeUnit\":\"dias\"}]}"));
+
+		jdbc.update("UPDATE taxpayers SET phone = '0999999999' WHERE id = ?", s.taxpayer());
+		jdbc.update("UPDATE customers SET phone = '0988888888' WHERE id = ?", s.customer());
+
+		DocumentEnvelope envelope = documents.envelope(s.tenant(), id).orElseThrow();
+		assertThat(envelope.issuer().phone()).isEqualTo("(02) 245-6789");
+		assertThat(envelope.recipient().phone()).isEqualTo("022345678");
+		InvoiceXmlData.Payment payment = frozen(s.tenant(), id).payments().get(0);
+		assertThat(payment.term()).isEqualByComparingTo("30");
+		assertThat(payment.timeUnit()).isEqualTo("dias");
 	}
 
 	@Test

@@ -22,6 +22,7 @@ import com.example.einvoice.billing.InvoiceService.PaymentCommand;
 import com.example.einvoice.tenancy.TenantAccess;
 import com.example.einvoice.web.ApiException;
 import com.example.einvoice.web.Decimals;
+import com.example.einvoice.web.TextRules;
 
 import jakarta.validation.Valid;
 import tools.jackson.databind.json.JsonMapper;
@@ -54,8 +55,17 @@ public class InvoiceController {
 			@jakarta.validation.constraints.Pattern(regexp = Decimals.AMOUNT) String discount) {
 	}
 
+	/** term y timeUnit: plazo y su unidad («30» y «dias»), juntos o ninguno. */
 	record PaymentRequest(@NotNull @jakarta.validation.constraints.Pattern(regexp = "[0-9]{2}") String methodCode,
-			@NotNull @jakarta.validation.constraints.Pattern(regexp = Decimals.AMOUNT) String amount) {
+			@NotNull @jakarta.validation.constraints.Pattern(regexp = Decimals.AMOUNT) String amount,
+			@jakarta.validation.constraints.Pattern(regexp = Decimals.AMOUNT) String term,
+			@Size(max = 10) @jakarta.validation.constraints.Pattern(regexp = TextRules.NO_CONTROL_CHARS) String timeUnit) {
+
+		PaymentCommand toCommand() {
+			return new PaymentCommand(methodCode, Decimals.parse(amount, 12, 2),
+					term == null ? null : Decimals.parse(term, 12, 2), timeUnit);
+		}
+
 	}
 
 	record IssueInvoiceRequest(@NotNull UUID taxpayerId,
@@ -75,10 +85,7 @@ public class InvoiceController {
 								line.unitPrice() == null ? null : Decimals.parse(line.unitPrice(), 12, 6),
 								line.discount() == null ? null : Decimals.parse(line.discount(), 12, 2)))
 						.toList(),
-					payments.stream()
-						.map(payment -> new PaymentCommand(payment.methodCode(),
-								Decimals.parse(payment.amount(), 12, 2)))
-						.toList(),
+					payments.stream().map(PaymentRequest::toCommand).toList(),
 					replacesDocumentId);
 		}
 
