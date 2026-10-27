@@ -67,7 +67,8 @@ einvoice:
     final-consumer-limit: 50.00
   provider:
     # RUC del proveedor del sistema de facturación. Si se define, cada comprobante lo lleva como
-    # campo adicional "RUC Proveedor" (ficha técnica v2.34, Anexo 26).
+    # campo adicional "RUC Proveedor" (ficha técnica v2.34, Anexo 26). Obligatorio cuando
+    # SRI_ENABLED_ENVIRONMENTS incluye 2 (Resolución NAC-DGERCGC26-00000027): sin él no se arranca.
     ruc: ${EINVOICE_PROVIDER_RUC:}
   delivery:
     email:

@@ -29,8 +29,8 @@ El portal publica además, por separado, los esquemas XSD de notas de crédito y
 | C-07 | Entrega al receptor y archivo | XML firmado y RIDE; evidencia de envío/consulta |
 | C-08 | Catálogos IVA, identificación, pagos, retenciones | Versionado con vigencia; vigilar reformas y excepciones |
 | C-09 | Anulaciones y notas correctivas | Workflow separado con permisos y reglas vigentes |
-| C-10 | Registro del proveedor SaaS | Verificar obligaciones NAC-DGERCGC26-00000027 |
-| C-11 | RUC del proveedor de software en info adicional | Incluir cuando aplica software de tercero, según ficha |
+| C-10 | Registro del proveedor SaaS | Establecimiento exclusivo con actividad J62021002 (NAC-DGERCGC26-00000027); ver abajo |
+| C-11 | RUC del proveedor de software en info adicional | `campoAdicional` "RUC Proveedor" en cada comprobante; obligatorio para transmitir a producción |
 | C-12 | Conservación y seguridad | Política legal vigente + archivo restaurable y auditable |
 
 ## Catálogos y reglas ya incorporados desde la ficha v2.34
@@ -52,10 +52,26 @@ Leídos del PDF oficial el 2026-10-10 y sembrados en la migración `V3__catalogs
 
 La ficha da el porcentaje de cada código de IVA pero **no** qué código corresponde aplicar a cada producto ni desde cuándo: eso lo decide el emisor al registrar el producto. En consecuencia `tax_rates` no tiene fechas de vigencia y la plataforma **no impide** facturar hoy con un código histórico (por ejemplo `2`, 12 %); el requisito de "tasas efectivas por fecha" de DEVELOPMENT §3 sigue pendiente de una fuente normativa con esas fechas. De la ficha ya se tomaron los parámetros de firma (doc 07) y el campo del RUC del proveedor (doc 14); y los códigos de error y advertencia de su sección 11 (doc 08). El formato exigido a cada identificación (13 dígitos para RUC, 10 para cédula, etc.) es una decisión de la plataforma y no incluye dígito verificador.
 
-**Discrepancia de plazo a resolver con el texto de la resolución:** la noticia del SRI habla de 60 días **hábiles** para incluir el RUC del proveedor, y el Anexo 26 de la ficha dice 60 días **calendario**. Para no depender de cuál rige, basta definir `EINVOICE_PROVIDER_RUC` desde el primer día.
+## Registro de proveedor de software — Resolución NAC-DGERCGC26-00000027
+Revisado el 2026-10-27 con la noticia del SRI y los resúmenes de varios despachos tributarios, que coinciden entre sí. **El texto íntegro del Registro Oficial no se ha leído**: lo que sigue sirve para actuar, pero el cómputo exacto de los plazos se confirma con él o con un asesor tributario.
 
-## Registro de proveedor de software — cambio 2026
-La noticia oficial del SRI de 28-07-2026 informa de la **Resolución NAC-DGERCGC26-00000027**: registro de proveedores de sistemas/servicios de facturación con establecimiento y actividad económica específicos en RUC, y RUC proveedor en información adicional de comprobantes emitidos mediante software de terceros. Señala **30 días hábiles** para la obligación de registro y **60 días hábiles** para incorporar el RUC del proveedor, contados desde publicación en Registro Oficial. La noticia no basta para calcular fechas exigibles: obtener texto y fecha oficial de publicación y contrastar disposiciones transitorias. Implementar configuración `providerRuc` por proveedor y política de aplicación por comprobante; la denominación exacta del campo se valida con la ficha/XSD aplicable.
+- **Publicación:** firmada el 27-07-2026, publicada en el Quinto Suplemento del Registro Oficial n.º 335 del **28-07-2026**. Rige desde ese día y los plazos se cuentan desde él.
+- **Sujetos (art. 2):** con fines de comercialización y domicilio o establecimiento permanente en Ecuador, (a) quien desarrolla un sistema para emitir, firmar, transmitir y conservar comprobantes electrónicos y es dueño de su código fuente, y (b) quien es propietario de licencias y código fuente de un sistema desarrollado por un tercero. Un sistema solo para facturación propia no entra.
+- **Registro en el RUC (art. 3):** un establecimiento **exclusivo** con la actividad **J62021002** (categoría a, la de esta plataforma) o **J62021003** (categoría b). La J62021001 (desarrollo de software genérico) no cumple. Según los proveedores que ya lo hicieron, el trámite es presencial: el RUC en línea no ofrece esas actividades.
+- **Listado público (art. 4):** el SRI publica los proveedores registrados desde **octubre de 2026** y lo actualiza en los diez primeros días hábiles de cada mes, con corte al último día del mes anterior.
+- **Comprobantes (art. 5):** el emisor que usa el sistema o servicio de un proveedor incluye el RUC de este en la información adicional, según la ficha: `campoAdicional nombre="RUC Proveedor"` (Anexo 26).
+- **Sanciones:** ninguna fuente cita una específica. La consecuencia visible es no figurar en el listado.
+
+| Obligación | Plazo | Vence |
+|---|---|---|
+| Registrar el establecimiento en el RUC | 30 días (las fuentes no aclaran si son hábiles) | 27-08-2026 si son calendario; hacia el 09-09-2026 si son hábiles |
+| RUC del proveedor en cada comprobante | 60 días: calendario según la disposición transitoria y el Anexo 26; la noticia del SRI dice hábiles | 26-09-2026 si son calendario; hacia el 21-10-2026 si son hábiles |
+
+Al 2026-10-27 los dos plazos están vencidos con cualquier cómputo. Esta plataforma todavía no ha emitido ningún comprobante real, así que lo pendiente es el registro del establecimiento: hecho antes del 31 de octubre, el proveedor aparecería en el listado de noviembre.
+
+**Cómo lo cumple la plataforma.** El RUC del proveedor sale de `EINVOICE_PROVIDER_RUC` (`einvoice.provider.ruc`), queda congelado en cada comprobante al emitirse y va en el XML y en el RIDE. Con la transmisión a producción abierta (`SRI_ENABLED_ENVIRONMENTS` con `2`) es obligatorio: la aplicación no arranca sin él (`ProviderRucTest`). En pruebas sigue siendo opcional.
+
+**Sistemas que facturan a través de la API.** El emisor es el cliente de la plataforma, y el RUC que va en su comprobante es el de esta plataforma, aunque la petición la haga otro sistema (por ejemplo, un SaaS clínico que integra la API). Si ese sistema pertenece a otro RUC y vende la facturación como parte de su servicio, podría quedar en la categoría (b): es una consulta para el asesor tributario, no una decisión de la plataforma.
 
 ## Habilitación del emisor
 1. Verificar RUC y obligaciones tributarias; 2. disponer de firma electrónica de entidad certificadora habilitada; 3. adherirse/solicitar acceso a comprobantes electrónicos en SRI en línea; 4. configurar el ambiente de certificación; 5. probar XML/firma/envío/autorizar; 6. habilitar ambiente de producción y controlar accesos. No asumir que registrar un SaaS habilita automáticamente a cada emisor.

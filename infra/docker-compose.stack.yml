@@ -36,6 +36,8 @@ services:
       EINVOICE_METRICS_TOKEN: ${EINVOICE_METRICS_TOKEN:-}
       EINVOICE_WEBHOOKS_ENABLED: ${EINVOICE_WEBHOOKS_ENABLED:-false}
       SRI_ENABLED_ENVIRONMENTS: ${SRI_ENABLED_ENVIRONMENTS:-}
+      # Obligatorio si SRI_ENABLED_ENVIRONMENTS incluye 2.
+      EINVOICE_PROVIDER_RUC: ${EINVOICE_PROVIDER_RUC:-}
       # Esta instancia solo atiende la API; el trabajo en segundo plano lo hace "worker".
       EINVOICE_WORKER_ENABLED: "false"
     depends_on:

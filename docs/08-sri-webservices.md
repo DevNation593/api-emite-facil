@@ -43,6 +43,7 @@ Backoff exponencial con jitter, límites de reintento, circuit breaker cuando co
 | Variable | Por defecto | Para qué |
 |---|---|---|
 | `SRI_ENABLED_ENVIRONMENTS` | vacío | Ambientes en los que se transmite: vacío (nada), `1` (pruebas) o `1,2`. |
+| `EINVOICE_PROVIDER_RUC` | vacío | RUC del proveedor del sistema, en cada comprobante (doc 02). Con `2` en el anterior es obligatorio: sin él no se arranca. |
 | `SRI_CONNECT_TIMEOUT`, `SRI_READ_TIMEOUT` | `10s`, `60s` | Tiempos de espera de cada llamada. |
 | `SRI_AUTHORIZATION_DELAY` | `3s` | Espera entre `RECIBIDA` y la primera consulta de autorización (ficha, 7.4). |
 | `SRI_RETRY_BACKOFF`, `SRI_RETRY_MAX` | `15s`, `40` | Espera inicial entre reintentos (se duplica hasta 1 hora) y número máximo. |

@@ -61,7 +61,7 @@ gcloud secrets add-iam-policy-binding einvoice-database-url \
   --member=serviceAccount:einvoice-api@$PROJECT.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
 ```
 
-Con `:latest`, una versión nueva del secreto llega con la siguiente revisión, no a las instancias que ya corren: después de rotar hay que desplegar otra vez. `EINVOICE_MASTER_KEY` no se rota así: cambiarla deja ilegibles los certificados guardados. Las variables que no son secretas (`EINVOICE_WEB_URL`, `SRI_ENABLED_ENVIRONMENTS`, `DELIVERY_EMAIL_*`, `SPRING_MAIL_HOST`, etc.) van con `--set-env-vars`.
+Con `:latest`, una versión nueva del secreto llega con la siguiente revisión, no a las instancias que ya corren: después de rotar hay que desplegar otra vez. `EINVOICE_MASTER_KEY` no se rota así: cambiarla deja ilegibles los certificados guardados. Las variables que no son secretas (`EINVOICE_WEB_URL`, `SRI_ENABLED_ENVIRONMENTS`, `EINVOICE_PROVIDER_RUC` —obligatoria en la API y en el worker cuando la anterior incluye `2`—, `DELIVERY_EMAIL_*`, `SPRING_MAIL_HOST`, etc.) van con `--set-env-vars`.
 
 **API.** La autenticación la hace la propia aplicación (tokens y API keys), así que el servicio admite invocaciones sin IAM. Solo la alcanza la web, por la red interna (ver «IP del cliente» más abajo):
 
