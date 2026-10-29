@@ -4,9 +4,12 @@ import { expect, test } from "../support/fixtures.ts";
 test.describe("sin sesión", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  test("la portada lleva a la pantalla de ingreso", async ({ page, shot }) => {
+  test("la portada presenta la aplicación y lleva a la pantalla de ingreso", async ({ page, shot }) => {
     await page.goto("/");
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await shot("portada");
 
+    await page.getByRole("navigation", { name: "Portada" }).getByRole("link", { name: "Ingresar" }).click();
     await expect(page).toHaveURL(/\/sign-in/);
     await expect(page.getByRole("heading", { name: "Ingresar", level: 1 })).toBeVisible();
     await expect(page.getByLabel("Correo")).toBeVisible();
