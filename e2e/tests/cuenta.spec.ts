@@ -21,7 +21,7 @@ test("una cuenta nueva confirma su correo, cambia la contraseña y vuelve a entr
   });
 
   await test.step("entrar antes de confirmar el correo", async () => {
-    await page.goto("/");
+    await page.goto("/documents/invoices");
     await expect(page).toHaveURL(/\/sign-in/);
     await shot("ingresar");
     await signIn(page, user);
