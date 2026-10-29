@@ -4,9 +4,10 @@ import { USERS, type TestUser } from "./env.ts";
 
 /**
  * Inicia sesión como lo hace una persona: pide `startAt`, la aplicación la manda a la pantalla de
- * ingreso y, con el correo y la contraseña, la devuelve a donde iba.
+ * ingreso y, con el correo y la contraseña, la devuelve a donde iba. Por defecto, las facturas: la
+ * portada ("/") se ve sin sesión y no manda a ingresar.
  */
-export async function login(page: Page, user: TestUser, startAt = "/"): Promise<void> {
+export async function login(page: Page, user: TestUser, startAt = "/documents/invoices"): Promise<void> {
   await page.goto(startAt);
   await signIn(page, user);
   await signedIn(page);
@@ -60,10 +61,11 @@ export const test = base.extend<{ shot: (name: string) => Promise<void> }>({
   // Captura de pantalla completa, adjunta al informe: sirve para mirar las pantallas una a una.
   shot: async ({ page }, use, testInfo) => {
     await use(async (name) => {
-      // Lo que se mira es la pantalla ya cargada, no su estado de espera.
+      // Lo que se mira es la pantalla ya cargada, no su estado de espera; y quieta, con sus
+      // animaciones (la entrada de la pantalla, la barra del resumen) ya terminadas.
       await expect(page.getByText("Cargando…")).toHaveCount(0);
       const path = testInfo.outputPath(`${name}.png`);
-      await page.screenshot({ path, fullPage: true });
+      await page.screenshot({ path, fullPage: true, animations: "disabled" });
       await testInfo.attach(name, { path, contentType: "image/png" });
     });
   },
