@@ -17,7 +17,8 @@ spring:
       # Sin tráfico la instancia suelta las conexiones de más pasado idle-timeout, en vez de retener
       # siempre el máximo (lo que hace Hikari si no se fija este valor).
       minimum-idle: ${DB_POOL_MIN_IDLE:1}
-      idle-timeout: 2m
+      # En milisegundos (2 min): Hikari lo recibe como número, no como duración, y "2m" impide arrancar.
+      idle-timeout: 120000
   data:
     redis:
       # Conexión en una sola variable: redis://:contraseña@host:puerto (rediss:// para TLS). Las de
