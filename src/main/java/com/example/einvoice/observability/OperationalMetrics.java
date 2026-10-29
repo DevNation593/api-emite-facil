@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.QueueInformation;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import com.example.einvoice.orchestration.MessagingConfig;
@@ -102,8 +101,10 @@ public class OperationalMetrics {
 		builder.register(registry);
 	}
 
-	/** Vuelve a leer el estado. Si la base o el broker no responden, se conserva la lectura anterior. */
-	@Scheduled(fixedDelayString = "${einvoice.metrics.refresh-interval-ms:30000}")
+	/**
+	 * Vuelve a leer el estado. Si la base o el broker no responden, se conserva la lectura anterior.
+	 * Lo llama {@link OperationalMetricsSchedule}.
+	 */
 	public void refresh() {
 		Map<String, Double> next = new HashMap<>(values);
 		try {

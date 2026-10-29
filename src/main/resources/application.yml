@@ -8,6 +8,16 @@ spring:
     # Al recibir SIGTERM se dejan de aceptar peticiones y se espera a las que están en curso. Cloud
     # Run mata el contenedor 10 s después del aviso (Docker también): el cierre debe caber antes.
     timeout-per-shutdown-phase: 8s
+  datasource:
+    hikari:
+      # Conexiones por instancia. Las transacciones son cortas (las llamadas al SRI y a los webhooks
+      # van fuera de ellas), así que pocas bastan; y se multiplican por cada instancia de la API y del
+      # worker contra el límite del pooler de Supabase en modo sesión. Ver doc 13.
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+      # Sin tráfico la instancia suelta las conexiones de más pasado idle-timeout, en vez de retener
+      # siempre el máximo (lo que hace Hikari si no se fija este valor).
+      minimum-idle: ${DB_POOL_MIN_IDLE:1}
+      idle-timeout: 2m
   data:
     redis:
       # Conexión en una sola variable: redis://:contraseña@host:puerto (rediss:// para TLS). Las de
@@ -32,8 +42,10 @@ spring:
         # mensajes muertos (document.issue.dlq) en vez de volver a la cola una y otra vez.
         default-requeue-rejected: false
         prefetch: 1
-        concurrency: 2
-        max-concurrency: 8
+        # Consumidores por cola (hay tres): uno en reposo, y se suman más mientras llegan mensajes
+        # seguidos. Con 1 vCPU, más de cuatro a la vez solo compiten por la CPU al firmar.
+        concurrency: ${EINVOICE_WORKER_CONSUMERS:1}
+        max-concurrency: ${EINVOICE_WORKER_MAX_CONSUMERS:4}
         retry:
           enabled: true
           max-retries: 3
@@ -92,6 +104,7 @@ einvoice:
     # Bearer). Vacía: las métricas no existen. Al menos 24 caracteres aleatorios.
     token: ${EINVOICE_METRICS_TOKEN:}
     # Cada cuánto se recalcula el estado de la operación (comprobantes, colas, outbox, certificados).
+    # Sin ficha no se recalcula: nadie podría leerlo.
     refresh-interval-ms: 30000
   auth:
     # Clave con la que la API firma sus tokens de acceso (HS256). Obligatoria, al menos 32 bytes
@@ -162,8 +175,10 @@ einvoice:
     # Procesamiento en segundo plano de los comprobantes (generar, firmar, enviar, consultar). Con
     # false la instancia solo atiende la API; otra instancia debe hacer de worker.
     enabled: ${EINVOICE_WORKER_ENABLED:true}
-    # Cada cuánto se publican los eventos pendientes y se encolan los reintentos vencidos.
-    poll-interval-ms: 1000
+    # Cada cuánto se publican los eventos pendientes y se encolan los reintentos vencidos. Es la
+    # espera máxima antes de que un comprobante nuevo empiece a procesarse, y cada latido son al menos
+    # cuatro consultas a la base: con 2 s se hacen la mitad que con 1 s, sin notarse frente a lo que tarda el SRI.
+    poll-interval-ms: ${EINVOICE_WORKER_POLL_INTERVAL_MS:2000}
     # Plazo tras el cual un comprobante encolado que nadie procesó vuelve a encolarse.
     redelivery-lease: 5m
   sri:
