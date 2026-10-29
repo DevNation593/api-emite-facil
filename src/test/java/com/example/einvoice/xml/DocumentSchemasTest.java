@@ -3,6 +3,7 @@ package com.example.einvoice.xml;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.StringReader;
 import java.net.URL;
 
 import javax.xml.XMLConstants;
@@ -31,9 +32,14 @@ class DocumentSchemasTest {
 	@Test
 	void factoryForbidsExternalDtd() {
 		SchemaFactory factory = DocumentSchemas.newSecureFactory();
-		// xmldsig-core-schema.xsd declara un DOCTYPE con un DTD en w3.org; sin resolver no debe leerse.
-		URL xmldsig = getClass().getClassLoader().getResource(ClasspathSchemaResolver.XMLDSIG_RESOURCE);
-		assertThatThrownBy(() -> factory.newSchema(new StreamSource(xmldsig.toExternalForm())))
+		// Un DTD fuera del catálogo del JDK. El de xmldsig-core-schema.xsd (XMLSchema.dtd de w3.org) no
+		// sirve: desde Java 24 el JDK trae una copia y la lee de ahí, sin red y sin pasar por esta restricción.
+		String xsd = """
+				<?xml version="1.0"?>
+				<!DOCTYPE schema SYSTEM "https://ejemplo.invalid/externo.dtd">
+				<schema xmlns="http://www.w3.org/2001/XMLSchema"/>
+				""";
+		assertThatThrownBy(() -> factory.newSchema(new StreamSource(new StringReader(xsd))))
 			.isInstanceOf(SAXException.class).hasMessageContaining("accessExternalDTD");
 	}
 

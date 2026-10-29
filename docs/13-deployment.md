@@ -31,7 +31,7 @@ Tres servicios de Cloud Run con dos imágenes: `einvoice-api` y `einvoice-worker
 
 En la API, además:
 - el jar va descomprimido por capas, así que un cambio de código sube una capa de menos de 1 MB;
-- las opciones de la JVM van en `JAVA_TOOL_OPTIONS` (`-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError`): el heap es el 75 % de la memoria del contenedor, y sin memoria la JVM termina para que Cloud Run la reemplace. Si se redefine al desplegar, hay que repetir esas dos opciones. La JVM anuncia la variable en la primera línea del registro, en texto plano;
+- las opciones de la JVM van en `JAVA_TOOL_OPTIONS` (`-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -XX:+UseCompactObjectHeaders`): el heap es el 75 % de la memoria del contenedor, sin memoria la JVM termina para que Cloud Run la reemplace, y los encabezados compactos de Java 25 hacen más pequeño cada objeto, con lo que el mismo trabajo ocupa menos heap. Si se redefine al desplegar, hay que repetir esas tres opciones. La JVM anuncia la variable en la primera línea del registro, en texto plano;
 - los registros salen en JSON por la salida estándar con `severity` (DEBUG, INFO, WARNING, ERROR), `message` y la traza de los errores en `stack_trace`, que es lo que Cloud Logging y Error Reporting leen.
 
 Los registros de la web son texto: Cloud Logging los guarda como INFO (salida estándar) o ERROR (salida de errores).

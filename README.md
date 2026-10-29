@@ -17,7 +17,7 @@ Ramas: `dev` (integración: cada cambio llega por pull request), `qa` y `main`.
 
 | Capa | Elección |
 | --- | --- |
-| Backend | **Java 21 + Spring Boot** |
+| Backend | **Java 25 + Spring Boot** |
 | Base de datos | PostgreSQL |
 | Persistencia | Spring Data JPA / Hibernate |
 | Migraciones | Flyway |

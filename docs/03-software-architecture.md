@@ -44,7 +44,7 @@ flowchart LR
 7. XML firmado/recibido/autorizado inmutables por versión; artefactos en objeto con hash en BD.
 
 ## Dependencias sugeridas
-Java 21 LTS, Spring Boot 4.x (el proyecto se generó con 4.1.1; Spring Initializr ya no ofrece la línea 3.x), Spring Web MVC, Validation, Security, Spring Data JPA, Flyway, Actuator, Micrometer, Spring AMQP, PostgreSQL JDBC, Redis, AWS SDK v2 S3. Para SOAP usar Spring Web Services o cliente Jakarta XML Web Services según contrato WSDL. Para firma elegir una biblioteca XAdES probada con comprobantes reales y políticas del SRI; `javax.xml.crypto` solo no constituye XAdES-BES. No fijar versiones sin comprobar compatibilidad y soporte vigentes.
+Java 25 LTS, Spring Boot 4.x (el proyecto se generó con 4.1.1; Spring Initializr ya no ofrece la línea 3.x), Spring Web MVC, Validation, Security, Spring Data JPA, Flyway, Actuator, Micrometer, Spring AMQP, PostgreSQL JDBC, Redis, AWS SDK v2 S3. Para SOAP usar Spring Web Services o cliente Jakarta XML Web Services según contrato WSDL. Para firma elegir una biblioteca XAdES probada con comprobantes reales y políticas del SRI; `javax.xml.crypto` solo no constituye XAdES-BES. No fijar versiones sin comprobar compatibilidad y soporte vigentes.
 
 ## Estructura de los repositorios
 Dos repositorios en la organización DevNation593: **api-emite-facil** (API, worker, contrato, infraestructura, documentación y pruebas con navegador) y **client-factura-facil** (aplicación web, con una copia del contrato).
