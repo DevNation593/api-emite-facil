@@ -9,7 +9,8 @@ test.describe("sin sesión", () => {
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await shot("portada");
 
-    await page.getByRole("navigation", { name: "Portada" }).getByRole("link", { name: "Ingresar" }).click();
+    // En la cabecera, no en el menú de secciones ("Portada"): la web lo sacó de ahí.
+    await page.getByRole("banner").getByRole("link", { name: "Ingresar" }).click();
     await expect(page).toHaveURL(/\/sign-in/);
     await expect(page.getByRole("heading", { name: "Ingresar", level: 1 })).toBeVisible();
     await expect(page.getByLabel("Correo")).toBeVisible();
