@@ -4,9 +4,10 @@ import { USERS, type TestUser } from "./env.ts";
 
 /**
  * Inicia sesión como lo hace una persona: pide `startAt`, la aplicación la manda a la pantalla de
- * ingreso y, con el correo y la contraseña, la devuelve a donde iba.
+ * ingreso y, con el correo y la contraseña, la devuelve a donde iba. Por defecto, las facturas: la
+ * portada ("/") se ve sin sesión y no manda a ingresar.
  */
-export async function login(page: Page, user: TestUser, startAt = "/"): Promise<void> {
+export async function login(page: Page, user: TestUser, startAt = "/documents/invoices"): Promise<void> {
   await page.goto(startAt);
   await signIn(page, user);
   await signedIn(page);
