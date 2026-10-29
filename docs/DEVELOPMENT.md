@@ -1,7 +1,7 @@
 # DEVELOPMENT — Guía maestra de implementación
 
 ## 1. Objetivo y decisiones irrevocables del MVP
-Crear SaaS multiempresa de facturación electrónica Ecuador, priorizando **factura (01)** con flujo completo firmado, recibido, autorizado y entregado; resto de documentos por fase. Backend **Java 21 + Spring Boot + JPA/Hibernate + Flyway**, PostgreSQL, RabbitMQ, Redis, S3/MinIO, frontend Next.js/TypeScript, Docker. Arquitectura monolito modular + workers.
+Crear SaaS multiempresa de facturación electrónica Ecuador, priorizando **factura (01)** con flujo completo firmado, recibido, autorizado y entregado; resto de documentos por fase. Backend **Java 25 + Spring Boot + JPA/Hibernate + Flyway**, PostgreSQL, RabbitMQ, Redis, S3/MinIO, frontend Next.js/TypeScript, Docker. Arquitectura monolito modular + workers.
 
 ## 2. Documentos que debe leer el equipo
 1 PRD; 2 Cumplimiento SRI; 3 Arquitectura; 4 PostgreSQL; 5 Flujo; 6 Clave; 7 Firma; 8 SOAP; 9 Errores; 10 Seguridad; 11 API; 12 Pruebas; 13 Despliegue; 14 Integración XSD; 15 Certificación y paso a producción.

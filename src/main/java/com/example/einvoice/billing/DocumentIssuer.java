@@ -22,6 +22,8 @@ import com.example.einvoice.sequence.AccessKeyParts;
 import com.example.einvoice.sequence.FiscalClock;
 import com.example.einvoice.sequence.NumericCodeGenerator;
 import com.example.einvoice.sequence.SequenceService;
+import com.example.einvoice.sri.SriEnvironment;
+import com.example.einvoice.sri.SriProperties;
 import com.example.einvoice.taxpayer.Taxpayer;
 import com.example.einvoice.taxpayer.TaxpayerService;
 import com.example.einvoice.tenancy.TenantAccess;
@@ -117,7 +119,7 @@ public class DocumentIssuer {
 	public DocumentIssuer(TaxpayerService taxpayers, SequenceService sequences, NumericCodeGenerator numericCodes,
 			FiscalDocumentRepository documents, DocumentXmlCheck xmlCheck, OutboxWriter outbox, AuditLog audit,
 			IdempotencyStore idempotency, JdbcClient jdbc, @Value("${einvoice.provider.ruc:}") String providerRuc,
-			@Value("${einvoice.worker.redelivery-lease:5m}") Duration redeliveryLease) {
+			SriProperties sri, @Value("${einvoice.worker.redelivery-lease:5m}") Duration redeliveryLease) {
 		this.taxpayers = taxpayers;
 		this.sequences = sequences;
 		this.numericCodes = numericCodes;
@@ -128,10 +130,26 @@ public class DocumentIssuer {
 		this.idempotency = idempotency;
 		this.jdbc = jdbc;
 		this.redeliveryLease = redeliveryLease;
-		if (!providerRuc.isBlank() && !providerRuc.matches("[0-9]{13}")) {
+		this.providerRuc = providerRuc(providerRuc, sri);
+	}
+
+	/**
+	 * El RUC del proveedor configurado, o nulo si no lo hay. Con la transmisión a producción abierta es
+	 * obligatorio (Resolución NAC-DGERCGC26-00000027, art. 5): la aplicación no arranca sin él, porque cada
+	 * comprobante lo congela al emitirse y uno emitido sin él ya no lo puede llevar.
+	 */
+	static String providerRuc(String configured, SriProperties sri) {
+		if (configured.isBlank()) {
+			if (sri.enabled(SriEnvironment.PRODUCTION)) {
+				throw new IllegalStateException("Con la transmisión a producción abierta (einvoice.sri.enabled-environments"
+						+ " con 2) hay que definir el RUC del proveedor: einvoice.provider.ruc (EINVOICE_PROVIDER_RUC)");
+			}
+			return null;
+		}
+		if (!configured.matches("[0-9]{13}")) {
 			throw new IllegalStateException("einvoice.provider.ruc debe ser un RUC de 13 dígitos");
 		}
-		this.providerRuc = providerRuc.isBlank() ? null : providerRuc;
+		return configured;
 	}
 
 	/**

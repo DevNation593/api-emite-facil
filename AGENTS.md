@@ -1,6 +1,6 @@
 # AGENTS.md — API de facturación electrónica (api-emite-facil)
 
-API y worker del SaaS de facturación electrónica para Ecuador: Java 21, Spring Boot, JPA/Hibernate, Flyway, PostgreSQL, RabbitMQ, Redis y almacenamiento S3/MinIO. Emite la factura (código SRI `01`) y las notas de crédito y débito: calcula y numera, genera el XML, lo valida contra el XSD, lo firma en XAdES-BES, lo transmite al SRI (recepción y autorización), archiva XML y RIDE y los entrega por correo. La aplicación web vive en [client-factura-facil](https://github.com/DevNation593/client-factura-facil).
+API y worker del SaaS de facturación electrónica para Ecuador: Java 25, Spring Boot, JPA/Hibernate, Flyway, PostgreSQL, RabbitMQ, Redis y almacenamiento S3/MinIO. Emite la factura (código SRI `01`) y las notas de crédito y débito: calcula y numera, genera el XML, lo valida contra el XSD, lo firma en XAdES-BES, lo transmite al SRI (recepción y autorización), archiva XML y RIDE y los entrega por correo. La aplicación web vive en [client-factura-facil](https://github.com/DevNation593/client-factura-facil).
 
 ## Contexto que hay que leer
 

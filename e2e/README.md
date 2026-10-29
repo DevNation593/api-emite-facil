@@ -21,7 +21,7 @@ La pila está aislada de la de desarrollo: otro proyecto de compose (`einvoice-e
 
 ## Ejecutarlas
 
-Hacen falta Docker, Node 24 y un JDK 21 o posterior.
+Hacen falta Docker, Node 24 y un JDK 25 o posterior.
 
 1. Construir lo que se prueba. Desde la raíz de este repositorio:
 

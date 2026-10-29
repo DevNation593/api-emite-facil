@@ -11,7 +11,7 @@ Estado real del sistema frente a lo que hace falta para operar con emisores de v
 | **G3** SRI de certificación por versión y tipo | **Abierto** | Factura 1.1.0 recorrida completa contra un SRI simulado con los ejemplos de la ficha, incluida la matriz de este documento | Un certificado real y un RUC habilitado en pruebas. Con ellos es un comando: ver "Certificar" |
 | **G4** Seguridad y restauración | Parcial | Restauración ensayada con los scripts reales contra la base local (ver abajo) y probada en `RecoveryIT`; aislamiento entre empresas, custodia del certificado, inmutabilidad de artefactos, roles de base, límite de peticiones y política de contenido con pruebas propias | Prueba de penetración, restauración en el entorno definitivo, gestor de claves, revisión externa |
 | **G5** Emisor habilitado para producción | **Abierto** | El mecanismo existe y está probado: un emisor no llega a producción sin evidencia | Ningún emisor se ha activado. Depende de G3 y de que el SRI habilite cada RUC |
-| **G6** Checklist legal del proveedor | **Abierto** | — | Texto y fechas de la Resolución NAC-DGERCGC26-00000027, registro del proveedor, política de privacidad y contratos (N3, N5) |
+| **G6** Checklist legal del proveedor | **Abierto** | Resolución NAC-DGERCGC26-00000027 revisada el 2026-10-27 (doc 02): RO 335, Quinto Suplemento, 28-07-2026; registro en 30 días (vencido el 27-08 o hacia el 09-09) y RUC del proveedor en los comprobantes en 60 (vencido el 26-09 o hacia el 21-10). La aplicación no arranca con producción abierta sin `EINVOICE_PROVIDER_RUC` | Abrir en el RUC el establecimiento exclusivo con la actividad J62021002 (presencial; antes del 31-10 para salir en el listado de noviembre) y poner ese RUC en `EINVOICE_PROVIDER_RUC`; confirmar los plazos con el texto del RO; política de privacidad y contratos (N5) |
 
 ## Matriz de certificación
 
@@ -25,7 +25,7 @@ Cada fila de la matriz del doc 12, con lo que la cubre hoy.
 | Datos especiales | Descuentos e IVA, cubiertos. RIMPE emprendedor, con su leyenda; RIMPE negocio popular se rechaza al dar de alta el emisor. ICE, IRBPNR, reembolsos, exportación, retenciones y guías no forman parte de este alcance (Plan 9) | Pendiente |
 | Un `RECIBIDA` y un `AUTORIZADO` por esquema | `ReceptionPipelineIT`, `AuthorizationPipelineIT`, `PipelineEndToEndIT` | Pendiente |
 | Forzar `DEVUELTA`, `NO AUTORIZADO`, timeout y reproceso sin duplicar | `ReceptionPipelineIT` (devolución, cortes, reconciliación, `concurrentReconcilersResendOnce`), `AuthorizationPipelineIT` (rechazo, en procesamiento), `DueDocumentSchedulerIT` | Pendiente, a mano: no se fuerza un rechazo del SRI real desde una prueba automática |
-| RUC del proveedor incluido cuando aplique | `InvoiceXmlBuilderTest` | Pendiente; qué exige la norma de 2026 depende de N3 |
+| RUC del proveedor incluido cuando aplique | `InvoiceXmlBuilderTest`; obligatorio con producción abierta (`ProviderRucTest`) | Pendiente: corra la certificación con `SRI_CERT_PROVIDER_RUC` |
 | Descargar XML firmado, autorización y RIDE; comparar importes y clave | `DocumentArchiverIT`, `RideDataIT`, `RidePdfBuilderTest`, `AuthorizedXmlBuilderTest` | Pendiente |
 | 100 facturas concurrentes, dos trabajadores, ningún secuencial repetido | `SequenceConcurrencyIT` | No aplica |
 
@@ -48,7 +48,7 @@ Cuando existan una firma electrónica real y un RUC habilitado en el ambiente de
    | `SRI_CERT_ACCOUNTING_REQUIRED`, `SRI_CERT_RIMPE`, `SRI_CERT_SPECIAL_TAXPAYER`, `SRI_CERT_WITHHOLDING_AGENT` | Opcionales: `true`/`false`, `NONE`/`EMPRENDEDOR`, y los números de resolución |
    | `SRI_CERT_BUYER_CEDULA` | Opcional: una cédula válida para los dos casos a cédula; sin ella se omiten y la evidencia lo dice |
    | `SRI_CERT_START_SEQUENCE` | Opcional: primer secuencial. Por defecto, uno derivado de la fecha, para no repetir los de corridas anteriores |
-   | `SRI_CERT_PROVIDER_RUC` | Opcional: RUC del proveedor del sistema, si debe ir en los comprobantes |
+   | `SRI_CERT_PROVIDER_RUC` | Opcional en pruebas: RUC del proveedor del sistema. Conviene definirlo, porque en producción es obligatorio (doc 02) |
 
 2. Desde la raíz de este repositorio, con Docker en marcha:
 
@@ -74,7 +74,7 @@ Un emisor nace en el ambiente de pruebas. Pasa a producción cuando su propietar
 
 Queda registrado quién y cuándo. La base de datos impide que un emisor esté en producción sin esa activación, y el envío vuelve a comprobarla. La activación no se deshace desde la aplicación.
 
-Aparte, la plataforma solo transmite a producción si `SRI_ENABLED_ENVIRONMENTS` incluye `2`. Es la decisión del proveedor: mientras no lo incluya, los comprobantes de producción de cualquier emisor esperan firmados, y la pantalla lo avisa. No ponga `2` antes de cerrar G3.
+Aparte, la plataforma solo transmite a producción si `SRI_ENABLED_ENVIRONMENTS` incluye `2`. Es la decisión del proveedor: mientras no lo incluya, los comprobantes de producción de cualquier emisor esperan firmados, y la pantalla lo avisa. No ponga `2` antes de cerrar G3. Con `2`, la API y el worker no arrancan sin `EINVOICE_PROVIDER_RUC` (Resolución NAC-DGERCGC26-00000027, doc 02).
 
 No hay un rol de operador de la plataforma que apruebe cada activación: si el proveedor quiere aprobarlas una a una, es un cambio pendiente (un rol y una operación sobre el mismo registro).
 

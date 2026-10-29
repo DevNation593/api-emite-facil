@@ -9,7 +9,7 @@
 # El jar no depende de la arquitectura: con BuildKit se compila en la de la máquina que construye,
 # aunque la imagen sea para otra (linux/amd64 desde un Mac con ARM, por ejemplo), sin emular Maven.
 # El constructor clásico no define BUILDPLATFORM y compila en linux/amd64.
-FROM --platform=${BUILDPLATFORM:-linux/amd64} eclipse-temurin:21-jdk AS build
+FROM --platform=${BUILDPLATFORM:-linux/amd64} eclipse-temurin:25-jdk AS build
 WORKDIR /src
 COPY .mvn .mvn
 COPY mvnw pom.xml ./
@@ -24,7 +24,7 @@ RUN ./mvnw -B -q -DskipTests -Djacoco.skip=true package \
 # registro reutiliza, y la JVM arranca antes que con el jar anidado.
 RUN java -Djarmode=tools -jar app.jar extract --layers --destination /extracted
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 # Usuario sin privilegios y sin directorio propio: la aplicación no escribe en disco (solo /tmp, que
 # en Cloud Run vive en memoria y se pierde con la instancia).
 RUN groupadd --system --gid 10001 einvoice && useradd --system --uid 10001 --gid 10001 --no-create-home einvoice
@@ -35,8 +35,9 @@ COPY --from=build /extracted/snapshot-dependencies/ ./
 COPY --from=build /extracted/application/ ./
 # Opciones de la JVM en una variable, para cambiarlas al desplegar sin reconstruir (quien la redefina
 # debe repetir estas): el heap se mide contra la memoria del contenedor, y una JVM sin memoria
-# termina para que la plataforma la reinicie en vez de quedar a medias. Los registros salen en JSON.
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError" \
+# termina para que la plataforma la reinicie en vez de quedar a medias. Los encabezados compactos
+# (Java 25) achican cada objeto, y con ellos el heap que ocupa la aplicación. Los registros salen en JSON.
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -XX:+UseCompactObjectHeaders" \
     LOGGING_STRUCTURED_FORMAT_CONSOLE=logstash
 USER 10001:10001
 # Escucha en PORT (8080 si no se define).

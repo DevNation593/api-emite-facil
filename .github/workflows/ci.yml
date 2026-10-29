@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
       # Incluye las pruebas *IT, que levantan PostgreSQL, RabbitMQ y Redis con Testcontainers, la
       # cobertura mínima de los paquetes críticos (JaCoCo) y el inventario de dependencias (SBOM).
@@ -60,7 +60,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
       - uses: actions/setup-node@v6
         with:
